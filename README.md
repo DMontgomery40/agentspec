@@ -5,6 +5,7 @@ Goal:
 Add, lint, extract, and maintain structured “agent spec” blocks inside comments/docstrings so LLM agents don’t break code they edit.
 
 🏗️ Repo layout
+```
 agentspec/
 ├─ pyproject.toml           # Makes it pip-installable
 ├─ README.md
@@ -28,3 +29,4 @@ agentspec/
 │     ├─ lint.yml           # runs `agentspec lint .`
 │     └─ extract.yml        # runs `agentspec extract . --markdown`
 └─ setup.cfg                # black, flake8, mypy configs
+```
