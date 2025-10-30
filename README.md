@@ -39,10 +39,12 @@ def process_embeddings(text: str):
 
 ## 🧩 Commands
 
-Command	| Description
-agentspec lint <path> 	|  Validate required sections and schema
-agentspec extract <path> --json 	|  Extract all specs to agent_specs.json
-agentspec extract <path>	|  Extract to Markdown
+| Command | Description |
+|----------|-------------|
+| `agentspec lint` | Validate required sections and schema |
+| `agentspec extract --json` | Extract all specs to `agent_specs.json` |
+| `agentspec extract` | Extract to Markdown |
+
 
 ## 🛠️ GitHub Action
 
