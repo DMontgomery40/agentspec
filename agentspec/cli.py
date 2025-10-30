@@ -9,7 +9,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from agentspec import lint, extract
+from agentspec import lint, extract, generate
 
 
 def main():
@@ -56,6 +56,21 @@ def main():
         help="Output format (default: markdown)"
     )
     
+    # Generate command
+    generate_parser = subparsers.add_parser(
+        "generate",
+        help="Auto-generate verbose agentspec docstrings using Claude"
+    )
+    generate_parser.add_argument(
+        "target",
+        help="File or directory to generate docstrings for"
+    )
+    generate_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview what would be generated without modifying files"
+    )
+    
     # Parse args
     args = parser.parse_args()
     
@@ -74,6 +89,11 @@ def main():
         exit_code = extract.run(
             args.target,
             fmt=args.format
+        )
+    elif args.command == "generate":
+        exit_code = generate.run(
+            args.target,
+            dry_run=args.dry_run
         )
     else:
         parser.print_help()
