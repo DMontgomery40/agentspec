@@ -8,6 +8,9 @@ version = "0.1.0"
 description = "Structured, enforceable, and extractable docstrings for AI-assisted codebases."
 readme = "README.md"
 requires-python = ">=3.9"
+dependencies = [
+    "pyyaml",
+]
 license = { text = "MIT" }
 authors = [
     { name = "David Montgomery", email = "dmontg@gmail.com" }
