@@ -79,8 +79,12 @@ def main():
         "--model",
         type=str,
         default="claude-sonnet-4-20250514",
-        help="Claude model to use (default: claude-sonnet-4-20250514). "
-             "Options: claude-haiku-4-5-20250929, claude-sonnet-4-5-20250929"
+        choices=[
+            "claude-sonnet-4-20250514",
+            "claude-3-5-sonnet-20241022", 
+            "claude-3-5-haiku-20241022"
+        ],
+        help="Claude model to use (default: claude-sonnet-4-20250514)"
     )
     
     # Parse args
