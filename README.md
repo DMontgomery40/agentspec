@@ -51,7 +51,7 @@ Add to your repo:
 .github/workflows/agentspec.yml → runs lint & extract automatically on every push.
 ```
 
-## 🧩 Step 9 — (Optionally) add `tests/` skeleton
+## 🧩 Test (skeleton) 
 
 
 ```python
