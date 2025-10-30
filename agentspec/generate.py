@@ -4,15 +4,63 @@ Auto-generate verbose agentspec docstrings using Claude.
 """
 import ast
 import sys
+import json
 import os
 from pathlib import Path
 from agentspec.utils import collect_python_files
-from anthropic import Anthropic
+from agentspec.collect import collect_metadata
+def _get_client():
+    """
+    Brief one-line description.
+    Lazily instantiates and returns a singleton Anthropic API client, deferring import until first use to avoid hard dependencies during non-generation workflows.
 
-# Initialize Claude client
-client = Anthropic()  # Reads ANTHROPIC_API_KEY from env
+    WHAT THIS DOES:
+    - Performs lazy initialization of the Anthropic client by importing the Anthropic class only at call time, not at module load time
+    - Returns a new Anthropic() instance configured to read the ANTHROPIC_API_KEY environment variable automatically
+    - Enables the agentspec/generate.py module to be imported and used for non-generation commands (e.g., metadata collection, file discovery) without requiring a valid Anthropic API key or the anthropic package to be available
+    - Avoids ImportError exceptions during dry-run paths, testing scenarios, or when users only invoke non-generation functionality
+    - Each call creates a fresh client instance; no caching or singleton pattern is implemented at this level
+
+    DEPENDENCIES:
+    - Called by: agentspec.generate module functions that need to invoke Anthropic API calls (inferred from file context agentspec/generate.py)
+    - Calls: anthropic.Anthropic() constructor
+    - Imports used: anthropic.Anthropic (deferred/lazy import)
+    - External services: Anthropic API (requires valid ANTHROPIC_API_KEY environment variable at runtime)
+
+    WHY THIS APPROACH:
+    - Lazy importing prevents hard dependency failures when the anthropic package is not installed or when users run agentspec commands that do not require API calls (e.g., metadata collection via agentspec.collect.collect_metadata or file discovery via agentspec.utils.collect_python_files)
+    - Deferring the import until _get_client() is called allows the module to load successfully in environments where the Anthropic API is not needed, improving user experience for partial workflows
+    - Relying on environment variable ANTHROPIC_API_KEY (handled by Anthropic() constructor) avoids explicit credential passing and follows standard SDK conventions
+    - Alternative approaches (e.g., module-level import with try/except, singleton pattern with caching) were not used because: (1) module-level import would fail immediately if anthropic is unavailable, (2) singleton caching adds complexity without clear benefit since client instantiation is lightweight and stateless for typical use cases
+    - Performance impact is negligible; client instantiation is fast and typically called only once per generate command invocation
+
+    CHANGELOG:
+    - Current implementation: Lazy-loads Anthropic client on first call to defer import and avoid hard dependency during non-generation commands or dry-run paths.
+
+    AGENT INSTRUCTIONS:
+    - DO NOT move the import statement to module level or wrap it in a try/except that silently fails, as this defeats the purpose of lazy loading
+    - DO NOT implement caching/singleton behavior without explicit requirements, as it adds complexity and state management overhead
+    - DO NOT remove the inline comment explaining the lazy import pattern, as it documents the intentional design choice
+    - ALWAYS ensure the ANTHROPIC_API_KEY environment variable is documented in user-facing setup instructions
+    - ALWAYS preserve the deferred import structure to maintain compatibility with non-generation workflows
+    - NOTE: This function will raise anthropic.APIError or related exceptions if ANTHROPIC_API_KEY is missing or invalid; callers must handle authentication failures gracefully
+    """
+    print(f"[AGENTSPEC_CONTEXT] _get_client: Performs lazy initialization of the Anthropic client by importing the Anthropic class only at call time, not at module load time | Returns a new Anthropic() instance configured to read the ANTHROPIC_API_KEY environment variable automatically | Enables the agentspec/generate.py module to be imported and used for non-generation commands (e.g., metadata collection, file discovery) without requiring a valid Anthropic API key or the anthropic package to be available")
+    from anthropic import Anthropic  # Imported only when needed
+    return Anthropic()  # Reads ANTHROPIC_API_KEY from env
 
 GENERATION_PROMPT = """You are helping to document a Python codebase with extremely verbose docstrings designed for AI agent consumption.
+
+Deterministic metadata collected from the repository (if any):
+{hard_data}
+
+Instructions for using deterministic metadata:
+- Use deps.calls/imports directly when present.
+- If any field contains a placeholder beginning with "No metadata found;", still produce a complete section based on the function code and context.
+- If changelog contains an item that begins with "- Current implementation:", complete that line with a concise, concrete one‑sentence summary of the function’s current behavior (do not leave it blank).
+
+Deterministic metadata collected from the repository (if any):
+{hard_data}
 
 Analyze this function and generate a comprehensive docstring following this EXACT format:
 
@@ -56,6 +104,17 @@ File context: {filepath}
 Generate ONLY the docstring content (without the triple quotes themselves). Be extremely verbose and thorough."""
 
 AGENTSPEC_YAML_PROMPT = """You are helping to document a Python codebase by creating an embedded agentspec YAML block inside a Python docstring.
+
+Deterministic metadata collected from the repository (if any):
+{hard_data}
+
+Instructions for using deterministic metadata:
+- Use deps.calls/imports directly when present.
+- If any field contains a placeholder beginning with "No metadata found;", still produce a complete section based on the function code and context.
+- If changelog contains an item that begins with "- Current implementation:", complete that line with a concise, concrete one‑sentence summary of the function’s current behavior (do not leave it blank).
+
+Deterministic metadata collected from the repository (if any):
+{hard_data}
 
 Requirements:
 - Output ONLY the YAML block fenced by the following exact delimiters:
@@ -163,7 +222,7 @@ def extract_function_info(filepath: Path, require_agentspec: bool = False) -> li
     
     return functions
 
-def generate_docstring(code: str, filepath: str, model: str = "claude-sonnet-4-20250514", as_agentspec_yaml: bool = False) -> str:
+def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5", as_agentspec_yaml: bool = False) -> str:
     """
     Brief one-line description.
     Invokes Claude API to generate a comprehensive verbose docstring or a fenced agentspec YAML block for a given code snippet using a predefined prompt template.
@@ -179,7 +238,7 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-sonnet-4-2
     - Called by: [Likely called from main document generation pipeline, possibly CLI entrypoint or batch processing function in agentspec/main.py or similar]
     - Calls: client.messages.create() [Anthropic API method], implicitly relies on message.content[0].text property access
     - Imports used: Requires 'client' object (anthropic.Anthropic() instance) and 'GENERATION_PROMPT' constant to be defined in module scope; assumes anthropic library is imported
-    - External services: Anthropic Claude API (claude-sonnet-4-20250514 model by default, or specified model parameter); requires valid API key in environment
+    - External services: Anthropic Claude API (claude-haiku-4-5 model by default, or specified model parameter); requires valid API key in environment
 
     WHY THIS APPROACH:
     - Uses Claude API rather than local LLM because Claude provides superior code understanding and produces more detailed, nuanced docstrings suitable for AI agent consumption
@@ -204,24 +263,109 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-sonnet-4-2
     - NOTE: API responses may vary between model versions; using different models may produce different docstring styles and token usage patterns
     - NOTE: The function blocks until API response is received; consider async/await wrapper if used in high-concurrency scenarios
     """
-    print(f"[AGENTSPEC_CONTEXT] generate_docstring: Accepts a code string and filepath, sends them to Claude API with a prompt to generate either a verbose docstring or a fenced agentspec YAML block | Constructs an API message with the code and filepath injected into the selected template, requesting up to 2000 tokens of output | Extracts and returns the text content from Claude's first message response")
+    print(f"[AGENTSPEC_CONTEXT] generate_docstring: Accepts a code string and filepath, sends them to Claude API with a prompt to generate either a verbose docstring or a fenced agentspec YAML block | Includes deterministic metadata (deps/imports) where available | Extracts and returns the text content from Claude's first message response")
+
+    # Try to infer the function name from the code and collect deterministic metadata
+    import re
+    func_name = None
+    m = re.search(r"def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", code)
+    if m:
+        func_name = m.group(1)
+    meta = {}
+    if func_name:
+        try:
+            meta = collect_metadata(Path(filepath), func_name) or {}
+        except Exception:
+            meta = {}
     
+    # Ensure no empty sections; fill with explicit placeholders so users don't
+    # think the tool is broken. For changelog, include a useful fallback line.
+    def _ensure_nonempty_metadata(m: dict) -> dict:
+        """
+        Brief one-line description.
+        Ensures metadata dictionary contains non-empty placeholder values for deps.calls, deps.imports, and changelog fields.
+
+        WHAT THIS DOES:
+        - Accepts a metadata dictionary (or None) and returns a normalized dictionary with guaranteed non-empty structure
+        - Initializes or validates three key metadata sections: deps.calls, deps.imports, and changelog
+        - For deps.calls: if missing or empty, inserts a placeholder message indicating deterministic metadata was unavailable
+        - For deps.imports: if missing or empty, inserts a placeholder message indicating deterministic metadata was unavailable
+        - For changelog: if missing, empty, or contains only default empty-state values ('- no git history available' or '- none yet'), replaces with a two-item list containing a "no metadata found" message and a "Current implementation:" stub for agent completion
+        - Returns the normalized metadata dictionary with all three sections guaranteed to have at least one entry
+        - Handles None input gracefully by treating it as an empty dictionary
+
+        DEPENDENCIES:
+        - Called by: generate.py module functions that prepare metadata for docstring generation (inferred from file context)
+        - Calls: dict() constructor (built-in), m.get() and deps.get() dictionary methods (built-in)
+        - Imports used: None directly; this is a utility function within agentspec/generate.py
+        - External services: None
+
+        WHY THIS APPROACH:
+        - This function serves as a defensive guard to ensure that AI agent-facing docstrings never contain completely empty metadata sections, which would be unhelpful for code understanding
+        - The placeholder messages ("No metadata found; Agentspec only allows non-deterministic data for...") explicitly communicate to agents why deterministic metadata is absent, rather than leaving fields blank or undefined
+        - The changelog section receives special handling with a two-part template: the first item explains the absence of metadata, and the second item ("- Current implementation: ") is left incomplete as an intentional stub for agents or humans to complete with a concrete summary
+        - Using dict() constructor creates shallow copies to avoid mutating the input dictionary, which is important for immutability and preventing side effects
+        - The approach prioritizes clarity over brevity: placeholder strings are verbose to ensure agents understand the metadata collection limitations
+        - Alternative approaches (raising exceptions, returning None, silently omitting fields) were not used because this function must guarantee a valid structure for downstream docstring generation
+
+        CHANGELOG:
+        - No metadata found; Agentspec only allows non-deterministic data for changelog.
+        - Current implementation: Normalizes and validates metadata dictionaries by inserting placeholder messages for missing deterministic metadata fields (deps.calls, deps.imports, changelog) to ensure AI-facing docstrings always contain non-empty metadata sections.
+
+        AGENT INSTRUCTIONS:
+        - DO NOT remove or modify the placeholder message strings ("No metadata found; Agentspec only allows non-deterministic data for...") as they communicate important context to downstream agents
+        - DO NOT change the structure of the changelog template (two-item list with "Current implementation: " stub) without updating all docstring generation code that depends on it
+        - DO NOT add logic that silently drops empty metadata sections; the function's purpose is to guarantee non-empty sections
+        - ALWAYS preserve the defensive None-handling (m or {}) at the start of the function
+        - ALWAYS ensure that all three metadata sections (deps.calls, deps.imports, changelog) are checked and populated if empty
+        - ALWAYS return a dictionary (never None) to maintain contract with callers
+        - NOTE: The changelog's "- Current implementation: " line is intentionally incomplete and serves as a template for agents to fill in; do not auto-complete it
+        - NOTE: This function is part of the metadata normalization pipeline and must maintain compatibility with docstring generation templates that expect these exact placeholder formats
+        """
+        print(f"[AGENTSPEC_CONTEXT] _ensure_nonempty_metadata: Accepts a metadata dictionary (or None) and returns a normalized dictionary with guaranteed non-empty structure | Initializes or validates three key metadata sections: deps.calls, deps.imports, and changelog | For deps.calls: if missing or empty, inserts a placeholder message indicating deterministic metadata was unavailable")
+        m = dict(m or {})
+        deps = dict(m.get('deps') or {})
+        calls = deps.get('calls') or []
+        if not calls:
+            deps['calls'] = [
+                'No metadata found; Agentspec only allows non-deterministic data for deps.calls.'
+            ]
+        imports = deps.get('imports') or []
+        if not imports:
+            deps['imports'] = [
+                'No metadata found; Agentspec only allows non-deterministic data for deps.imports.'
+            ]
+        m['deps'] = deps
+        cl = m.get('changelog') or []
+        if not cl or cl == ['- no git history available'] or cl == ['- none yet']:
+            m['changelog'] = [
+                '- No metadata found; Agentspec only allows non-deterministic data for changelog.',
+                '- Current implementation: ',
+            ]
+        return m
+
+    meta = _ensure_nonempty_metadata(meta)
+    hard_data = json.dumps(meta, indent=2)
+
     prompt = AGENTSPEC_YAML_PROMPT if as_agentspec_yaml else GENERATION_PROMPT
+    client = _get_client()
     message = client.messages.create(
         model=model,
         max_tokens=2000,
+        temperature=0.2,
         messages=[{
             "role": "user",
             "content": prompt.format(
                 code=code,
-                filepath=filepath
+                filepath=filepath,
+                hard_data=hard_data
             )
         }]
     )
     
     return message.content[0].text
 
-def insert_docstring_at_line(filepath: Path, lineno: int, func_name: str, docstring: str, force_context: bool = False):
+def insert_docstring_at_line(filepath: Path, lineno: int, func_name: str, docstring: str, force_context: bool = False) -> bool:
     """
     Brief one-line description.
     Inserts or replaces a docstring at a specific line in a Python file, with optional context printing for agent debugging.
@@ -272,12 +416,53 @@ def insert_docstring_at_line(filepath: Path, lineno: int, func_name: str, docstr
     print(f"[AGENTSPEC_CONTEXT] insert_docstring_at_line: Reads a Python source file and locates the function definition at the specified line number | Detects and removes any existing docstring (both single-line and multi-line formats using \"\"\" or ''') | Removes any existing [AGENTSPEC_CONTEXT] debug print statement if present")
     with open(filepath, 'r') as f:
         lines = f.readlines()
+
+    # Find the function definition line more robustly using the function name,
+    # falling back to the provided line number if not found.
+    import re
+    pattern = re.compile(rf"^\s*def\s+{re.escape(func_name)}\s*\(")
+    func_line_idx = None
+    for i, l in enumerate(lines):
+        if pattern.match(l):
+            func_line_idx = i
+            break
+    if func_line_idx is None:
+        func_line_idx = max(0, lineno - 1)
     
-    # Find the function definition line
-    func_line_idx = lineno - 1
-    
-    # Find the first line after the function signature (where docstring goes)
+    # Prefer AST to locate the first statement in the function body and place
+    # the docstring immediately before it. This is robust to multi-line
+    # signatures, annotations, and decorators.
     insert_idx = func_line_idx + 1
+    try:
+        import ast
+        src = ''.join(lines)
+        tree = ast.parse(src)
+        candidates = []
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == func_name:
+                candidates.append(node)
+        # Choose the closest by lineno to the provided lineno if multiple
+        target = None
+        if candidates:
+            target = min(candidates, key=lambda n: abs((n.lineno or 0) - lineno))
+        if target and target.body:
+            # Insert before the first statement in the body
+            insert_idx = (target.body[0].lineno or (func_line_idx + 1)) - 1
+    except Exception:
+        # Fallback to textual scan if AST fails
+        depth = 0
+        idx = func_line_idx
+        while idx < len(lines):
+            line_text = lines[idx]
+            for ch in line_text:
+                if ch == '(':
+                    depth += 1
+                elif ch == ')':
+                    depth = max(0, depth - 1)
+            if ':' in line_text and depth == 0:
+                insert_idx = idx + 1
+                break
+            idx += 1
     
     # Skip any existing docstring if present
     if insert_idx < len(lines):
@@ -310,15 +495,32 @@ def insert_docstring_at_line(filepath: Path, lineno: int, func_name: str, docstr
     base_indent = len(func_line) - len(func_line.lstrip())
     indent = ' ' * (base_indent + 4)  # Function body indent
     
+    # Choose a delimiter that won't be broken by the content.
+    # Prefer triple-double; if it appears in content and triple-single does not, switch.
+    # If both appear, escape occurrences inside the content.
+    prefer_double = True
+    contains_triple_double = '"""' in docstring
+    contains_triple_single = "'''" in docstring
+    if contains_triple_double and not contains_triple_single:
+        delim = "'''"
+    else:
+        delim = '"""'
+
+    safe_doc = docstring
+    if delim == '"""' and contains_triple_double:
+        safe_doc = safe_doc.replace('"""', '\\"""')
+    if delim == "'''" and contains_triple_single:
+        safe_doc = safe_doc.replace("'''", "\\'''")
+
     # Format new docstring
     new_lines = []
-    new_lines.append(f'{indent}"""\n')
-    for line in docstring.split('\n'):
+    new_lines.append(f'{indent}{delim}\n')
+    for line in safe_doc.split('\n'):
         if line.strip():
             new_lines.append(f'{indent}{line}\n')
         else:
             new_lines.append('\n')
-    new_lines.append(f'{indent}"""\n')
+    new_lines.append(f'{indent}{delim}\n')
     
     # Add context print if requested
     if force_context:
@@ -336,15 +538,45 @@ def insert_docstring_at_line(filepath: Path, lineno: int, func_name: str, docstr
         
         new_lines.append(f'{indent}print(f"[AGENTSPEC_CONTEXT] {func_name}: {print_content}")\n')
     
-    # Insert the new docstring
+    # Prepare a candidate copy with the insertion applied
+    candidate = list(lines)
     for line in reversed(new_lines):
-        lines.insert(insert_idx, line)
-    
-    # Write back
-    with open(filepath, 'w') as f:
-        f.writelines(lines)
+        candidate.insert(insert_idx, line)
 
-def process_file(filepath: Path, dry_run: bool = False, force_context: bool = False, model: str = "claude-sonnet-4-20250514", as_agentspec_yaml: bool = False):
+    # If requested, also add the context print after the docstring
+    # (Handled above when building new_lines)
+
+    # Compile‑test the candidate to avoid leaving broken files
+    import tempfile, py_compile, os
+    tmp = None
+    try:
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix='.py')
+        tmp = tmp_path
+        os.close(tmp_fd)
+        with open(tmp_path, 'w', encoding='utf-8') as tf:
+            tf.writelines(candidate)
+        py_compile.compile(tmp_path, doraise=True)
+    except Exception as e:
+        print(f"⚠️  Syntax check failed inserting docstring for {func_name} in {filepath}: {e}. Skipping this function.")
+        try:
+            if tmp and os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+        return False
+    finally:
+        try:
+            if tmp and os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+
+    # Write back only after successful compile test
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.writelines(candidate)
+    return True
+
+def process_file(filepath: Path, dry_run: bool = False, force_context: bool = False, model: str = "claude-haiku-4-5", as_agentspec_yaml: bool = False):
     """
     Brief one-line description of what this function does.
 
@@ -415,22 +647,24 @@ def process_file(filepath: Path, dry_run: bool = False, force_context: bool = Fa
     if dry_run:
         return
     
-    # Process bottom-to-top (already sorted that way)
+    # Ensure bottom-to-top processing to avoid line shifts
+    functions.sort(key=lambda x: x[0], reverse=True)
     for lineno, name, code in functions:
         print(f"\n  🤖 Generating {'agentspec YAML' if as_agentspec_yaml else 'docstring'} for {name}...")
-        
         try:
             doc_or_yaml = generate_docstring(code, str(filepath), model=model, as_agentspec_yaml=as_agentspec_yaml)
-            insert_docstring_at_line(filepath, lineno, name, doc_or_yaml, force_context=force_context)
-            
-            if force_context:
-                print(f"  ✅ Added docstring + context print to {name}")
+            ok = insert_docstring_at_line(filepath, lineno, name, doc_or_yaml, force_context=force_context)
+            if ok:
+                if force_context:
+                    print(f"  ✅ Added docstring + context print to {name}")
+                else:
+                    print(f"  ✅ Added docstring to {name}")
             else:
-                print(f"  ✅ Added docstring to {name}")
+                print(f"  ⚠️ Skipped inserting docstring for {name} (syntax safety)")
         except Exception as e:
             print(f"  ❌ Error processing {name}: {e}")
 
-def run(target: str, dry_run: bool = False, force_context: bool = False, model: str = "claude-sonnet-4-20250514", as_agentspec_yaml: bool = False) -> int:
+def run(target: str, dry_run: bool = False, force_context: bool = False, model: str = "claude-haiku-4-5", as_agentspec_yaml: bool = False) -> int:
     """
     CLI entry point for generating docstrings.
     
@@ -443,7 +677,7 @@ def run(target: str, dry_run: bool = False, force_context: bool = False, model: 
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    if not os.getenv('ANTHROPIC_API_KEY'):
+    if not os.getenv('ANTHROPIC_API_KEY') and not dry_run:
         print("❌ Error: ANTHROPIC_API_KEY environment variable not set")
         print("Set it with: export ANTHROPIC_API_KEY='your-key-here'")
         return 1
@@ -479,7 +713,7 @@ def main():
     WHAT THIS DOES:
     - Parses command-line arguments to extract the target file/directory path, optional flags (--dry-run, --force-context), and model selection (--model)
     - Validates that at least one argument (the file/directory path) is provided; exits with status code 1 and displays usage information if validation fails
-    - Extracts the model name from argv if --model flag is present, otherwise defaults to "claude-sonnet-4-20250514"
+    - Extracts the model name from argv if --model flag is present, otherwise defaults to "claude-haiku-4-5"
     - Passes the parsed arguments to the run() function which performs the actual docstring generation logic
     - Exits the process with the exit code returned by run(), which indicates success (0) or various failure modes (non-zero)
     - The usage message explicitly documents all supported flags and model options for end-user reference
@@ -492,7 +726,7 @@ def main():
 
     WHY THIS APPROACH:
     - Simple manual argv parsing was chosen over argparse/click to keep the CLI minimal and reduce dependencies for a single-file script
-    - The default model is set to claude-sonnet-4-20250514 (a recent, capable model) rather than an older baseline, optimizing for quality of generated docstrings
+    - The default model is set to claude-haiku-4-5 (a recent, capable model) rather than an older baseline, optimizing for quality of generated docstrings
     - The --model flag allows flexibility for users to switch between different Claude models (haiku for speed/cost, sonnet for quality) without code changes
     - Usage is printed to stdout rather than using logging to ensure visibility even without log configuration
     - The early exit(1) on missing arguments follows Unix convention and prevents silent failures that could mask user errors
@@ -514,14 +748,14 @@ def main():
     - NOTE: The model parameter is passed directly to the Anthropic API without validation; invalid model names will fail at API call time, not here
     - NOTE: No error handling exists for environment variable validation here; that occurs inside run()
     """
-    print(f"[AGENTSPEC_CONTEXT] main: Parses command-line arguments to extract the target file/directory path, optional flags (--dry-run, --force-context), and model selection (--model) | Validates that at least one argument (the file/directory path) is provided; exits with status code 1 and displays usage information if validation fails | Extracts the model name from argv if --model flag is present, otherwise defaults to \"claude-sonnet-4-20250514\"")
+    print(f"[AGENTSPEC_CONTEXT] main: Parses command-line arguments to extract the target file/directory path, optional flags (--dry-run, --force-context), and model selection (--model) | Validates that at least one argument (the file/directory path) is provided; exits with status code 1 and displays usage information if validation fails | Extracts the model name from argv if --model flag is present, otherwise defaults to \"claude-haiku-4-5\"")
     if len(sys.argv) < 2:
         print("Usage: python generate.py <file_or_dir> [--dry-run] [--force-context] [--model MODEL]")
         print("\nRequires ANTHROPIC_API_KEY environment variable")
         print("\nOptions:")
         print("  --dry-run           Preview without modifying files")
         print("  --force-context     Add print() statements to force LLMs to load context")
-        print("  --model MODEL       Claude model to use (default: claude-sonnet-4-20250514)")
+        print("  --model MODEL       Claude model to use (default: claude-haiku-4-5)")
         print("                      Options: claude-haiku-4-5, claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022")
         sys.exit(1)
     
@@ -530,7 +764,7 @@ def main():
     force_context = '--force-context' in sys.argv
     
     # Parse model flag
-    model = "claude-sonnet-4-20250514"
+    model = "claude-haiku-4-5"
     if '--model' in sys.argv:
         model_index = sys.argv.index('--model')
         if model_index + 1 < len(sys.argv):
