@@ -83,18 +83,12 @@ def _show_rich_help():
     flags_table.add_column("Flag", style="yellow")
     flags_table.add_column("Description")
     
-    # Emphasize the three most useful generation flags first
-    flags_table.add_row("--critical", "Higher-accuracy for ambiguous or uncommon code (generate)")
-    flags_table.add_row("--terse", "Concise sections for LLM context windows (generate)")
-    flags_table.add_row("--diff-summary", "Add per-function code diff summaries (generate)")
-    # Still documented, less emphasized
-    flags_table.add_row("--update-existing", "Regenerate existing docstrings (generate)")
-    flags_table.add_row("--agentspec-yaml", "Embed YAML agentspec blocks (generate)")
-    flags_table.add_row("--force-context", "Add print() statements to force context (generate)")
-    # Lint/Extract
     flags_table.add_row("--strict", "Treat warnings as errors (lint)")
-    flags_table.add_row("--min-lines", "Minimum spec size (lint)")
     flags_table.add_row("--format", "Output format: markdown/json/agent-context (extract)")
+    flags_table.add_row("--critical", "Ultra-accurate generation with verification (generate)")
+    flags_table.add_row("--terse", "Shorter output with max_tokens=500 (generate)")
+    flags_table.add_row("--update-existing", "Regenerate existing docstrings (generate)")
+    flags_table.add_row("--diff-summary", "Add per-function code diff summaries (generate)")
     
     console.print(flags_table)
     console.print()
