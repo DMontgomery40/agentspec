@@ -28,13 +28,13 @@ AI agents are now the primary consumers of code in many projects. But they lack:
 
 ## 🐘 The Elephant in the Room
 
-**"This adds a shitload of lines to my code and burns tokens."**
+**"This adds a ton of lines to my code and burns tokens."**
 
 Yes. And here's why it's worth it:
 
 ### The Math
 
-Using **Claude Haiku 4.5** (cheapest model):
+Using **Claude Haiku 4.5**:
 - **Cost per 1M input tokens**: ~$0.30
 - **Average verbose docstring**: ~200 tokens
 - **Cost per docstring**: ~$0.00006 (six hundredths of a cent)
@@ -48,19 +48,20 @@ Let's say you have a 10,000 line codebase with 200 functions:
 - **Cost per agent run**: ~$0.012 (1.2 cents)
 - **Cost for 100 agent interactions**: ~$1.20
 
-**Meanwhile, one single agent fuckup costs you:**
-- Deleted production code: 2-4 hours debugging = $200-400 (at $100/hr)
+**Meanwhile, one single rogue agent mistake costs you:**
+- Deleted production code: 2-4 hours debugging = $$$ lots of money, rate limits, weekly limits, etc, etc. 
 - Wrong model deployed: Service degradation, angry users, potential revenue loss
 - Removed rate limiting: Production outage, all hands on deck = $thousands
 
 **The break-even point:** If verbose docs prevent just **one** major screwup per 10,000 uses, you're profitable. In reality, it prevents dozens.
 
-### What You're Actually Buying
+### What You're Actually "Spending" 
+> (with tokens and/or rate limit quota; agentspec is obviously free)
 
 You're not buying "more tokens used." You're buying:
 - ✅ **Insurance** against "helpful" agents deleting critical code
 - ✅ **Documentation** that AI and humans can both parse
-- ✅ **Institutional memory** that survives employee turnover
+- ✅ **Institutional memory** that survives employee (and agent) turnover
 - ✅ **Faster onboarding** (agents AND humans understand code faster)
 
 ### The Alternative
@@ -75,7 +76,7 @@ You're not buying "more tokens used." You're buying:
 
 ### The Real Question
 
-It's not "can I afford the tokens?"
+It's not "can I afford the tokens and/or rate limit quota?"
 
 It's "can I afford NOT to document why my code works this way?"
 
