@@ -70,6 +70,11 @@ def main():
         action="store_true",
         help="Preview what would be generated without modifying files"
     )
+    generate_parser.add_argument(
+        "--force-context",
+        action="store_true",
+        help="Add print() statements to force LLMs to load docstrings into context"
+    )
     
     # Parse args
     args = parser.parse_args()
@@ -93,7 +98,8 @@ def main():
     elif args.command == "generate":
         exit_code = generate.run(
             args.target,
-            dry_run=args.dry_run
+            dry_run=args.dry_run,
+            force_context=args.force_context
         )
     else:
         parser.print_help()
