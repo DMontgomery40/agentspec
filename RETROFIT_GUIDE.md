@@ -181,20 +181,57 @@ Output ONLY those lines with specs added.
 Create a script:
 
 ```python
-#!/usr/bin/env python3
-"""Process all Python files in a directory."""
-import os
-from pathlib import Path
+#!/bin/bash
+# Retrofit Agentspec docstrings into another project from OUTSIDE the agentspec repo
+# Usage: ./retrofit_agentspec.sh /path/to/repo
+# Run this in a directory that contains agentspec and the repo you want to retrofit
 
-def get_python_files(directory):
-    return list(Path(directory).rglob("*.py"))
+TARGET_DIR="$1"
+MODEL="claude-haiku-4-5"
 
-files = get_python_files("src/")
-print(f"Found {len(files)} files to process")
-print("\nProcess these files with the retrofit prompt:")
-for f in files:
-    print(f"  - {f}")
+if [ -z "$TARGET_DIR" ]; then
+  echo "Usage: $0 <target_project_directory>"
+  exit 1
+fi
+
+if ! command -v agentspec &>/dev/null; then
+  echo "❌ agentspec CLI not found. Install it first: pip install -e ./agentspec"
+  exit 1
+fi
+
+echo "🚀 Retrofitting Agentspec docstrings into: $TARGET_DIR"
+echo "Using model: $MODEL"
+echo
+
+# Find .py files, skipping common noise dirs
+find "$TARGET_DIR" -type f -name "*.py" \
+  ! -path "*/venv/*" \
+  ! -path "*/.venv/*" \
+  ! -path "*/.env/*" \
+  ! -path "*/env/*" \
+  ! -path "*/__pycache__/*" \
+  ! -path "*/site-packages/*" \
+  ! -path "*/migrations/*" \
+  ! -path "*/tests/*" \
+  ! -path "*/build/*" \
+  ! -path "*/dist/*" | while read -r file; do
+
+  echo "🔧 Processing $file"
+  agentspec generate "$file" --model "$MODEL" --force-context
+  echo
+done
+
+echo "✅ Agentspec retrofit complete for $TARGET_DIR"
+
 ```
+
+✅ Run it like this
+
+```
+chmod +x retrofit_agentspec.sh
+./retrofit_agentspec.sh ~/your-repo-dir-name
+```
+
 
 ### Quality Checklist
 
