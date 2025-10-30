@@ -9,10 +9,9 @@ They are programmatically inserted from collected metadata.
 
 from __future__ import annotations
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 import json
 import ast
-import re
 
 
 CRITICAL_SYSTEM_PROMPT = """You are operating in CRITICAL DOCUMENTATION MODE.
@@ -32,218 +31,113 @@ Do NOT write deps or changelog sections. They will be discarded and replaced wit
 
 ## Your Mission
 
-ULTRATHINK and document:
-1. WHAT this code does (be exhaustive, cover all edge cases)
-2. WHY this approach was chosen (design decisions, tradeoffs)
-3. GUARDRAILS that prevent breaking changes
+You are documenting code that:
+- May handle sensitive data or security boundaries
+- Could cause production outages if misunderstood
+- Other developers will rely on for critical decisions
+- AI agents will use to modify the code safely
 
-Reference the provided metadata to inform your narrative, but don't copy deterministic fields.
+## Requirements
 
-This is CRITICAL code. Your documentation could prevent production incidents. ULTRATHINK."""
+1. **`ULTRATHINK` before writing** - analyze deeply, reason through edge cases
+2. **Use ONLY provided metadata** - deps.calls shows actual function calls, changelog shows actual history
+3. **Be exhaustively thorough** - this isn't the place for brevity
+4. **Document WHY ruthlessly** - explain design decisions, rejected alternatives
+5. **List ALL guardrails** - what must NEVER be changed and why
+6. **Trace dependencies completely** - if it calls X which calls Y, document that chain
 
-CRITICAL_SYSTEM_PROMPT_TERSE = """You are operating in CRITICAL DOCUMENTATION MODE - TERSE OUTPUT.
+## Verification Promise
 
-YOU GENERATE (narrative only):
-- **what**: Core behavior, key edge cases (concise)
-- **why**: Main rationale, critical tradeoffs (concise)
-- **guardrails**: Essential constraints only (one line each)
+Your output will be verified in a second pass against the metadata. Any hallucinations or inaccuracies will be caught and corrected. This is your chance to get it right the first time.
 
-YOU DO NOT GENERATE:
-- **deps**: Programmatically inserted from AST
-- **changelog**: Programmatically inserted from git
-
-Document CONCISELY but include ALL sections above. This is CRITICAL code."""
+Remember: This code is CRITICAL. Your documentation could be the difference between a safe deployment and a production incident. ULTRATHINK and be meticulous."""
 
 
-def inject_deterministic_metadata(llm_output: str, metadata: Dict[str, Any], as_agentspec_yaml: bool) -> str:
-    """Injects deterministic metadata (dependencies and changelog) into LLM-generated docstrings.
-    
-    CRITICAL: This function ensures deps and changelog are NEVER LLM-generated.
-    They are programmatically inserted from collected metadata.
-    
-    NOTE: This is intentionally duplicated in both generate.py and generate_critical.py
-    because they are independent execution paths that must not depend on each other.
-    """
-    if not metadata:
-        return llm_output
+CRITICAL_VERIFICATION_PROMPT = """You are the VERIFICATION AGENT in critical documentation mode.
 
-    deps_data = metadata.get('deps', {})
-    changelog_data = metadata.get('changelog', [])
+## Your Role
 
-    if as_agentspec_yaml:
-        # YAML format: inject deps and changelog sections
-        # Build deps section from actual metadata
-        deps_yaml = "\n    deps:\n"
-        if deps_data.get('calls'):
-            deps_yaml += "      calls:\n"
-            for call in deps_data['calls']:
-                deps_yaml += f"        - {call}\n"
-        if deps_data.get('imports'):
-            deps_yaml += "      imports:\n"
-            for imp in deps_data['imports']:
-                deps_yaml += f"        - {imp}\n"
+You are the second line of defense against documentation errors in critical code. The first agent generated documentation, and now you must verify it with extreme prejudice.
 
-        # Build changelog section from actual git history
-        changelog_yaml = "\n    changelog:\n"
-        if changelog_data:
-            for entry in changelog_data:
-                changelog_yaml += f"      - \"{entry}\"\n"
-        else:
-            changelog_yaml += "      - \"No git history available\"\n"
+## Verification Checklist
 
-        # Inject into LLM output
-        # Strategy: Look for "why:" and inject deps before it
-        if "why:" in llm_output or "why |" in llm_output:
-            # Inject deps before why
-            output = re.sub(
-                r'(\n\s*why[:\|])',
-                deps_yaml + r'\1',
-                llm_output,
-                count=1
-            )
-        else:
-            # Fallback: inject after what section
-            output = re.sub(
-                r'(\n\s*what:.*?\n(?:\s+.*\n)*)',
-                r'\1' + deps_yaml,
-                llm_output,
-                count=1,
-                flags=re.DOTALL
-            )
+1. **Metadata Accuracy**: Every claim about function calls MUST match deps.calls
+2. **Git History**: Every changelog entry MUST reflect actual git commits
+3. **No Hallucinations**: Remove any claims not supported by code or metadata
+4. **Dependency Chains**: Verify all stated dependencies actually exist
+5. **Guardrails**: Ensure guardrails are based on actual code patterns, not assumptions
 
-        # Inject changelog after guardrails or at end
-        if "---/agentspec" in output:
-            output = output.replace("---/agentspec", changelog_yaml + "    ---/agentspec")
-        else:
-            output += changelog_yaml
+## How to Verify
 
-        return output
-    else:
-        # Regular format: append deps and changelog as sections
-        deps_text = "\n\nDEPENDENCIES (from code analysis):\n"
-        if deps_data.get('calls'):
-            deps_text += "Calls: " + ", ".join(deps_data['calls']) + "\n"
-        if deps_data.get('imports'):
-            deps_text += "Imports: " + ", ".join(deps_data['imports']) + "\n"
+- ULTRATHINK about each claim in the documentation
+- Cross-reference with the provided metadata
+- Check if function names in "calls" actually appear in the code
+- Verify changelog dates and messages match git history
+- Ensure WHY explanations are grounded in visible code patterns
 
-        changelog_text = "\n\nCHANGELOG (from git history):\n"
-        if changelog_data:
-            for entry in changelog_data:
-                changelog_text += f"{entry}\n"
-        else:
-            changelog_text += "No git history available\n"
+## Output
 
-        return llm_output + deps_text + changelog_text
+Return the documentation with:
+- Corrections for any inaccuracies
+- [VERIFIED] tags for claims you've confirmed
+- [REMOVED] tags for hallucinations you've eliminated
+- Additional detail where the original was vague
+
+This is CRITICAL code. Accuracy is paramount. ULTRATHINK and verify everything."""
 
 
 def generate_critical_docstring(
     code: str,
-    filepath: str,
+    filepath: str,s
     func_name: str,
-    model: str = "claude-3-5-sonnet-20241022",
+    model: str = "claude-3-5-sonnet-20241022",  # Default to high-quality model
     base_url: Optional[str] = None,
     provider: str = 'auto',
     as_agentspec_yaml: bool = False,
-    terse: bool = False,
-    diff_summary: bool = False,
 ) -> str:
-    """
-    Brief one-line description.
-
-    Generates exhaustively verified critical docstrings for Python functions using a two-pass LLM workflow with deterministic metadata injection.
-
-    WHAT THIS DOES:
-    - Executes a sophisticated two-pass LLM documentation pipeline: first pass generates narrative fields (what/why/guardrails) at temperature 0.1 with deep reasoning enabled, second pass verifies narrative accuracy at temperature 0.0 with deterministic metadata as reference
-    - Collects deterministic metadata (function dependencies, calls, imports, changelog) from the target file using `collect_metadata()`, then recursively analyzes the dependency chain for each called function, distinguishing between methods/external calls (dot-notation) and internal functions
-    - Constructs a critical prompt that explicitly instructs the LLM to generate ONLY narrative fields and NOT to generate deps/changelog sections, which will be injected programmatically afterward
-    - Performs recursive dependency chain analysis with try-except wrapping to gracefully handle functions not found in file, marking them as "not_found_in_file" and distinguishing external/method calls via dot-notation detection
-    - Injects deterministic metadata into the final LLM output using `inject_deterministic_metadata()`, ensuring deps and changelog fields contain accurate, non-hallucinated data sourced from actual code analysis
-    - Returns the final docstring with verified narrative content and injected deterministic metadata, optionally formatted as AGENTSPEC_YAML if `as_agentspec_yaml=True`
-    - Edge cases: handles missing metadata gracefully (defaults to empty dict), manages functions with no dependency chain, truncates changelog to first 2 items to prevent token bloat, wraps recursive metadata collection in try-except to prevent cascading failures, and includes debug output showing pre/post-injection state
-
-    DEPENDENCIES:
-    - Called by: [Inferred to be called by documentation generation orchestration layer or CLI tools that need critical-mode docstring generation]
-    - Calls: `Path()` (pathlib), `collect_metadata()` (agentspec.collect), `generate_chat()` (agentspec.llm, called twice with different temperatures), `inject_deterministic_metadata()` (agentspec.generate), `json.dumps()` (stdlib), `base_prompt.format()` (string formatting), `meta.get()` and `called_meta.get()` (dict access), `print()` (debug output)
-    - Imports used: `__future__.annotations`, `ast`, `json`, `pathlib.Path`, `re`, `typing.Any`, `typing.Dict`, `typing.List`, `typing.Optional`
-    - External services: LLM provider (Claude or configurable via `provider` parameter), accessed through `generate_chat()` with configurable `base_url`
-
-    WHY THIS APPROACH:
-    - **Separation of concerns**: LLM generates only narrative reasoning (what/why/guardrails) while deterministic fields (deps/changelog) are sourced from static code analysis and injected programmatically, preventing hallucination of technical metadata
-    - **Two-pass verification workflow**: First pass at temperature 0.1 enables deep reasoning ("ULTRATHINK") for narrative generation; second pass at temperature 0.0 performs deterministic verification against code and metadata, catching inaccuracies before injection
-    - **Recursive dependency chain analysis**: Provides LLM with context about called functions' own dependencies and changelogs (truncated to 2 items), enabling more accurate "why" reasoning without overwhelming token budget; dot-notation detection distinguishes external/method calls that cannot be analyzed in-file
-    - **Explicit "DO NOT generate" instructions**: Repeated 5 times in critical_prompt to override LLM's tendency to hallucinate technical metadata; metadata is marked "for your reference - DO NOT copy" to reinforce this boundary
-    - **Metadata-as-reference pattern**: Deterministic metadata is provided to LLM as context for narrative reasoning but explicitly excluded from output, then injected by code as single source of truth
-    - **Graceful error handling**: Try-except wrapping around recursive `collect_metadata()` calls prevents one missing function from cascading into complete failure; "not_found_in_file" markers allow LLM to reason about external dependencies
-    - **Performance considerations**: O(n) dependency chain analysis where n = number of called functions; JSON serialization overhead is acceptable given the critical nature of output; changelog truncation to 2 items balances context richness against token budget
-    - **Alternatives NOT used**: Single-pass generation would allow hallucination of deps/changelog; temperature 0.0 for both passes would reduce reasoning quality; omitting dependency chain context would weaken narrative accuracy; not injecting metadata would require manual post-processing
-
-    CHANGELOG:
-    - Current implementation: Two-pass LLM workflow with recursive dependency analysis, explicit "DO NOT generate" instructions, and programmatic deterministic metadata injection to prevent hallucination of technical fields while enabling deep reasoning for narrative documentation.
-
-    AGENT INSTRUCTIONS:
-    - DO NOT modify the two-pass structure (first_pass at temperature 0.1, final at temperature 0.0) without understanding that verification pass is actual code, not optional scaffolding
-    - DO NOT remove or weaken the "DO NOT generate deps/changelog" instructions in critical_prompt—they appear 5 times intentionally to override LLM defaults
-    - DO NOT bypass the `inject_deterministic_metadata()` call—it is the sole mechanism ensuring deps and changelog fields contain accurate, non-hallucinated data
-    - DO NOT change the metadata reference format ("for your reference - DO NOT copy")—this exact phrasing is critical for LLM instruction following
-    - DO NOT modify the recursive dependency analysis logic without accounting for: circular dependency risks, dot-notation method/external call distinction, changelog truncation to prevent token bloat, and try-except wrapping for missing functions
-    - DO NOT alter the prompt template selection logic (`as_agentspec_yaml` parameter)—it determines which base prompt is used and must be forwarded correctly
-    - DO NOT remove the `collect_metadata()` call—it is the source of truth for deterministic fields
-    - ALWAYS forward `base_url` and `provider` parameters to both `generate_chat()` calls (first_pass and final) to ensure consistent LLM configuration
-    - ALWAYS include `CRITICAL_SYSTEM_PROMPT` in the system role of the first_pass call—it sets the tone for critical-mode reasoning
-    - ALWAYS preserve the debug output (print statements showing pre/post-injection state)—they are essential for verifying metadata injection correctness
-    - NOTE: This function is designed for "critical code" documentation where hallucination of technical metadata is unacceptable; the two-pass workflow and explicit metadata injection are non-negotiable safeguards
-    - NOTE: The recursive dependency chain analysis can be expensive for functions with many dependencies; consider caching `collect_metadata()` results if this function is called repeatedly on the same codebase
-    - NOTE: LLM output quality depends heavily on the quality of `base_prompt` template and `CRITICAL_SYSTEM_PROMPT`; changes to either should be tested thoroughly
-    """
+    
     from agentspec.collect import collect_metadata
     from agentspec.llm import generate_chat
-    from agentspec.generate import GENERATION_PROMPT, GENERATION_PROMPT_TERSE, AGENTSPEC_YAML_PROMPT
+    from agentspec.generate import GENERATION_PROMPT, AGENTSPEC_YAML_PROMPT
 
-    # Collect deterministic metadata
+    # CRITICAL DIFFERENCE #1: Collect deep metadata
     print(f"  📊 Collecting deep metadata for {func_name}...")
     meta = collect_metadata(Path(filepath), func_name) or {}
 
-    # Analyze dependency chain
+    # CRITICAL DIFFERENCE #2: Analyze dependency chain
     deps_calls = meta.get('deps', {}).get('calls', [])
     call_chain_meta = {}
 
     for called_func in deps_calls:
         if '.' in called_func:
+            # Method call - note it but don't try to trace
             call_chain_meta[called_func] = {"type": "method_or_external"}
         else:
+            # Try to get metadata for called function in same file
             try:
                 called_meta = collect_metadata(Path(filepath), called_func)
                 if called_meta:
                     call_chain_meta[called_func] = {
                         "calls": called_meta.get('deps', {}).get('calls', []),
-                        "changelog": called_meta.get('changelog', [])[:2]
+                        "changelog": called_meta.get('changelog', [])[:2]  # Just recent
                     }
             except Exception:
                 call_chain_meta[called_func] = {"type": "not_found_in_file"}
 
+    # Prepare metadata summary
     metadata_json = json.dumps(meta, indent=2)
     chain_json = json.dumps(call_chain_meta, indent=2) if call_chain_meta else "No dependency chain found"
 
-    # Choose prompt template
-    if as_agentspec_yaml:
-        base_prompt = AGENTSPEC_YAML_PROMPT
-    elif terse:
-        base_prompt = GENERATION_PROMPT_TERSE
-    else:
-        base_prompt = GENERATION_PROMPT
+    # CRITICAL DIFFERENCE #3: Choose appropriate prompt template
+    base_prompt = AGENTSPEC_YAML_PROMPT if as_agentspec_yaml else GENERATION_PROMPT
 
-    # Build prompt that explicitly tells LLM NOT to generate deps/changelog
-    critical_prompt = f"""CRITICAL MODE: Document narrative fields ONLY.
+    # CRITICAL DIFFERENCE #4: Build ultra-detailed prompt with ULTRATHINK
+    critical_prompt = f"""CRITICAL MODE ACTIVE: You are documenting a critical function.
 
-CODE TO DOCUMENT:
-```python
-{code}
-```
-
-DETERMINISTIC METADATA (for your reference - DO NOT copy into output):
+METADATA (DETERMINISTIC - THIS IS GROUND TRUTH):
 {metadata_json}
 
-DEPENDENCY CHAIN:
+DEPENDENCY CHAIN ANALYSIS:
 {chain_json}
 
 REQUIREMENTS:
@@ -443,7 +337,6 @@ def process_file_critical(
 
     print(f"\n📄 Processing {filepath} in CRITICAL MODE")
     print("  🔬 Using ultra-accurate generation with verification")
-    print("  🛡️  Deps and changelog will be programmatically injected (no LLM hallucination)")
 
     try:
         functions = extract_function_info_critical(filepath, update_existing, as_agentspec_yaml)
