@@ -18,6 +18,7 @@ from __future__ import annotations
 import ast
 import subprocess
 from pathlib import Path
+import difflib
 from typing import Any, Dict, List
 
 
@@ -53,7 +54,6 @@ def _get_function_calls(node: ast.AST) -> List[str]:
     - NOTE: The base detection for chained attributes (ast.Attribute.value being another ast.Attribute) only captures the immediate parent attribute name, not the full chain; calls like `a.b.c()` will be recorded as "b.c", not "a.b.c"
     - NOTE: Edge case—if an ast.Attribute node has a base that is neither ast.Name nor ast.Attribute (e.g., a function call result), the base will be None and only the method name will be recorded
     """
-    print(f"[AGENTSPEC_CONTEXT] _get_function_calls: Called by: agentspec/collect.py module-level analysis functions (inferred from file context) | Calls: ast.walk (standard library AST traversal), calls.append (list mutation), isinstance (type checking), sorted (list ordering) | Imports used: ast (Abstract Syntax Tree parsing and node types), typing.List (type hints)")
     calls: List[str] = []
     for sub in ast.walk(node):
         if isinstance(sub, ast.Call):
@@ -114,7 +114,6 @@ def _get_module_imports(tree: ast.AST) -> List[str]:
     - NOTE: The function only captures top-level imports; nested imports inside functions or classes are intentionally excluded per the "coarse dependency context" design
     - NOTE: Relative imports (from . import X) will have their module set to None, which is handled by the `or ""` pattern but results in just the alias name being returned
     """
-    print(f"[AGENTSPEC_CONTEXT] _get_module_imports: Traverses the abstract syntax tree (AST) of a Python module to identify all top-level import statements | Handles both `import X` statements (ast.Import nodes) and `from X import Y` statements (ast.ImportFrom nodes) | For `import` statements, extracts the module name directly from the alias")
     imports: List[str] = []
     for node in getattr(tree, "body", []):
         if isinstance(node, ast.Import):
@@ -126,6 +125,183 @@ def _get_module_imports(tree: ast.AST) -> List[str]:
                 imports.append(".".join(part for part in (mod, alias.name) if part))
     return sorted({i for i in imports if i})
 
+
+def collect_changelog_diffs(filepath: Path, func_name: str) -> List[Dict[str, str]]:
+    """
+    Collects git diffs for a function's last 5 commits for LLM summarization.
+    
+    Returns a list of dicts with structure:
+    [
+        {"date": "2025-10-29", "message": "Add feature X", "diff": "diff content..."},
+        ...
+    ]
+    
+    Used only when --diff-summary flag is set. These diffs are NOT included in
+    docstrings directly - they're sent to LLM for concise summarization.
+    """
+    try:
+        cmd = [
+            "git", "log",
+            "-L", f":{func_name}:{filepath}",
+            "--pretty=format:COMMIT_START|||%ad|||%s|||",
+            "--date=short",
+            "-n5",
+        ]
+        out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode("utf-8", errors="ignore")
+        
+        # Parse output into commits
+        commits = []
+        current_commit = None
+        diff_lines = []
+        
+        for line in out.splitlines():
+            if line.startswith("COMMIT_START|||"):
+                # Save previous commit if exists
+                if current_commit:
+                    current_commit["diff"] = "\n".join(diff_lines)
+                    commits.append(current_commit)
+                    diff_lines = []
+                
+                # Parse new commit header
+                parts = line.split("|||")
+                if len(parts) >= 3:
+                    current_commit = {
+                        "date": parts[1],
+                        "message": parts[2],
+                    }
+            elif current_commit:
+                # Accumulate diff lines
+                diff_lines.append(line)
+        
+        # Save last commit
+        if current_commit:
+            current_commit["diff"] = "\n".join(diff_lines)
+            commits.append(current_commit)
+        
+        return commits
+    except Exception:
+        return []
+
+
+def _extract_function_source_without_docstring(src: str, func_name: str) -> str:
+    """
+    Returns the source text of the specified function with its leading docstring removed.
+
+    If the function is not found, returns an empty string.
+    """
+    try:
+        tree = ast.parse(src)
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == func_name:
+                lines = src.split('\n')
+                start = (node.lineno or 1) - 1
+                end = (node.end_lineno or node.lineno)  # end is exclusive when slicing
+                func_lines = lines[start:end]
+
+                # Remove leading docstring if present using AST body[0]
+                if getattr(node, 'body', None):
+                    first_stmt = node.body[0]
+                    is_doc = False
+                    if isinstance(first_stmt, ast.Expr):
+                        if isinstance(getattr(first_stmt, 'value', None), ast.Constant) and isinstance(first_stmt.value.value, str):
+                            is_doc = True
+                        elif hasattr(ast, 'Str') and isinstance(getattr(first_stmt, 'value', None), ast.Str):
+                            is_doc = True
+                    if is_doc:
+                        ds_start_abs = (first_stmt.lineno or node.lineno) - 1
+                        ds_end_abs = (first_stmt.end_lineno or first_stmt.lineno)
+                        # Delete docstring range from func_lines using absolute indices mapped to slice
+                        del_start = max(0, ds_start_abs - start)
+                        del_end = max(del_start, ds_end_abs - start)
+                        del func_lines[del_start:del_end]
+
+                # Also drop pure comment-only lines
+                cleaned = []
+                for ln in func_lines:
+                    stripped = ln.lstrip()
+                    if stripped.startswith('#'):
+                        continue
+                    cleaned.append(ln)
+                return '\n'.join(cleaned)
+        return ""
+    except Exception:
+        return ""
+
+
+def collect_function_code_diffs(filepath: Path, func_name: str, limit: int = 5) -> List[Dict[str, str]]:
+    """
+    Collect per-commit code diffs for a specific function, excluding docstrings and comments.
+
+    Returns a list of dicts: {"date": str, "message": str, "diff": str}
+    where "diff" contains only added/removed lines (no context headers),
+    scoped to the function body and ignoring docstrings/comments.
+    """
+    results: List[Dict[str, str]] = []
+    try:
+        # Recent commits touching the file
+        log_cmd = [
+            "git", "log",
+            f"-n{int(limit)}",
+            "--pretty=format:%H|||%ad|||%s",
+            "--date=short",
+            "--",
+            str(filepath),
+        ]
+        log_out = subprocess.check_output(log_cmd, stderr=subprocess.DEVNULL).decode("utf-8", errors="ignore")
+        for line in (ln for ln in log_out.splitlines() if ln.strip()):
+            parts = line.split("|||")
+            if len(parts) < 3:
+                continue
+            commit, date, message = parts[0], parts[1], parts[2]
+
+            # Get file content at commit and its parent
+            try:
+                prev_src = subprocess.check_output(["git", "show", f"{commit}^:{filepath}"], stderr=subprocess.DEVNULL).decode("utf-8", errors="ignore")
+            except Exception:
+                prev_src = ""
+            try:
+                curr_src = subprocess.check_output(["git", "show", f"{commit}:{filepath}"], stderr=subprocess.DEVNULL).decode("utf-8", errors="ignore")
+            except Exception:
+                curr_src = ""
+
+            prev_func = _extract_function_source_without_docstring(prev_src, func_name)
+            curr_func = _extract_function_source_without_docstring(curr_src, func_name)
+
+            # If function absent in both, skip
+            if not prev_func and not curr_func:
+                continue
+
+            prev_lines = prev_func.splitlines()
+            curr_lines = curr_func.splitlines()
+
+            # Compute unified diff and keep only +/- lines (exclude file/hunk headers)
+            diff_iter = difflib.unified_diff(prev_lines, curr_lines, lineterm="")
+            changes: List[str] = []
+            for dl in diff_iter:
+                if not dl:
+                    continue
+                if dl.startswith('+++') or dl.startswith('---') or dl.startswith('@@') or dl.startswith(' '):
+                    continue
+                if dl.startswith('+') or dl.startswith('-'):
+                    # Exclude comment-only changes (after +/- and whitespace, a '#')
+                    content = dl[1:]
+                    if content.lstrip().startswith('#'):
+                        continue
+                    changes.append(dl)
+
+            if not changes:
+                # No code changes within the function for this commit
+                continue
+
+            results.append({
+                "date": date,
+                "message": message,
+                "diff": "\n".join(changes),
+            })
+    except Exception:
+        return []
+
+    return results
 
 def collect_metadata(filepath: Path, func_name: str) -> Dict[str, Any]:
     """
@@ -170,7 +346,6 @@ def collect_metadata(filepath: Path, func_name: str) -> Dict[str, Any]:
     - NOTE: The `-n5` limit on git log means only the 5 most recent commits are captured; older history is discarded
     - NOTE: If a function name appears multiple times in a file (e.g., in different scopes), only the first match via `ast.walk()` is used; this may not be the intended function if there are name collisions
     """
-    print(f"[AGENTSPEC_CONTEXT] collect_metadata: Parses a Python file using the `ast` module to locate a target function by name (supporting both sync and async function definitions) | Extracts two categories of deterministic metadata: (1) `deps.calls` containing all function calls made within the target function via `_get_function_calls()`, and (2) `deps.imports` containing all module-level imports in the file via `_get_module_imports()` | Attempts to retrieve git changelog history specific to the target function using `git log -L` with line-range filtering, capturing up to 5 most recent commits with short dates and commit messages")
     try:
         src = filepath.read_text(encoding="utf-8")
         tree = ast.parse(src, filename=str(filepath))
@@ -187,6 +362,7 @@ def collect_metadata(filepath: Path, func_name: str) -> Dict[str, Any]:
         imports = _get_module_imports(tree)
 
         # Deterministic git changelog per function using `git log -L`.
+        # NOTE: git log -L includes diffs, but we only want commit messages
         changelog: List[str]
         try:
             cmd = [
@@ -197,7 +373,8 @@ def collect_metadata(filepath: Path, func_name: str) -> Dict[str, Any]:
                 "-n5",
             ]
             out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode("utf-8", errors="ignore")
-            lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
+            # Filter: only keep lines starting with "- " (commit messages), skip diff lines
+            lines = [ln.strip() for ln in out.splitlines() if ln.strip() and ln.strip().startswith("- ")]
             changelog = lines or ["- none yet"]
         except Exception:
             changelog = ["- no git history available"]
