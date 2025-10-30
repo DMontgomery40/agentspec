@@ -10,7 +10,6 @@ readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
     "pyyaml",
-    "anthropic",
 ]
 license = { text = "MIT" }
 authors = [
@@ -22,6 +21,11 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
+
+[project.optional-dependencies]
+anthropic = ["anthropic"]
+openai = ["openai"]
+all = ["anthropic", "openai"]
 
 [project.scripts]
 agentspec = "agentspec.cli:main"

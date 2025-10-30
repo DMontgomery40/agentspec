@@ -127,6 +127,63 @@ def _get_module_imports(tree: ast.AST) -> List[str]:
     return sorted({i for i in imports if i})
 
 
+def collect_changelog_diffs(filepath: Path, func_name: str) -> List[Dict[str, str]]:
+    """
+    Collects git diffs for a function's last 5 commits for LLM summarization.
+    
+    Returns a list of dicts with structure:
+    [
+        {"date": "2025-10-29", "message": "Add feature X", "diff": "diff content..."},
+        ...
+    ]
+    
+    Used only when --diff-summary flag is set. These diffs are NOT included in
+    docstrings directly - they're sent to LLM for concise summarization.
+    """
+    try:
+        cmd = [
+            "git", "log",
+            "-L", f":{func_name}:{filepath}",
+            "--pretty=format:COMMIT_START|||%ad|||%s|||",
+            "--date=short",
+            "-n5",
+        ]
+        out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode("utf-8", errors="ignore")
+        
+        # Parse output into commits
+        commits = []
+        current_commit = None
+        diff_lines = []
+        
+        for line in out.splitlines():
+            if line.startswith("COMMIT_START|||"):
+                # Save previous commit if exists
+                if current_commit:
+                    current_commit["diff"] = "\n".join(diff_lines)
+                    commits.append(current_commit)
+                    diff_lines = []
+                
+                # Parse new commit header
+                parts = line.split("|||")
+                if len(parts) >= 3:
+                    current_commit = {
+                        "date": parts[1],
+                        "message": parts[2],
+                    }
+            elif current_commit:
+                # Accumulate diff lines
+                diff_lines.append(line)
+        
+        # Save last commit
+        if current_commit:
+            current_commit["diff"] = "\n".join(diff_lines)
+            commits.append(current_commit)
+        
+        return commits
+    except Exception:
+        return []
+
+
 def collect_metadata(filepath: Path, func_name: str) -> Dict[str, Any]:
     """
     Brief one-line description.
@@ -187,6 +244,7 @@ def collect_metadata(filepath: Path, func_name: str) -> Dict[str, Any]:
         imports = _get_module_imports(tree)
 
         # Deterministic git changelog per function using `git log -L`.
+        # NOTE: git log -L includes diffs, but we only want commit messages
         changelog: List[str]
         try:
             cmd = [
@@ -197,7 +255,8 @@ def collect_metadata(filepath: Path, func_name: str) -> Dict[str, Any]:
                 "-n5",
             ]
             out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode("utf-8", errors="ignore")
-            lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
+            # Filter: only keep lines starting with "- " (commit messages), skip diff lines
+            lines = [ln.strip() for ln in out.splitlines() if ln.strip() and ln.strip().startswith("- ")]
             changelog = lines or ["- none yet"]
         except Exception:
             changelog = ["- no git history available"]

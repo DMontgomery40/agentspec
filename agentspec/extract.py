@@ -344,12 +344,26 @@ class AgentSpecExtractor(ast.NodeVisitor):
         print(f"[AGENTSPEC_CONTEXT] _extract: Retrieves the docstring from an AST node (function, class, or module) using ast.get_docstring() | Extracts a YAML-formatted documentation block from the docstring via _extract_block() | Returns early (None) if no valid block is found, avoiding creation of empty specs")
         doc = ast.get_docstring(node)
         block = _extract_block(doc)
-        
+
         if not block:
+            # Fallback: treat raw docstring as a basic spec so extraction works
+            if not doc:
+                return
+            spec = AgentSpec(
+                name=node.name,
+                lineno=node.lineno,
+                filepath=self.filepath,
+                raw_block=doc,
+                parsed_data={},
+            )
+            # Use the first non-empty paragraph or line as 'what'
+            parts = [p.strip() for p in doc.split("\n\n") if p.strip()] or [p.strip() for p in doc.splitlines() if p.strip()]
+            spec.what = parts[0] if parts else ""
+            self.specs.append(spec)
             return
-        
+
         parsed = _parse_yaml_block(block)
-        
+
         spec = AgentSpec(
             name=node.name,
             lineno=node.lineno,
@@ -357,7 +371,7 @@ class AgentSpecExtractor(ast.NodeVisitor):
             raw_block=block,
             parsed_data=parsed or {}
         )
-        
+
         # Extract structured fields if parsing succeeded
         if parsed:
             spec.what = str(parsed.get('what', '')).strip()
@@ -367,7 +381,7 @@ class AgentSpecExtractor(ast.NodeVisitor):
             spec.changelog = parsed.get('changelog', [])
             spec.testing = parsed.get('testing', {})
             spec.performance = parsed.get('performance', {})
-        
+
         self.specs.append(spec)
 
 
@@ -670,8 +684,12 @@ def export_agent_context(specs: List[AgentSpec], out: Path):
             
             f.write(f"```\n\n")
             
-            f.write(f"**Full Specification:**\n\n")
-            f.write(f"```yaml\n{s.raw_block}\n```\n\n")
+            if s.parsed_data:
+                f.write(f"**Full Specification (YAML):**\n\n")
+                f.write(f"```yaml\n{s.raw_block}\n```\n\n")
+            else:
+                f.write(f"**Full Specification (Raw Docstring):**\n\n")
+                f.write(f"```\n{s.raw_block}\n```\n\n")
             f.write("---\n\n")
 
 
@@ -691,7 +709,7 @@ def run(target: str, fmt: str = "markdown") -> int:
         all_specs.extend(extract_from_file(file))
 
     if not all_specs:
-        print("⚠️  No agent spec blocks found.")
+        print("⚠️  No agent spec blocks or docstrings found.")
         return 1
 
     # Determine output file

@@ -2,7 +2,11 @@
 
 **Verbose, structured, YAML-parsable docstrings for AI-assisted codebases.**
 
+> Currently only python codebases but TreeSitter is next on the roadmap and any contributions would be greatly appreciated, would personally love to get js/ts in ASAP
+
 Think of it as something between `black`, `autodoc`, and `copilot-lint`, but tailored for LLMs.
+
+> Currently python only, js next on the roadmap, any TreeSitter contributions would be greatly appreciated. 
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -154,13 +158,30 @@ def process_embeddings(text: str, model: str = "gpt-5-turbo") -> np.ndarray:
 ### Installation
 
 ```bash
-# Install from source
+# Install from source (core package only - lint and extract commands)
 git clone https://github.com/DMontgomery40/agentspec.git
 cd agentspec
 pip install -e .
 
-# Set your Anthropic API key for auto-generation
+# Install with optional LLM providers for `agentspec generate` command:
+# Option 1: Install with Claude (Anthropic) support
+pip install -e ".[anthropic]"
+
+# Option 2: Install with OpenAI-compatible support (OpenAI cloud, Ollama, etc.)
+pip install -e ".[openai]"
+
+# Option 3: Install with both providers
+pip install -e ".[all]"
+
+# Set your API key for auto-generation:
+# For Claude (Anthropic):
 export ANTHROPIC_API_KEY="your-key-here"
+
+# For OpenAI cloud:
+export OPENAI_API_KEY="your-key-here"
+
+# For local Ollama (no API key needed - just ensure Ollama is running):
+# Ollama auto-defaults to http://localhost:11434/v1 when no OpenAI key is set
 ```
 
 ### Basic Usage
@@ -171,6 +192,12 @@ agentspec generate src/ --model claude-haiku-4-5
 
 # Add context-forcing print() statements (recommended for AI agents)
 agentspec generate src/ --model claude-haiku-4-5 --force-context
+
+# CRITICAL MODE: Ultra-accurate generation for important code (NEW!)
+agentspec generate src/auth/ --critical
+
+# UPDATE EXISTING: Regenerate when code changes (NEW!)
+agentspec generate src/ --update-existing
 
 # Validate agentspecs in your codebase
 agentspec lint src/
@@ -185,15 +212,53 @@ agentspec extract src/ --format agent-context
 agentspec extract src/ --format json
 ```
 
+### 🆕 New Power Features
+
+#### Critical Mode - Ultra-Accurate Documentation
+```bash
+# For your most important code (auth, payments, security)
+agentspec generate src/payments/ --critical
+
+# What it does:
+# - Processes ONE function at a time (no context pollution)
+# - Collects metadata for each function AND its dependencies
+# - Two-pass generation with verification
+# - Uses ULTRATHINK reasoning for deeper analysis
+# - Lower temperature for consistency
+```
+
+#### Update Existing - Keep Docs in Sync
+```bash
+# Regenerate ALL docstrings when code changes
+agentspec generate src/ --update-existing
+
+# Combine with critical for maximum accuracy
+agentspec generate src/core/ --critical --update-existing
+```
+
 ### Advanced Options
 
 ```bash
 # Preview what would be generated (dry run)
 agentspec generate src/ --dry-run --force-context
 
-# Use different Claude models
-agentspec generate src/ --model claude-haiku-4-5  # Smarter, more expensive
-agentspec generate src/ --model claude-haiku-4-5          # Faster, cheaper (recommended)
+# Use different models
+# - Claude models (Anthropic) - auto-detected by model name:
+agentspec generate src/ --model claude-haiku-4-5
+agentspec generate src/ --model claude-3-5-sonnet-20241022
+
+# - OpenAI cloud (requires OPENAI_API_KEY):
+export OPENAI_API_KEY=sk-...
+agentspec generate src/ --model gpt-4o-mini --provider openai
+
+# - Local Ollama (no API key needed):
+agentspec generate src/ --model llama3.2 --provider openai --base-url http://localhost:11434/v1
+# Or set env var for auto-detection:
+export OPENAI_BASE_URL=http://localhost:11434/v1
+agentspec generate src/ --model llama3.2 --provider openai
+
+# - Other OpenAI-compatible providers (LM Studio, vLLM, etc.):
+agentspec generate src/ --model custom-model --provider openai --base-url http://your-server:8000/v1
 
 # Lint with custom minimum line requirement
 agentspec lint src/ --min-lines 15

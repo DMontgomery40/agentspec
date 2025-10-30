@@ -6,8 +6,10 @@ import ast
 import sys
 import json
 import os
+import re
 from pathlib import Path
-from agentspec.utils import collect_python_files
+from typing import Dict, Any
+from agentspec.utils import collect_python_files, load_env_from_dotenv
 from agentspec.collect import collect_metadata
 def _get_client():
     """
@@ -46,6 +48,8 @@ def _get_client():
     - NOTE: This function will raise anthropic.APIError or related exceptions if ANTHROPIC_API_KEY is missing or invalid; callers must handle authentication failures gracefully
     """
     print(f"[AGENTSPEC_CONTEXT] _get_client: Performs lazy initialization of the Anthropic client by importing the Anthropic class only at call time, not at module load time | Returns a new Anthropic() instance configured to read the ANTHROPIC_API_KEY environment variable automatically | Enables the agentspec/generate.py module to be imported and used for non-generation commands (e.g., metadata collection, file discovery) without requiring a valid Anthropic API key or the anthropic package to be available")
+    # Ensure .env is loaded so ANTHROPIC_API_KEY is present if available
+    load_env_from_dotenv()
     from anthropic import Anthropic  # Imported only when needed
     return Anthropic()  # Reads ANTHROPIC_API_KEY from env
 
@@ -57,7 +61,7 @@ Deterministic metadata collected from the repository (if any):
 Instructions for using deterministic metadata:
 - Use deps.calls/imports directly when present.
 - If any field contains a placeholder beginning with "No metadata found;", still produce a complete section based on the function code and context.
-- If changelog contains an item that begins with "- Current implementation:", complete that line with a concise, concrete one‑sentence summary of the function’s current behavior (do not leave it blank).
+- If changelog contains an item that begins with "- Current implementation:", complete that line with a concise, concrete one‑sentence summary of the function's current behavior (do not leave it blank).
 
 Deterministic metadata collected from the repository (if any):
 {hard_data}
@@ -72,20 +76,11 @@ WHAT THIS DOES:
 - Include edge cases, error handling, return values
 - Be specific about types and data flow
 
-DEPENDENCIES:
-- Called by: [list files/functions that call this, if you can infer from context]
-- Calls: [list functions this calls]
-- Imports used: [key imports this relies on]
-- External services: [APIs, databases, etc. if applicable]
-
 WHY THIS APPROACH:
 - Explain why this implementation was chosen
 - Note any alternatives that were NOT used and why
 - Document performance considerations
 - Explain any "weird" or non-obvious code
-
-CHANGELOG:
-- [Current date]: Initial implementation (or describe what changed)
 
 AGENT INSTRUCTIONS:
 - DO NOT [list things agents should not change]
@@ -102,6 +97,36 @@ Here's the function to document:
 File context: {filepath}
 
 Generate ONLY the docstring content (without the triple quotes themselves). Be extremely verbose and thorough."""
+
+GENERATION_PROMPT_TERSE = """You are helping to document a Python codebase with concise docstrings for LLM consumption.
+
+Analyze this function and generate a TERSE docstring following this EXACT format:
+
+\"\"\"
+Brief one-line description.
+
+WHAT:
+- Core behavior (2-3 bullets max, one line each)
+- Key edge cases only
+
+WHY:
+- Main rationale (2-3 bullets max)
+- Critical tradeoffs only
+
+GUARDRAILS:
+- DO NOT [critical constraints, one line each]
+- ALWAYS [essential requirements, one line each]
+\"\"\"
+
+Here's the function to document:
+
+```python
+{code}
+```
+
+File context: {filepath}
+
+Generate ONLY the docstring content. Be CONCISE but include ALL sections above."""
 
 AGENTSPEC_YAML_PROMPT = """You are helping to document a Python codebase by creating an embedded agentspec YAML block inside a Python docstring.
 
@@ -121,21 +146,14 @@ Requirements:
   ---agentspec
   ... YAML content here ...
   ---/agentspec
-- Follow this schema with verbose content:
+- Follow this schema with verbose content (deps and changelog will be injected by code):
   what: |
     Detailed multi-line explanation of behavior, inputs, outputs, edge-cases
-  deps:
-    calls: []
-    called_by: []
-    config_files: []
-    environment: []
   why: |
     Rationale for approach and tradeoffs
   guardrails:
     - DO NOT ... (explain why)
     - ...
-  changelog:
-    - "YYYY-MM-DD: Initial agentspec generated"
 
 Context:
 - Function to document:
@@ -152,7 +170,7 @@ Important:
 - Be comprehensive and specific.
 """
 
-def extract_function_info(filepath: Path, require_agentspec: bool = False) -> list[tuple[int, str, str]]:
+def extract_function_info(filepath: Path, require_agentspec: bool = False, update_existing: bool = False) -> list[tuple[int, str, str]]:
     """
     Brief one-line description.
     Extracts all functions from a Python file that lack comprehensive docstrings, returning their metadata sorted in reverse line order for safe sequential processing.
@@ -203,12 +221,16 @@ def extract_function_info(filepath: Path, require_agentspec: bool = False) -> li
     
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            # Check if needs docstring
-            existing = ast.get_docstring(node)
-            if require_agentspec:
-                needs = (not existing) or ("---agentspec" not in existing)
+            # PROGRAMMATIC: update_existing flag bypasses skip logic
+            if update_existing:
+                needs = True  # Force processing ALL functions
             else:
-                needs = (not existing) or (len(existing.split('\n')) < 5)
+                # Normal check if needs docstring
+                existing = ast.get_docstring(node)
+                if require_agentspec:
+                    needs = (not existing) or ("---agentspec" not in existing)
+                else:
+                    needs = (not existing) or (len(existing.split('\n')) < 5)
             if needs:
                 # Get source code
                 lines = source.split('\n')
@@ -222,7 +244,88 @@ def extract_function_info(filepath: Path, require_agentspec: bool = False) -> li
     
     return functions
 
-def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5", as_agentspec_yaml: bool = False) -> str:
+def inject_deterministic_metadata(llm_output: str, metadata: Dict[str, Any], as_agentspec_yaml: bool) -> str:
+    """Injects deterministic metadata (dependencies and changelog) into LLM-generated docstrings.
+    
+    CRITICAL: This function ensures deps and changelog are NEVER LLM-generated.
+    They are programmatically inserted from collected metadata.
+    
+    NOTE: This is intentionally duplicated in both generate.py and generate_critical.py
+    because they are independent execution paths that must not depend on each other.
+    """
+    if not metadata:
+        return llm_output
+
+    deps_data = metadata.get('deps', {})
+    changelog_data = metadata.get('changelog', [])
+
+    if as_agentspec_yaml:
+        # YAML format: inject deps and changelog sections
+        # Build deps section from actual metadata
+        deps_yaml = "\n    deps:\n"
+        if deps_data.get('calls'):
+            deps_yaml += "      calls:\n"
+            for call in deps_data['calls']:
+                deps_yaml += f"        - {call}\n"
+        if deps_data.get('imports'):
+            deps_yaml += "      imports:\n"
+            for imp in deps_data['imports']:
+                deps_yaml += f"        - {imp}\n"
+
+        # Build changelog section from actual git history
+        changelog_yaml = "\n    changelog:\n"
+        if changelog_data:
+            for entry in changelog_data:
+                changelog_yaml += f"      - \"{entry}\"\n"
+        else:
+            changelog_yaml += "      - \"No git history available\"\n"
+
+        # Inject into LLM output
+        # Strategy: Look for "why:" and inject deps before it
+        if "why:" in llm_output or "why |" in llm_output:
+            # Inject deps before why
+            output = re.sub(
+                r'(\n\s*why[:\|])',
+                deps_yaml + r'\1',
+                llm_output,
+                count=1
+            )
+        else:
+            # Fallback: inject after what section
+            output = re.sub(
+                r'(\n\s*what:.*?\n(?:\s+.*\n)*)',
+                r'\1' + deps_yaml,
+                llm_output,
+                count=1,
+                flags=re.DOTALL
+            )
+
+        # Inject changelog after guardrails or at end
+        if "---/agentspec" in output:
+            output = output.replace("---/agentspec", changelog_yaml + "    ---/agentspec")
+        else:
+            output += changelog_yaml
+
+        return output
+    else:
+        # Regular format: append deps and changelog as sections
+        deps_text = "\n\nDEPENDENCIES (from code analysis):\n"
+        if deps_data.get('calls'):
+            deps_text += "Calls: " + ", ".join(deps_data['calls']) + "\n"
+        if deps_data.get('imports'):
+            deps_text += "Imports: " + ", ".join(deps_data['imports']) + "\n"
+
+        changelog_text = "\n\nCHANGELOG (from git history):\n"
+        if changelog_data:
+            for entry in changelog_data:
+                changelog_text += f"{entry}\n"
+        else:
+            changelog_text += "No git history available\n"
+
+        return llm_output + deps_text + changelog_text
+
+
+def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5", as_agentspec_yaml: bool = False, base_url: str | None = None, provider: str | None = 'auto', terse: bool = False, diff_summary: bool = False) -> str:
     """
     Brief one-line description.
     Invokes Claude API to generate a comprehensive verbose docstring or a fenced agentspec YAML block for a given code snippet using a predefined prompt template.
@@ -344,26 +447,70 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5"
             ]
         return m
 
-    meta = _ensure_nonempty_metadata(meta)
-    hard_data = json.dumps(meta, indent=2)
-
-    prompt = AGENTSPEC_YAML_PROMPT if as_agentspec_yaml else GENERATION_PROMPT
-    client = _get_client()
-    message = client.messages.create(
+    # DON'T pass metadata to LLM - it will be injected after generation
+    # Choose prompt based on terse flag
+    if as_agentspec_yaml:
+        prompt = AGENTSPEC_YAML_PROMPT
+    elif terse:
+        prompt = GENERATION_PROMPT_TERSE
+    else:
+        prompt = GENERATION_PROMPT
+    
+    content = prompt.format(code=code, filepath=filepath, hard_data="(deterministic metadata will be injected by code)")
+    
+    # Route through unified LLM layer (Anthropic or OpenAI-compatible)
+    from agentspec.llm import generate_chat
+    text = generate_chat(
         model=model,
-        max_tokens=2000,
-        temperature=0.2,
-        messages=[{
-            "role": "user",
-            "content": prompt.format(
-                code=code,
-                filepath=filepath,
-                hard_data=hard_data
-            )
-        }]
+        messages=[
+            {"role": "system", "content": "You are a precise documentation generator. Generate ONLY narrative sections (what/why/guardrails). DO NOT generate deps or changelog sections."},
+            {"role": "user", "content": content},
+        ],
+        temperature=0.0 if terse else 0.2,
+        max_tokens=1500 if terse else 2000,
+        base_url=base_url,
+        provider=provider,
     )
     
-    return message.content[0].text
+    # Inject deterministic metadata (deps and changelog) from code analysis
+    result = inject_deterministic_metadata(text, meta, as_agentspec_yaml)
+    
+    # If diff_summary requested, make separate LLM call to summarize git diffs
+    if diff_summary and func_name:
+        from agentspec.collect import collect_changelog_diffs
+        diffs = collect_changelog_diffs(Path(filepath), func_name)
+        
+        if diffs:
+            # Build prompt for LLM to summarize diffs
+            diff_prompt = "Summarize these git diffs concisely (one line per commit):\n\n"
+            for d in diffs:
+                diff_prompt += f"Commit: {d['date']} - {d['message']}\n"
+                diff_prompt += f"Diff:\n{d['diff']}\n\n"
+            
+            # Separate API call for diff summaries
+            from agentspec.llm import generate_chat
+            summary_system_prompt = (
+                "You are a code change summarizer. For each commit, provide a SHORT one-line summary (max 10 words)."
+                if terse else
+                "You are a code change summarizer. For each commit, provide a one-line summary of what changed."
+            )
+            diff_summaries_text = generate_chat(
+                model=model,
+                messages=[
+                    {"role": "system", "content": summary_system_prompt},
+                    {"role": "user", "content": diff_prompt}
+                ],
+                temperature=0.0,
+                max_tokens=500 if terse else 1000,
+                base_url=base_url,
+                provider=provider,
+            )
+            
+            # Inject diff summary section
+            diff_summary_section = f"\n\nCHANGELOG DIFF SUMMARY (LLM-generated):\n{diff_summaries_text}\n"
+            result += diff_summary_section
+    
+    return result
 
 def insert_docstring_at_line(filepath: Path, lineno: int, func_name: str, docstring: str, force_context: bool = False) -> bool:
     """
@@ -433,6 +580,8 @@ def insert_docstring_at_line(filepath: Path, lineno: int, func_name: str, docstr
     # the docstring immediately before it. This is robust to multi-line
     # signatures, annotations, and decorators.
     insert_idx = func_line_idx + 1
+    target = None
+
     try:
         import ast
         src = ''.join(lines)
@@ -442,13 +591,55 @@ def insert_docstring_at_line(filepath: Path, lineno: int, func_name: str, docstr
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == func_name:
                 candidates.append(node)
         # Choose the closest by lineno to the provided lineno if multiple
-        target = None
         if candidates:
             target = min(candidates, key=lambda n: abs((n.lineno or 0) - lineno))
+
+        # ROBUST: Check for and delete existing docstring using AST
         if target and target.body:
-            # Insert before the first statement in the body
-            insert_idx = (target.body[0].lineno or (func_line_idx + 1)) - 1
-    except Exception:
+            first_stmt = target.body[0]
+            # Check if first statement is a docstring (Expr node with Constant/Str)
+            is_docstring = False
+            docstring_end_line = None
+
+            if isinstance(first_stmt, ast.Expr):
+                if isinstance(first_stmt.value, ast.Constant) and isinstance(first_stmt.value.value, str):
+                    is_docstring = True
+                    docstring_end_line = first_stmt.end_lineno
+                elif hasattr(ast, 'Str') and isinstance(first_stmt.value, ast.Str):  # Python 3.7 compat
+                    is_docstring = True
+                    docstring_end_line = first_stmt.end_lineno
+
+            if is_docstring and docstring_end_line:
+                # Delete from docstring start to docstring end
+                # CRITICAL INDEX MATH:
+                # - AST line numbers are 1-based (line 1 = first line of file)
+                # - Array indices are 0-based (lines[0] = first line of file)
+                # - target.lineno = 1-based line number of "def"
+                # - target.body[0].lineno = 1-based line number of first statement (docstring)
+                # - target.body[0].end_lineno = 1-based line number of last line of docstring
+                # Example: def at line 389, docstring """ at line 394, docstring closes at line 437
+                # - func_line_idx = 388 (0-based index for line 389)
+                # - first_stmt.lineno = 394 (1-based)
+                # - first_stmt.end_lineno = 437 (1-based)
+                # To delete docstring: del lines[393:437] (0-based start, exclusive end)
+                docstring_start_line = first_stmt.lineno  # 1-based
+                delete_start_idx = docstring_start_line - 1  # Convert to 0-based
+                delete_end_idx = docstring_end_line  # 1-based works as exclusive end for slice
+
+                # Also check for and delete any [AGENTSPEC_CONTEXT] print after docstring
+                if delete_end_idx < len(lines) and '[AGENTSPEC_CONTEXT]' in lines[delete_end_idx]:
+                    delete_end_idx += 1
+
+                # Delete the old docstring (and optional context print)
+                del lines[delete_start_idx:delete_end_idx]
+
+                # Insert point is now where the docstring was
+                insert_idx = delete_start_idx
+            else:
+                # No existing docstring, insert before first statement
+                insert_idx = (first_stmt.lineno or (func_line_idx + 1)) - 1
+
+    except Exception as e:
         # Fallback to textual scan if AST fails
         depth = 0
         idx = func_line_idx
@@ -463,32 +654,32 @@ def insert_docstring_at_line(filepath: Path, lineno: int, func_name: str, docstr
                 insert_idx = idx + 1
                 break
             idx += 1
-    
-    # Skip any existing docstring if present
-    if insert_idx < len(lines):
-        line = lines[insert_idx].strip()
-        if line.startswith('"""') or line.startswith("'''"):
-            quote_type = '"""' if '"""' in line else "'''"
-            # Skip existing docstring
-            if line.count(quote_type) >= 2:
-                # Single-line docstring
-                insert_idx += 1
-            else:
-                # Multi-line docstring - find end
-                insert_idx += 1
-                while insert_idx < len(lines):
-                    if quote_type in lines[insert_idx]:
-                        insert_idx += 1
-                        break
+
+        # Fallback string-based docstring deletion
+        if insert_idx < len(lines):
+            line = lines[insert_idx].strip()
+            if line.startswith('"""') or line.startswith("'''"):
+                quote_type = '"""' if '"""' in line else "'''"
+                # Skip existing docstring
+                if line.count(quote_type) >= 2:
+                    # Single-line docstring
                     insert_idx += 1
-            
-            # Also skip any existing context print
-            if insert_idx < len(lines) and '[AGENTSPEC_CONTEXT]' in lines[insert_idx]:
-                insert_idx += 1
-            
-            # Delete the old docstring and print
-            del lines[func_line_idx + 1:insert_idx]
-            insert_idx = func_line_idx + 1
+                else:
+                    # Multi-line docstring - find end
+                    insert_idx += 1
+                    while insert_idx < len(lines):
+                        if quote_type in lines[insert_idx]:
+                            insert_idx += 1
+                            break
+                        insert_idx += 1
+
+                # Also skip any existing context print
+                if insert_idx < len(lines) and '[AGENTSPEC_CONTEXT]' in lines[insert_idx]:
+                    insert_idx += 1
+
+                # Delete the old docstring and print
+                del lines[func_line_idx + 1:insert_idx]
+                insert_idx = func_line_idx + 1
     
     # Determine indentation
     func_line = lines[func_line_idx]
@@ -576,7 +767,7 @@ def insert_docstring_at_line(filepath: Path, lineno: int, func_name: str, docstr
         f.writelines(candidate)
     return True
 
-def process_file(filepath: Path, dry_run: bool = False, force_context: bool = False, model: str = "claude-haiku-4-5", as_agentspec_yaml: bool = False):
+def process_file(filepath: Path, dry_run: bool = False, force_context: bool = False, model: str = "claude-haiku-4-5", as_agentspec_yaml: bool = False, base_url: str | None = None, provider: str | None = 'auto', update_existing: bool = False, terse: bool = False, diff_summary: bool = False):
     """
     Brief one-line description of what this function does.
 
@@ -626,13 +817,16 @@ def process_file(filepath: Path, dry_run: bool = False, force_context: bool = Fa
     print(f"\n📄 Processing {filepath}")
     
     try:
-        functions = extract_function_info(filepath, require_agentspec=as_agentspec_yaml)
+        functions = extract_function_info(filepath, require_agentspec=as_agentspec_yaml, update_existing=update_existing)
     except SyntaxError as e:
         print(f"  ❌ Syntax error in file: {e}")
         return
     
     if not functions:
-        print("  ✅ All functions already have verbose docstrings")
+        if update_existing:
+            print("  ℹ️  No functions found to update")
+        else:
+            print("  ✅ All functions already have verbose docstrings")
         return
     
     print(f"  Found {len(functions)} functions needing docstrings:")
@@ -652,7 +846,7 @@ def process_file(filepath: Path, dry_run: bool = False, force_context: bool = Fa
     for lineno, name, code in functions:
         print(f"\n  🤖 Generating {'agentspec YAML' if as_agentspec_yaml else 'docstring'} for {name}...")
         try:
-            doc_or_yaml = generate_docstring(code, str(filepath), model=model, as_agentspec_yaml=as_agentspec_yaml)
+            doc_or_yaml = generate_docstring(code, str(filepath), model=model, as_agentspec_yaml=as_agentspec_yaml, base_url=base_url, provider=provider, terse=terse, diff_summary=diff_summary)
             ok = insert_docstring_at_line(filepath, lineno, name, doc_or_yaml, force_context=force_context)
             if ok:
                 if force_context:
@@ -664,7 +858,7 @@ def process_file(filepath: Path, dry_run: bool = False, force_context: bool = Fa
         except Exception as e:
             print(f"  ❌ Error processing {name}: {e}")
 
-def run(target: str, dry_run: bool = False, force_context: bool = False, model: str = "claude-haiku-4-5", as_agentspec_yaml: bool = False) -> int:
+def run(target: str, dry_run: bool = False, force_context: bool = False, model: str = "claude-haiku-4-5", as_agentspec_yaml: bool = False, provider: str | None = 'auto', base_url: str | None = None, update_existing: bool = False, critical: bool = False, terse: bool = False, diff_summary: bool = False) -> int:
     """
     CLI entry point for generating docstrings.
     
@@ -677,10 +871,24 @@ def run(target: str, dry_run: bool = False, force_context: bool = False, model: 
     Returns:
         Exit code (0 for success, 1 for error)
     """
-    if not os.getenv('ANTHROPIC_API_KEY') and not dry_run:
-        print("❌ Error: ANTHROPIC_API_KEY environment variable not set")
-        print("Set it with: export ANTHROPIC_API_KEY='your-key-here'")
-        return 1
+    # Load .env and decide provider
+    load_env_from_dotenv()
+    prov = (provider or 'auto').lower()
+    is_claude_model = (model or '').lower().startswith('claude')
+    if prov == 'auto':
+        prov = 'anthropic' if is_claude_model else 'openai'
+    if prov == 'anthropic':
+        if not os.getenv('ANTHROPIC_API_KEY') and not dry_run:
+            print("❌ Error: ANTHROPIC_API_KEY environment variable not set for Claude models")
+            print("Set it with: export ANTHROPIC_API_KEY='your-key-here'")
+            return 1
+    else:
+        # OpenAI-compatible
+        if base_url is None:
+            base_url = os.getenv('OPENAI_BASE_URL') or os.getenv('AGENTSPEC_OPENAI_BASE_URL') or os.getenv('OLLAMA_BASE_URL')
+        if not os.getenv('OPENAI_API_KEY') and not base_url:
+            # Default to local Ollama if neither is provided
+            base_url = 'http://localhost:11434/v1'
     
     path = Path(target)
     
@@ -690,15 +898,28 @@ def run(target: str, dry_run: bool = False, force_context: bool = False, model: 
     
     if dry_run:
         print("🔍 DRY RUN MODE - no files will be modified\n")
-    
+
+    if critical:
+        print("🔬 CRITICAL MODE - Ultra-accurate generation with verification")
+        print("   (automatically regenerates ALL docstrings for maximum accuracy)\n")
+    elif update_existing:
+        print("🔄 UPDATE MODE - Regenerating existing docstrings\n")
+
     try:
         files = collect_python_files(path)
         for filepath in files:
             try:
-                process_file(filepath, dry_run, force_context, model, as_agentspec_yaml)
+                if critical:
+                    # Use critical mode for ultra-accuracy
+                    # IMPORTANT: Critical mode ALWAYS updates existing (you want max accuracy)
+                    from agentspec.generate_critical import process_file_critical
+                    process_file_critical(filepath, dry_run, force_context, model, as_agentspec_yaml, base_url, prov, update_existing=True, terse=terse, diff_summary=diff_summary)
+                else:
+                    # Standard mode
+                    process_file(filepath, dry_run, force_context, model, as_agentspec_yaml, base_url, prov, update_existing, terse, diff_summary)
             except Exception as e:
                 print(f"❌ Error processing {filepath}: {e}")
-        
+
         print("\n✅ Done!")
         return 0
     

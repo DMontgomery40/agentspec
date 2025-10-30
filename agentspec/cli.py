@@ -11,6 +11,7 @@ from pathlib import Path
 
 # Import only what's needed at runtime per command to avoid importing optional deps unnecessarily
 from agentspec import lint, extract
+from agentspec.utils import load_env_from_dotenv
 
 
 def main():
@@ -56,6 +57,8 @@ def main():
     - NOTE: model parameter accepts specific Claude model identifiers; using an invalid model name will fail at API call time, not argument parsing time
     - NOTE: The --strict flag converts linting warnings to hard errors; use with caution in CI/CD pipelines
     """
+    # Load .env automatically (nearest) so users don't have to export manually
+    load_env_from_dotenv()
     print(f"[AGENTSPEC_CONTEXT] main: Parses command-line arguments using argparse to determine which subcommand to execute (lint, extract, or generate) | For \"lint\": validates agentspec docstring blocks in Python files against format requirements, with configurable minimum line counts and strict mode for treating warnings as errors | For \"extract\": reads Python files and exports agentspec docstring blocks in multiple formats (markdown, JSON, or agent-context optimized)")
     parser = argparse.ArgumentParser(
         description="Agentspec: Structured, enforceable docstrings for AI agents"
@@ -133,7 +136,39 @@ def main():
         action="store_true",
         help="Generate docstrings that contain an embedded ---agentspec YAML block"
     )
-    
+    generate_parser.add_argument(
+        "--provider",
+        choices=["auto", "anthropic", "openai"],
+        default="auto",
+        help="LLM provider to use: 'anthropic' (Claude), 'openai' (OpenAI-compatible, including Ollama), or 'auto' (infer from model)"
+    )
+    generate_parser.add_argument(
+        "--base-url",
+        type=str,
+        default=None,
+        help="Base URL for OpenAI-compatible providers (e.g., http://localhost:11434/v1 for Ollama). Overrides env if set."
+    )
+    generate_parser.add_argument(
+        "--update-existing",
+        action="store_true",
+        help="Regenerate docstrings even for functions that already have them (useful when code changes)"
+    )
+    generate_parser.add_argument(
+        "--critical",
+        action="store_true",
+        help="CRITICAL MODE: Ultra-accurate generation with verification for important code (slower but more accurate)"
+    )
+    generate_parser.add_argument(
+        "--terse",
+        action="store_true",
+        help="TERSE MODE: Shorter output with max_tokens=500 and temperature=0.0 (more concise, deterministic)"
+    )
+    generate_parser.add_argument(
+        "--diff-summary",
+        action="store_true",
+        help="DIFF SUMMARY: Add LLM-generated summaries of git diffs for each commit (separate API call)"
+    )
+
     # Parse args
     args = parser.parse_args()
     
@@ -161,7 +196,13 @@ def main():
             dry_run=args.dry_run,
             force_context=args.force_context,
             model=args.model,
-            as_agentspec_yaml=args.agentspec_yaml
+            as_agentspec_yaml=args.agentspec_yaml,
+            provider=args.provider,
+            base_url=args.base_url,
+            update_existing=args.update_existing,
+            critical=args.critical,
+            terse=args.terse,
+            diff_summary=args.diff_summary,
         )
     else:
         parser.print_help()

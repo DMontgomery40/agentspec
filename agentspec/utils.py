@@ -20,7 +20,7 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
-from typing import Iterable, List, Set
+from typing import Iterable, List, Set, Optional
 
 
 DEFAULT_EXCLUDE_DIRS: Set[str] = {
@@ -261,3 +261,60 @@ def collect_python_files(target: Path) -> List[Path]:
     files.sort(key=lambda p: str(p))
     return files
 
+
+def load_env_from_dotenv(env_path: Optional[Path] = None, override: bool = False) -> Optional[Path]:
+    """
+    Load environment variables from a .env file if present.
+
+    Search order when env_path is None:
+    1) Current working directory and its parents
+    2) Git repository root (if discovered) and its .env
+    3) The agentspec package directory root
+
+    Only sets variables that are not already present in os.environ, unless
+    override=True.
+
+    Returns the Path of the loaded .env file or None if not found.
+    """
+    # If a path is provided, use it directly
+    candidates: List[Path] = []
+    if env_path:
+        candidates = [env_path]
+    else:
+        cwd = Path.cwd()
+        # Walk up from CWD
+        for p in [cwd, *cwd.parents]:
+            candidates.append(p / ".env")
+        # Git root
+        git_root = _find_git_root(cwd)
+        if git_root:
+            candidates.append(git_root / ".env")
+        # Package directory
+        pkg_root = Path(__file__).resolve().parents[1]
+        candidates.append(pkg_root / ".env")
+
+    chosen: Optional[Path] = None
+    for c in candidates:
+        try:
+            if c.exists() and c.is_file():
+                chosen = c
+                break
+        except Exception:
+            continue
+
+    if not chosen:
+        return None
+
+    try:
+        for line in chosen.read_text(encoding="utf-8", errors="ignore").splitlines():
+            s = line.strip()
+            if not s or s.startswith('#') or '=' not in s:
+                continue
+            k, v = s.split('=', 1)
+            k = k.strip()
+            v = v.strip().strip('"').strip("'")
+            if override or k not in os.environ:
+                os.environ[k] = v
+        return chosen
+    except Exception:
+        return None
