@@ -1,0 +1,45 @@
+# Agentspec Ignore
+# Files and directories to skip when running agentspec lint/generate/extract
+
+# Test files (usually don't need verbose docstrings)
+tests/
+test_*.py
+*_test.py
+
+# Build and distribution
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Cache directories
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Generated files
+FUNCTION_DOCS.md
+function_docs.json
+
+# Migration files (usually auto-generated)
+migrations/
+**/migrations/*.py
+
+# Configuration files
+setup.py
+setup.cfg
+pyproject.toml
+conftest.py
+
+# Version files
+_version.py
+__version__.py
+
+# Init files (usually minimal)
+# __init__.py  # Uncomment to skip all __init__.py files
