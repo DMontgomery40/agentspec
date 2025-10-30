@@ -1,32 +1,75 @@
-# agentspec
-Structured, enforceable, and extractable docstrings for AI-assisted codebases.
+# 🧠 Agentspec
 
-Goal:
-Add, lint, extract, and maintain structured “agent spec” blocks inside comments/docstrings so LLM agents don’t break code they edit.
+**Structured, enforceable, and extractable docstrings for AI-assisted codebases.**
 
-🏗️ Repo layout
+---
+
+## ✨ What it does
+Agentspec enforces a structured YAML-style fenced block inside Python docstrings so human devs and AI agents always share the same context about *what*, *why*, *dependencies*, and *guardrails*.
+
+---
+
+## 🚀 Quick start
+
+```bash
+pip install -e .
+agentspec lint src/
+agentspec extract src/ --json
 ```
-agentspec/
-├─ pyproject.toml           # Makes it pip-installable
-├─ README.md
-├─ LICENSE
-├─ agentspec/
-│  ├─ __init__.py
-│  ├─ cli.py                # CLI entry point
-│  ├─ lint.py               # Lint rule logic (based on your check_verbose_comments.py)
-│  ├─ extract.py            # Comment extractor (your extract_comments.py evolved)
-│  ├─ autofill.py           # Optional call-graph auto-fill logic
-│  └─ utils/
-│     ├─ parser.py          # AST/tree-sitter helpers
-│     └─ schema.py          # Defines YAML schema keys + validation
-├─ tests/
-│  ├─ test_lint.py
-│  ├─ test_extract.py
-│  └─ sample_code/
-│     └─ demo.py
-├─ .github/
-│  └─ workflows/
-│     ├─ lint.yml           # runs `agentspec lint .`
-│     └─ extract.yml        # runs `agentspec extract . --markdown`
-└─ setup.cfg                # black, flake8, mypy configs
+
+## 📄 Example
+
 ```
+def process_embeddings(text: str):
+    """
+    ---agentspec
+    what: Takes text → 1536-dim embedding using gpt-5
+    deps:
+      calls:
+        - openai_client.create_embedding
+      called_by:
+        - rag_engine.chunk_and_embed
+    why: Needs larger context window for code embeddings
+    guardrails:
+      - DO NOT rename model unless gpt-5 deprecated
+      - DO NOT remove rate limiting
+    ---/agentspec
+    """
+```
+
+## 🧩 Commands
+
+Command	| Description
+agentspec lint <path> 	|  Validate required sections and schema
+agentspec extract <path> --json 	|  Extract all specs to agent_specs.json
+agentspec extract <path>	|  Extract to Markdown
+
+## 🛠️ GitHub Action
+
+Add to your repo:
+```
+.github/workflows/agentspec.yml → runs lint & extract automatically on every push.
+```
+
+## 🧩 Step 9 — (Optionally) add `tests/` skeleton
+
+
+```python
+from agentspec import lint, extract
+from pathlib import Path
+
+def test_lint_runs():
+    result = lint.run("agentspec/")
+    assert isinstance(result, int)
+
+def test_extract_runs():
+    result = extract.run("agentspec/", "markdown")
+    assert isinstance(result, int)
+```
+
+## 🧱 Roadmap
+
+- Multi-language parsing via Tree-sitter
+- Automatic dependency mapping
+- VS Code / Cursor integration
+- Org-wide pre-commit hook
