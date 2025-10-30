@@ -202,30 +202,60 @@ def process_file(filepath: Path, dry_run: bool = False):
         except Exception as e:
             print(f"  ❌ Error processing {name}: {e}")
 
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: agentspec generate <file_or_dir> [--dry-run]")
-        print("\nRequires ANTHROPIC_API_KEY environment variable")
-        sys.exit(1)
+def run(target: str, dry_run: bool = False) -> int:
+    """
+    CLI entry point for generating docstrings.
     
+    Args:
+        target: File or directory path
+        dry_run: If True, preview only without modifying files
+    
+    Returns:
+        Exit code (0 for success, 1 for error)
+    """
     if not os.getenv('ANTHROPIC_API_KEY'):
         print("❌ Error: ANTHROPIC_API_KEY environment variable not set")
         print("Set it with: export ANTHROPIC_API_KEY='your-key-here'")
-        sys.exit(1)
+        return 1
     
-    path = Path(sys.argv[1])
-    dry_run = '--dry-run' in sys.argv
+    path = Path(target)
+    
+    if not path.exists():
+        print(f"❌ Error: Path does not exist: {target}")
+        return 1
     
     if dry_run:
         print("🔍 DRY RUN MODE - no files will be modified\n")
     
-    if path.is_file():
-        process_file(path, dry_run)
-    else:
-        for filepath in path.rglob("*.py"):
-            process_file(filepath, dry_run)
+    try:
+        if path.is_file():
+            process_file(path, dry_run)
+        else:
+            for filepath in path.rglob("*.py"):
+                try:
+                    process_file(filepath, dry_run)
+                except Exception as e:
+                    print(f"❌ Error processing {filepath}: {e}")
+        
+        print("\n✅ Done!")
+        return 0
     
-    print("\n✅ Done!")
+    except Exception as e:
+        print(f"\n❌ Fatal error: {e}")
+        return 1
+
+def main():
+    """Standalone script entry point."""
+    if len(sys.argv) < 2:
+        print("Usage: python generate.py <file_or_dir> [--dry-run]")
+        print("\nRequires ANTHROPIC_API_KEY environment variable")
+        sys.exit(1)
+    
+    path = sys.argv[1]
+    dry_run = '--dry-run' in sys.argv
+    
+    exit_code = run(path, dry_run)
+    sys.exit(exit_code)
 
 if __name__ == "__main__":
     main()
