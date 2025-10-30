@@ -2,6 +2,8 @@
 
 Use this guide to add comprehensive agentspecs to existing codebases.
 
+**Ideally do it with the prompt route; however, just running the bash script below against an entire repo, has been tested to work surprisingly well**
+
 ## 📝 The Retrofit Prompt
 
 Copy the prompt below and use it with your AI agent. Attach the file(s) you want to retrofit.
