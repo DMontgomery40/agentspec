@@ -54,22 +54,33 @@ File context: {filepath}
 
 Generate ONLY the docstring content (without the triple quotes themselves). Be extremely verbose and thorough."""
 
-def extract_function_code(filepath: Path, lineno: int) -> tuple[str, ast.FunctionDef]:
-    """Extract the source code for a specific function."""
+def extract_function_info(filepath: Path) -> list[tuple[int, str, str]]:
+    """
+    Extract information about all functions in a file that need docstrings.
+    Returns list of (lineno, name, source_code) tuples, sorted bottom-to-top.
+    """
     with open(filepath, 'r') as f:
         source = f.read()
     
     tree = ast.parse(source)
+    functions = []
     
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if node.lineno == lineno:
-                # Get the function's source code
+            # Check if needs docstring
+            existing = ast.get_docstring(node)
+            if not existing or len(existing.split('\n')) < 5:
+                # Get source code
                 lines = source.split('\n')
                 func_lines = lines[node.lineno - 1:node.end_lineno]
-                return '\n'.join(func_lines), node
+                code = '\n'.join(func_lines)
+                functions.append((node.lineno, node.name, code))
     
-    raise ValueError(f"No function found at line {lineno}")
+    # Sort by line number DESCENDING (bottom to top)
+    # This way inserting docstrings doesn't invalidate later line numbers
+    functions.sort(key=lambda x: x[0], reverse=True)
+    
+    return functions
 
 def generate_docstring(code: str, filepath: str, model: str = "claude-sonnet-4-20250514") -> str:
     """Use Claude to generate a verbose docstring."""
@@ -88,137 +99,97 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-sonnet-4-2
     
     return message.content[0].text
 
-def insert_docstring(filepath: Path, node: ast.FunctionDef, docstring: str, force_context: bool = False):
-    """Insert or replace docstring in function, optionally adding context print."""
+def insert_docstring_at_line(filepath: Path, lineno: int, func_name: str, docstring: str, force_context: bool = False):
+    """
+    Insert docstring at a specific line number in a file.
+    This handles the actual file modification.
+    """
     with open(filepath, 'r') as f:
         lines = f.readlines()
     
-    # Find where to insert docstring (right after function definition)
-    func_line = node.lineno - 1
+    # Find the function definition line
+    func_line_idx = lineno - 1
     
-    # Check if there's already a docstring
-    existing_docstring = ast.get_docstring(node)
+    # Find the first line after the function signature (where docstring goes)
+    insert_idx = func_line_idx + 1
     
-    if existing_docstring:
-        # Find and replace existing docstring
-        start_line = func_line + 1
-        
-        # Skip decorators and find the actual def line
-        for i in range(func_line, len(lines)):
-            if 'def ' in lines[i]:
-                start_line = i + 1
-                break
-        
-        # Find end of existing docstring
-        in_docstring = False
-        quote_type = None
-        end_line = start_line
-        
-        for i in range(start_line, len(lines)):
-            line = lines[i].strip()
-            
-            if not in_docstring:
-                if line.startswith('"""') or line.startswith("'''"):
-                    in_docstring = True
-                    quote_type = '"""' if '"""' in line else "'''"
-                    if line.count(quote_type) >= 2:
-                        # Single line docstring
-                        end_line = i + 1
-                        break
+    # Skip any existing docstring if present
+    if insert_idx < len(lines):
+        line = lines[insert_idx].strip()
+        if line.startswith('"""') or line.startswith("'''"):
+            quote_type = '"""' if '"""' in line else "'''"
+            # Skip existing docstring
+            if line.count(quote_type) >= 2:
+                # Single-line docstring
+                insert_idx += 1
             else:
-                if quote_type in line:
-                    end_line = i + 1
-                    break
-        
-        # Check if there's already a context print statement after docstring
-        has_context_print = False
-        if end_line < len(lines):
-            next_line = lines[end_line].strip()
-            if 'print(f"[AGENTSPEC_CONTEXT]' in next_line or 'print("[AGENTSPEC_CONTEXT]' in next_line:
-                has_context_print = True
-                end_line += 1  # Include the print line in deletion
-        
-        # Remove old docstring (and old print if exists)
-        del lines[start_line:end_line]
-        insert_line = start_line
-    else:
-        # Find insertion point (after function definition line)
-        for i in range(func_line, len(lines)):
-            if 'def ' in lines[i] or 'async def' in lines[i]:
-                insert_line = i + 1
-                break
+                # Multi-line docstring - find end
+                insert_idx += 1
+                while insert_idx < len(lines):
+                    if quote_type in lines[insert_idx]:
+                        insert_idx += 1
+                        break
+                    insert_idx += 1
+            
+            # Also skip any existing context print
+            if insert_idx < len(lines) and '[AGENTSPEC_CONTEXT]' in lines[insert_idx]:
+                insert_idx += 1
+            
+            # Delete the old docstring and print
+            del lines[func_line_idx + 1:insert_idx]
+            insert_idx = func_line_idx + 1
+    
+    # Determine indentation
+    func_line = lines[func_line_idx]
+    base_indent = len(func_line) - len(func_line.lstrip())
+    indent = ' ' * (base_indent + 4)  # Function body indent
     
     # Format new docstring
-    indent = '    '  # Assuming 4-space indent
-    formatted = f'{indent}"""\n'
+    new_lines = []
+    new_lines.append(f'{indent}"""\n')
     for line in docstring.split('\n'):
-        formatted += f'{indent}{line}\n'
-    formatted += f'{indent}"""\n'
+        if line.strip():
+            new_lines.append(f'{indent}{line}\n')
+        else:
+            new_lines.append('\n')
+    new_lines.append(f'{indent}"""\n')
     
-    # Add context-forcing print if requested
+    # Add context print if requested
     if force_context:
-        # Extract key sections for print
-        sections_to_print = []
-        current_section = None
-        
+        # Extract key bullet points
+        sections = []
         for line in docstring.split('\n'):
             line = line.strip()
-            if line.startswith('WHAT THIS DOES:'):
-                current_section = 'WHAT_THIS_DOES'
-            elif line.startswith('DEPENDENCIES:'):
-                current_section = 'DEPENDENCIES'
-            elif line.startswith('WHY THIS APPROACH:'):
-                current_section = 'WHY_APPROACH'
-            elif line.startswith('AGENT INSTRUCTIONS:'):
-                current_section = 'AGENT_INSTRUCTIONS'
-            elif line.startswith('CHANGELOG:'):
-                current_section = None  # Skip changelog in prints
-            elif current_section and line.startswith('-'):
-                sections_to_print.append(line)
+            if line.startswith('-') and len(sections) < 3:
+                sections.append(line[1:].strip())
         
-        # Add print statement that forces context
-        func_name = node.name
-        print_content = ' | '.join(sections_to_print[:3])  # First 3 bullet points
-        formatted += f'{indent}print(f"[AGENTSPEC_CONTEXT] {func_name}: {print_content}")\n'
+        print_content = ' | '.join(sections)
+        new_lines.append(f'{indent}print(f"[AGENTSPEC_CONTEXT] {func_name}: {print_content}")\n')
     
-    # Insert new docstring (and print if applicable)
-    lines.insert(insert_line, formatted)
+    # Insert the new docstring
+    for line in reversed(new_lines):
+        lines.insert(insert_idx, line)
     
     # Write back
     with open(filepath, 'w') as f:
         f.writelines(lines)
 
-class FunctionFinder(ast.NodeVisitor):
-    """Find all functions that need docstrings."""
-    def __init__(self):
-        self.functions = []
-    
-    def visit_FunctionDef(self, node):
-        if not ast.get_docstring(node) or len(ast.get_docstring(node).split('\n')) < 5:
-            self.functions.append((node.lineno, node.name))
-        self.generic_visit(node)
-    
-    def visit_AsyncFunctionDef(self, node):
-        if not ast.get_docstring(node) or len(ast.get_docstring(node).split('\n')) < 5:
-            self.functions.append((node.lineno, node.name))
-        self.generic_visit(node)
-
 def process_file(filepath: Path, dry_run: bool = False, force_context: bool = False, model: str = "claude-sonnet-4-20250514"):
     """Process a single file and generate docstrings."""
     print(f"\n📄 Processing {filepath}")
     
-    with open(filepath, 'r') as f:
-        tree = ast.parse(f.read())
+    try:
+        functions = extract_function_info(filepath)
+    except SyntaxError as e:
+        print(f"  ❌ Syntax error in file: {e}")
+        return
     
-    finder = FunctionFinder()
-    finder.visit(tree)
-    
-    if not finder.functions:
+    if not functions:
         print("  ✅ All functions already have verbose docstrings")
         return
     
-    print(f"  Found {len(finder.functions)} functions needing docstrings:")
-    for lineno, name in finder.functions:
+    print(f"  Found {len(functions)} functions needing docstrings:")
+    for lineno, name, _ in functions:
         print(f"    - {name} (line {lineno})")
     
     if force_context:
@@ -229,13 +200,13 @@ def process_file(filepath: Path, dry_run: bool = False, force_context: bool = Fa
     if dry_run:
         return
     
-    for lineno, name in finder.functions:
+    # Process bottom-to-top (already sorted that way)
+    for lineno, name, code in functions:
         print(f"\n  🤖 Generating docstring for {name}...")
         
         try:
-            code, node = extract_function_code(filepath, lineno)
             docstring = generate_docstring(code, str(filepath), model=model)
-            insert_docstring(filepath, node, docstring, force_context=force_context)
+            insert_docstring_at_line(filepath, lineno, name, docstring, force_context=force_context)
             
             if force_context:
                 print(f"  ✅ Added docstring + context print to {name}")
@@ -297,7 +268,7 @@ def main():
         print("  --dry-run           Preview without modifying files")
         print("  --force-context     Add print() statements to force LLMs to load context")
         print("  --model MODEL       Claude model to use (default: claude-sonnet-4-20250514)")
-        print("                      Options: claude-haiku-4-5-20250929, claude-sonnet-4-5-20250929")
+        print("                      Options: claude-haiku-4-5, claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022")
         sys.exit(1)
     
     path = sys.argv[1]
