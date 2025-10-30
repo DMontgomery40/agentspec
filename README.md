@@ -192,7 +192,7 @@ agentspec extract src/ --format json
 agentspec generate src/ --dry-run --force-context
 
 # Use different Claude models
-agentspec generate src/ --model claude-sonnet-4-20250514  # Smarter, more expensive
+agentspec generate src/ --model claude-haiku-4-5  # Smarter, more expensive
 agentspec generate src/ --model claude-haiku-4-5          # Faster, cheaper (recommended)
 
 # Lint with custom minimum line requirement

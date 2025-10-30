@@ -36,7 +36,7 @@ def main():
     - argparse is the standard Python CLI library and handles complex subcommand hierarchies with minimal boilerplate
     - Subcommand pattern allows independent command modules (lint, extract, generate) to be developed and tested separately without tight coupling
     - Three distinct operations (validate, export, generate) are logically grouped as CLI commands rather than separate scripts for better UX and distribution
-    - Default values for --min-lines (10), --format ("markdown"), and --model ("claude-sonnet-4-20250514") provide sensible out-of-the-box behavior
+    - Default values for --min-lines (10), --format ("markdown"), and --model ("claude-haiku-4-5") provide sensible out-of-the-box behavior
     - Explicit command dispatcher (if/elif chain) is more readable and debuggable than dict-based dispatch at this scale; easier for agents to trace execution flow
     - sys.exit() is called twice (for missing command and final status) to ensure process terminates cleanly; Python doesn't auto-exit from main()
     - Early exit on missing command prevents ambiguous behavior and ensures explicit user feedback via help text
@@ -122,9 +122,11 @@ def main():
     generate_parser.add_argument(
         "--model",
         type=str,
-        default="claude-sonnet-4-20250514",
-        help="Claude model to use. Options: claude-sonnet-4-20250514 (default), "
-             "claude-haiku-4-5, claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022"
+        default="claude-haiku-4-5",
+        help=(
+            "Claude model to use. Options: claude-haiku-4-5 (default), "
+            "claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022"
+        ),
     )
     generate_parser.add_argument(
         "--agentspec-yaml",
