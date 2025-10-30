@@ -2,6 +2,8 @@
 
 **Verbose, structured, YAML-parsable docstrings for AI-assisted codebases.**
 
+Think of it as something between `black`, `autodoc`, and `copilot-lint`, but tailored for LLMs.
+
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -20,6 +22,66 @@ AI agents are now the primary consumers of code in many projects. But they lack:
 - ✅ **Mandatory guardrails** (what NOT to change)
 - ✅ **Full dependency tracking** (calls, called_by, config files)
 - ✅ **Built-in linting** (enforce standards across team)
+- ✅ **Auto-generation** (Claude generates verbose docstrings for you)
+
+---
+
+## 🐘 The Elephant in the Room
+
+**"This adds a shitload of lines to my code and burns tokens."**
+
+Yes. And here's why it's worth it:
+
+### The Math
+
+Using **Claude Haiku 4.5** (cheapest model):
+- **Cost per 1M input tokens**: ~$0.30
+- **Average verbose docstring**: ~200 tokens
+- **Cost per docstring**: ~$0.00006 (six hundredths of a cent)
+
+**One prevented mistake pays for ~16,000 docstrings.**
+
+### Real Cost Examples
+
+Let's say you have a 10,000 line codebase with 200 functions:
+- **Total doc tokens**: 40,000 tokens (200 functions × 200 tokens)
+- **Cost per agent run**: ~$0.012 (1.2 cents)
+- **Cost for 100 agent interactions**: ~$1.20
+
+**Meanwhile, one single agent fuckup costs you:**
+- Deleted production code: 2-4 hours debugging = $200-400 (at $100/hr)
+- Wrong model deployed: Service degradation, angry users, potential revenue loss
+- Removed rate limiting: Production outage, all hands on deck = $thousands
+
+**The break-even point:** If verbose docs prevent just **one** major screwup per 10,000 uses, you're profitable. In reality, it prevents dozens.
+
+### What You're Actually Buying
+
+You're not buying "more tokens used." You're buying:
+- ✅ **Insurance** against "helpful" agents deleting critical code
+- ✅ **Documentation** that AI and humans can both parse
+- ✅ **Institutional memory** that survives employee turnover
+- ✅ **Faster onboarding** (agents AND humans understand code faster)
+
+### The Alternative
+
+**Without verbose docs:**
+- Agent sees `gpt-5` and "corrects" it to `gpt-4o-mini` (loses capability)
+- Agent removes "unused" imports (breaks dynamic loading)
+- Agent deletes "dead code" (actually used via config-driven dispatch)
+- Agent makes function async (reintroduces race condition from 3 months ago)
+
+**Every. Single. One. Of. These. Has. Happened. To. Real. Projects.**
+
+### The Real Question
+
+It's not "can I afford the tokens?"
+
+It's "can I afford NOT to document why my code works this way?"
+
+If your codebase has anything that isn't obvious from reading the code alone (spoiler: it does), you need verbose docs.
+
+**Token cost is noise. Production incidents are signal.**
 
 ---
 
@@ -95,11 +157,20 @@ def process_embeddings(text: str, model: str = "gpt-5-turbo") -> np.ndarray:
 git clone https://github.com/DMontgomery40/agentspec.git
 cd agentspec
 pip install -e .
+
+# Set your Anthropic API key for auto-generation
+export ANTHROPIC_API_KEY="your-key-here"
 ```
 
 ### Basic Usage
 
 ```bash
+# Auto-generate verbose docstrings for your codebase
+agentspec generate src/ --model claude-haiku-4-5
+
+# Add context-forcing print() statements (recommended for AI agents)
+agentspec generate src/ --model claude-haiku-4-5 --force-context
+
 # Validate agentspecs in your codebase
 agentspec lint src/
 
@@ -116,6 +187,13 @@ agentspec extract src/ --format json
 ### Advanced Options
 
 ```bash
+# Preview what would be generated (dry run)
+agentspec generate src/ --dry-run --force-context
+
+# Use different Claude models
+agentspec generate src/ --model claude-sonnet-4-20250514  # Smarter, more expensive
+agentspec generate src/ --model claude-haiku-4-5          # Faster, cheaper (recommended)
+
 # Lint with custom minimum line requirement
 agentspec lint src/ --min-lines 15
 
@@ -157,7 +235,27 @@ agentspec lint src/ --strict
 
 ## 🛠️ Features
 
-### 1. Intelligent Linting
+### 1. Auto-Generation
+
+Let Claude write the verbose docstrings for you:
+
+```bash
+# Generate for entire codebase
+agentspec generate src/ --model claude-haiku-4-5 --force-context
+
+# Generate for single file
+agentspec generate src/embeddings.py --model claude-haiku-4-5
+```
+
+**What it generates:**
+- ✅ Comprehensive WHAT THIS DOES sections
+- ✅ Dependency tracking (calls, called_by)
+- ✅ WHY THIS APPROACH explanations
+- ✅ AGENT INSTRUCTIONS (guardrails)
+- ✅ Changelog entries
+- ✅ Optional: Context-forcing print() statements
+
+### 2. Intelligent Linting
 
 Validates:
 - ✅ YAML syntax correctness
@@ -174,7 +272,7 @@ src/embeddings.py:
   Line 78: ❌ batch_process missing required keys: why, guardrails
 ```
 
-### 2. Multiple Export Formats
+### 3. Multiple Export Formats
 
 #### Markdown (Human-Readable)
 ```bash
@@ -200,7 +298,7 @@ agentspec extract src/ --format agent-context
 
 Includes `print()` statements that force specs into agent context.
 
-### 3. CI/CD Integration
+### 4. CI/CD Integration
 
 Add to `.github/workflows/agentspec.yml`:
 
@@ -223,7 +321,7 @@ jobs:
         run: agentspec lint src/ --strict
 ```
 
-### 4. Pre-commit Hook
+### 5. Pre-commit Hook
 
 Add to `.git/hooks/pre-commit`:
 
@@ -283,12 +381,16 @@ See **[RETROFIT_GUIDE.md](RETROFIT_GUIDE.md)** for detailed instructions.
 
 Quick version:
 
-1. Use the retrofit prompt from the guide
-2. Process files in 500-line chunks
-3. Run `agentspec lint` to validate
+1. Use agentspec's auto-generation:
+   ```bash
+   agentspec generate src/ --model claude-haiku-4-5 --force-context
+   ```
+
+2. Run `agentspec lint` to validate
+3. Review and refine AI-generated docs
 4. Iterate on warnings until clean
 
-Expect ~15 minutes per file initially, faster as you get the pattern down.
+Expect the auto-generator to handle 90% of the work. You just review and tweak.
 
 ---
 
