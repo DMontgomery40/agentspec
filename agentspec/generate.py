@@ -88,8 +88,8 @@ def generate_docstring(code: str, filepath: str) -> str:
     
     return message.content[0].text
 
-def insert_docstring(filepath: Path, node: ast.FunctionDef, docstring: str):
-    """Insert or replace docstring in function."""
+def insert_docstring(filepath: Path, node: ast.FunctionDef, docstring: str, force_context: bool = False):
+    """Insert or replace docstring in function, optionally adding context print."""
     with open(filepath, 'r') as f:
         lines = f.readlines()
     
@@ -101,7 +101,6 @@ def insert_docstring(filepath: Path, node: ast.FunctionDef, docstring: str):
     
     if existing_docstring:
         # Find and replace existing docstring
-        # This is tricky - we need to find the docstring location
         start_line = func_line + 1
         
         # Skip decorators and find the actual def line
@@ -131,7 +130,15 @@ def insert_docstring(filepath: Path, node: ast.FunctionDef, docstring: str):
                     end_line = i + 1
                     break
         
-        # Remove old docstring
+        # Check if there's already a context print statement after docstring
+        has_context_print = False
+        if end_line < len(lines):
+            next_line = lines[end_line].strip()
+            if 'print(f"[AGENTSPEC_CONTEXT]' in next_line or 'print("[AGENTSPEC_CONTEXT]' in next_line:
+                has_context_print = True
+                end_line += 1  # Include the print line in deletion
+        
+        # Remove old docstring (and old print if exists)
         del lines[start_line:end_line]
         insert_line = start_line
     else:
@@ -148,7 +155,33 @@ def insert_docstring(filepath: Path, node: ast.FunctionDef, docstring: str):
         formatted += f'{indent}{line}\n'
     formatted += f'{indent}"""\n'
     
-    # Insert new docstring
+    # Add context-forcing print if requested
+    if force_context:
+        # Extract key sections for print
+        sections_to_print = []
+        current_section = None
+        
+        for line in docstring.split('\n'):
+            line = line.strip()
+            if line.startswith('WHAT THIS DOES:'):
+                current_section = 'WHAT_THIS_DOES'
+            elif line.startswith('DEPENDENCIES:'):
+                current_section = 'DEPENDENCIES'
+            elif line.startswith('WHY THIS APPROACH:'):
+                current_section = 'WHY_APPROACH'
+            elif line.startswith('AGENT INSTRUCTIONS:'):
+                current_section = 'AGENT_INSTRUCTIONS'
+            elif line.startswith('CHANGELOG:'):
+                current_section = None  # Skip changelog in prints
+            elif current_section and line.startswith('-'):
+                sections_to_print.append(line)
+        
+        # Add print statement that forces context
+        func_name = node.name
+        print_content = ' | '.join(sections_to_print[:3])  # First 3 bullet points
+        formatted += f'{indent}print(f"[AGENTSPEC_CONTEXT] {func_name}: {print_content}")\n'
+    
+    # Insert new docstring (and print if applicable)
     lines.insert(insert_line, formatted)
     
     # Write back
@@ -170,7 +203,7 @@ class FunctionFinder(ast.NodeVisitor):
             self.functions.append((node.lineno, node.name))
         self.generic_visit(node)
 
-def process_file(filepath: Path, dry_run: bool = False):
+def process_file(filepath: Path, dry_run: bool = False, force_context: bool = False):
     """Process a single file and generate docstrings."""
     print(f"\n📄 Processing {filepath}")
     
@@ -188,6 +221,9 @@ def process_file(filepath: Path, dry_run: bool = False):
     for lineno, name in finder.functions:
         print(f"    - {name} (line {lineno})")
     
+    if force_context:
+        print("  🔊 Context-forcing print() statements will be added")
+    
     if dry_run:
         return
     
@@ -197,18 +233,23 @@ def process_file(filepath: Path, dry_run: bool = False):
         try:
             code, node = extract_function_code(filepath, lineno)
             docstring = generate_docstring(code, str(filepath))
-            insert_docstring(filepath, node, docstring)
-            print(f"  ✅ Added docstring to {name}")
+            insert_docstring(filepath, node, docstring, force_context=force_context)
+            
+            if force_context:
+                print(f"  ✅ Added docstring + context print to {name}")
+            else:
+                print(f"  ✅ Added docstring to {name}")
         except Exception as e:
             print(f"  ❌ Error processing {name}: {e}")
 
-def run(target: str, dry_run: bool = False) -> int:
+def run(target: str, dry_run: bool = False, force_context: bool = False) -> int:
     """
     CLI entry point for generating docstrings.
     
     Args:
         target: File or directory path
         dry_run: If True, preview only without modifying files
+        force_context: If True, add print() statements to force context loading
     
     Returns:
         Exit code (0 for success, 1 for error)
@@ -229,11 +270,11 @@ def run(target: str, dry_run: bool = False) -> int:
     
     try:
         if path.is_file():
-            process_file(path, dry_run)
+            process_file(path, dry_run, force_context)
         else:
             for filepath in path.rglob("*.py"):
                 try:
-                    process_file(filepath, dry_run)
+                    process_file(filepath, dry_run, force_context)
                 except Exception as e:
                     print(f"❌ Error processing {filepath}: {e}")
         
@@ -247,14 +288,18 @@ def run(target: str, dry_run: bool = False) -> int:
 def main():
     """Standalone script entry point."""
     if len(sys.argv) < 2:
-        print("Usage: python generate.py <file_or_dir> [--dry-run]")
+        print("Usage: python generate.py <file_or_dir> [--dry-run] [--force-context]")
         print("\nRequires ANTHROPIC_API_KEY environment variable")
+        print("\nOptions:")
+        print("  --dry-run        Preview without modifying files")
+        print("  --force-context  Add print() statements to force LLMs to load context")
         sys.exit(1)
     
     path = sys.argv[1]
     dry_run = '--dry-run' in sys.argv
+    force_context = '--force-context' in sys.argv
     
-    exit_code = run(path, dry_run)
+    exit_code = run(path, dry_run, force_context)
     sys.exit(exit_code)
 
 if __name__ == "__main__":
