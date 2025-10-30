@@ -75,6 +75,13 @@ def main():
         action="store_true",
         help="Add print() statements to force LLMs to load docstrings into context"
     )
+    generate_parser.add_argument(
+        "--model",
+        type=str,
+        default="claude-sonnet-4-20250514",
+        help="Claude model to use (default: claude-sonnet-4-20250514). "
+             "Options: claude-haiku-4-5-20250929, claude-sonnet-4-5-20250929"
+    )
     
     # Parse args
     args = parser.parse_args()
@@ -99,7 +106,8 @@ def main():
         exit_code = generate.run(
             args.target,
             dry_run=args.dry_run,
-            force_context=args.force_context
+            force_context=args.force_context,
+            model=args.model
         )
     else:
         parser.print_help()
