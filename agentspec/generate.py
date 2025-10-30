@@ -163,7 +163,11 @@ def insert_docstring_at_line(filepath: Path, lineno: int, func_name: str, docstr
             if line.startswith('-') and len(sections) < 3:
                 sections.append(line[1:].strip())
         
+        # Properly escape the content for the print statement
         print_content = ' | '.join(sections)
+        # Escape quotes and backslashes
+        print_content = print_content.replace('\\', '\\\\').replace('"', '\\"')
+        
         new_lines.append(f'{indent}print(f"[AGENTSPEC_CONTEXT] {func_name}: {print_content}")\n')
     
     # Insert the new docstring
