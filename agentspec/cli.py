@@ -14,6 +14,91 @@ from agentspec import lint, extract
 from agentspec.utils import load_env_from_dotenv
 
 
+def _show_rich_help():
+    """Display a beautiful Rich-formatted help screen."""
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+    from rich import box
+    
+    console = Console()
+    
+    # Title
+    console.print(Panel.fit(
+        "[bold magenta]Agentspec[/bold magenta]\n"
+        "[dim]Structured, enforceable docstrings for AI agents[/dim]",
+        border_style="cyan",
+        padding=(1, 2),
+    ))
+    console.print()
+    
+    # Commands table
+    commands_table = Table(
+        title="[bold]Commands[/bold]",
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold cyan",
+        title_style="bold",
+    )
+    commands_table.add_column("Command", style="green", no_wrap=True)
+    commands_table.add_column("Description")
+    
+    commands_table.add_row(
+        "lint",
+        "Validate agentspec blocks in Python files"
+    )
+    commands_table.add_row(
+        "extract", 
+        "Extract agentspec blocks to markdown or JSON"
+    )
+    commands_table.add_row(
+        "generate",
+        "Auto-generate verbose agentspec docstrings using Claude"
+    )
+    
+    console.print(commands_table)
+    console.print()
+    
+    # Quick examples
+    console.print("[bold]Quick Start:[/bold]")
+    console.print(Panel(
+        "[green]agentspec lint src/ --strict[/green]\n"
+        "[green]agentspec extract src/ --format json > specs.json[/green]\n"
+        "[green]agentspec generate src/ --dry-run[/green]\n"
+        "[green]agentspec generate src/auth.py --critical --diff-summary[/green]",
+        title="[bold]Examples[/bold]",
+        border_style="dim",
+        padding=(0, 1),
+    ))
+    console.print()
+    
+    # Key flags table
+    flags_table = Table(
+        title="[bold]Key Flags[/bold]",
+        box=box.SIMPLE,
+        show_header=False,
+        title_style="bold",
+    )
+    flags_table.add_column("Flag", style="yellow")
+    flags_table.add_column("Description")
+    
+    flags_table.add_row("--strict", "Treat warnings as errors (lint)")
+    flags_table.add_row("--format", "Output format: markdown/json/agent-context (extract)")
+    flags_table.add_row("--critical", "Ultra-accurate generation with verification (generate)")
+    flags_table.add_row("--update-existing", "Regenerate existing docstrings (generate)")
+    flags_table.add_row("--dry-run", "Preview without modifying files (generate)")
+    flags_table.add_row("--diff-summary", "Add per-function code diff summaries (generate)")
+    
+    console.print(flags_table)
+    console.print()
+    
+    console.print(
+        "[dim]For detailed help on a specific command:[/dim] "
+        "[bold cyan]agentspec <command> --help[/bold cyan]"
+    )
+
+
 def main():
     """
     Brief entry point for the agentspec CLI application that dispatches to subcommands for linting, extracting, and generating AI-agent-focused docstrings.
@@ -59,9 +144,26 @@ def main():
     """
     # Load .env automatically (nearest) so users don't have to export manually
     load_env_from_dotenv()
-    print(f"[AGENTSPEC_CONTEXT] main: Parses command-line arguments using argparse to determine which subcommand to execute (lint, extract, or generate) | For \"lint\": validates agentspec docstring blocks in Python files against format requirements, with configurable minimum line counts and strict mode for treating warnings as errors | For \"extract\": reads Python files and exports agentspec docstring blocks in multiple formats (markdown, JSON, or agent-context optimized)")
+    
+    # Override help completely for main command
+    if len(sys.argv) == 1 or (len(sys.argv) == 2 and sys.argv[1] in ('--help', '-h')):
+        _show_rich_help()
+        sys.exit(0)
+    
+    # Use Rich-based help formatter (required dependency)
+    from rich_argparse import RichHelpFormatter as _HelpFmt  # type: ignore
+
     parser = argparse.ArgumentParser(
-        description="Agentspec: Structured, enforceable docstrings for AI agents"
+        description="Agentspec: Structured, enforceable docstrings for AI agents",
+        formatter_class=_HelpFmt,
+        epilog=(
+            "Quick start:\n"
+            "  agentspec lint src/ --strict\n"
+            "  agentspec extract src/ --format json > specs.json\n"
+            "  agentspec generate src/ --dry-run\n"
+            "  agentspec generate src/auth.py --critical --diff-summary\n\n"
+            "Tip: run 'agentspec <command> --help' for detailed flags."
+        ),
     )
     
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
@@ -69,7 +171,24 @@ def main():
     # Lint command
     lint_parser = subparsers.add_parser(
         "lint",
-        help="Validate agentspec blocks in Python files"
+        help="Validate agentspec blocks in Python files",
+        description=(
+            "Validate agentspec docstrings for presence, structure, and verbosity.\n\n"
+            "Common flows:\n"
+            "- Enforce standards in CI: --strict (warnings cause non-zero exit)\n"
+            "- Raise minimum spec verbosity: --min-lines N\n"
+            "- Quick check of a single file before commit\n\n"
+            "Behavior:\n"
+            "- Prints per-file errors and warnings\n"
+            "- Exits non-zero on errors (and on warnings when --strict)\n"
+        ),
+        epilog=(
+            "Examples:\n"
+            "  agentspec lint src/ --strict\n"
+            "  agentspec lint src/payments.py --strict --min-lines 20\n"
+            "  agentspec lint src/ --min-lines 15\n"
+        ),
+        formatter_class=_HelpFmt,
     )
     lint_parser.add_argument(
         "target",
@@ -90,7 +209,25 @@ def main():
     # Extract command
     extract_parser = subparsers.add_parser(
         "extract",
-        help="Extract agentspec blocks to markdown or JSON"
+        help="Extract agentspec blocks to markdown or JSON",
+        description=(
+            "Extract agentspecs from code into portable docs for humans/CI/LLMs.\n\n"
+            "Common flows:\n"
+            "- Human-readable docs site or review bundle: (default) markdown\n"
+            "- Machine-readable output for pipelines: --format json\n"
+            "- Agent-executable context with print() prompts: --format agent-context\n\n"
+            "Outputs:\n"
+            "- markdown → agent_specs.md\n"
+            "- json → agent_specs.json\n"
+            "- agent-context → AGENT_CONTEXT.md\n"
+        ),
+        epilog=(
+            "Examples:\n"
+            "  agentspec extract src/\n"
+            "  agentspec extract src/ --format json > specs.json\n"
+            "  agentspec extract src/auth.py --format agent-context\n"
+        ),
+        formatter_class=_HelpFmt,
     )
     extract_parser.add_argument(
         "target",
@@ -106,7 +243,26 @@ def main():
     # Generate command
     generate_parser = subparsers.add_parser(
         "generate",
-        help="Auto-generate verbose agentspec docstrings using Claude"
+        help="Auto-generate verbose agentspec docstrings",
+        description=(
+            "Generate or refresh agentspec docstrings from code.\n\n"
+            "Common flows:\n"
+            "- Keep docs in sync: --update-existing\n"
+            "- Higher accuracy for ambiguous or uncommon code: --critical\n"
+            "- Fit more into LLM context: --terse\n"
+            "- Add commit-intent summaries: --diff-summary\n\n"
+            "Providers:\n"
+            "- Anthropic by model name (e.g., claude-haiku-4-5)\n"
+            "- OpenAI-compatible (incl. Ollama): --provider openai [--base-url URL]\n"
+        ),
+        epilog=(
+            "Examples:\n"
+            "  agentspec generate src/ --update-existing --terse\n"
+            "  agentspec generate src/core/ --critical --diff-summary\n"
+            "  agentspec generate src/ --provider openai --model gpt-4o-mini\n"
+            "  agentspec generate src/ --provider openai --model llama3.2 --base-url http://localhost:11434/v1\n"
+        ),
+        formatter_class=_HelpFmt,
     )
     generate_parser.add_argument(
         "target",
@@ -168,6 +324,8 @@ def main():
         action="store_true",
         help="DIFF SUMMARY: Add LLM-generated summaries of git diffs for each commit (separate API call)"
     )
+
+    # Keep top-level help concise. Detailed flags remain in each subcommand's --help.
 
     # Parse args
     args = parser.parse_args()

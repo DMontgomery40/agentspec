@@ -332,24 +332,29 @@ If corrections are needed, return the corrected version in the same format."""
     print(final_with_metadata)
     print("="*80)
 
-    # If diff_summary requested, make separate LLM call to summarize git diffs
+    # If diff_summary requested, make separate LLM call to summarize function-scoped code diffs (excluding docstrings/comments)
     if diff_summary:
-        from agentspec.collect import collect_changelog_diffs
-        diffs = collect_changelog_diffs(Path(filepath), func_name)
-        
+        from agentspec.collect import collect_function_code_diffs
+        diffs = collect_function_code_diffs(Path(filepath), func_name)
+
         if diffs:
-            print(f"  📊 Collecting diff summaries for {func_name}...")
-            # Build prompt for LLM to summarize diffs
-            diff_prompt = "Summarize these git diffs concisely (one line per commit):\n\n"
+            print(f"  📊 Collecting function-scoped diff summaries for {func_name}...")
+            # Build prompt for LLM to summarize WHY based on code-only changes
+            diff_prompt = (
+                "Summarize the intent (WHY) behind these code-only changes to the function.\n"
+                "Only consider the added/removed lines shown (docstrings/comments removed).\n"
+                "Provide one concise line per commit.\n\n"
+            )
             for d in diffs:
                 diff_prompt += f"Commit: {d['date']} - {d['message']}\n"
-                diff_prompt += f"Diff:\n{d['diff']}\n\n"
-            
+                diff_prompt += f"Function: {func_name}\n"
+                diff_prompt += f"Changed lines:\n{d['diff']}\n\n"
+
             # Separate API call for diff summaries
             summary_system_prompt = (
-                "You are a code change summarizer. For each commit, provide a SHORT one-line summary (max 10 words)."
+                "You are a precise code-change analyst. For each commit, infer the WHY in <=10 words."
                 if terse else
-                "You are a code change summarizer. For each commit, provide a one-line summary of what changed."
+                "You are a precise code-change analyst. For each commit, provide one short line explaining WHY the function changed."
             )
             diff_summaries_text = generate_chat(
                 model=model,
@@ -362,9 +367,9 @@ If corrections are needed, return the corrected version in the same format."""
                 base_url=base_url,
                 provider=provider,
             )
-            
-            # Inject diff summary section
-            diff_summary_section = f"\n\nCHANGELOG DIFF SUMMARY (LLM-generated):\n{diff_summaries_text}\n"
+
+            # Inject function-scoped diff summary section
+            diff_summary_section = f"\n\nFUNCTION CODE DIFF SUMMARY (LLM-generated):\n{diff_summaries_text}\n"
             final_with_metadata += diff_summary_section
 
     return final_with_metadata

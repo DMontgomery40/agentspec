@@ -119,7 +119,6 @@ def _find_git_root(start: Path) -> Path | None:
     - ALWAYS maintain the iteration order from current directory upward (ancestors must be checked in order from closest to furthest)
     - NOTE: This function performs filesystem I/O operations (exists() checks) for each ancestor directory; in deeply nested directory structures or slow filesystems, this could be a performance bottleneck if called repeatedly without caching
     """
-    print(f"[AGENTSPEC_CONTEXT] _find_git_root: Accepts a Path object (file or directory) and resolves it to an absolute path | If the path points to a file, extracts its parent directory as the starting search point | Iterates through the directory hierarchy from the current location upward through all ancestor directories")
     cur = start.resolve()
     if cur.is_file():
         cur = cur.parent
