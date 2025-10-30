@@ -205,3 +205,24 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Agentspec-specific
+# Generated documentation files
+FUNCTION_DOCS.md
+function_docs.json
+agentspec_output.json
+agentspec_output.md
+
+# Test outputs
+test_output/
+.test_cache/
+
+# API keys (extra safety)
+*.key
+.api_keys
+anthropic_key.txt
