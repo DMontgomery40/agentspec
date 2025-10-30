@@ -71,11 +71,11 @@ def extract_function_code(filepath: Path, lineno: int) -> tuple[str, ast.Functio
     
     raise ValueError(f"No function found at line {lineno}")
 
-def generate_docstring(code: str, filepath: str) -> str:
+def generate_docstring(code: str, filepath: str, model: str = "claude-sonnet-4-20250514") -> str:
     """Use Claude to generate a verbose docstring."""
     
     message = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model=model,
         max_tokens=2000,
         messages=[{
             "role": "user",
@@ -203,7 +203,7 @@ class FunctionFinder(ast.NodeVisitor):
             self.functions.append((node.lineno, node.name))
         self.generic_visit(node)
 
-def process_file(filepath: Path, dry_run: bool = False, force_context: bool = False):
+def process_file(filepath: Path, dry_run: bool = False, force_context: bool = False, model: str = "claude-sonnet-4-20250514"):
     """Process a single file and generate docstrings."""
     print(f"\n📄 Processing {filepath}")
     
@@ -224,6 +224,8 @@ def process_file(filepath: Path, dry_run: bool = False, force_context: bool = Fa
     if force_context:
         print("  🔊 Context-forcing print() statements will be added")
     
+    print(f"  🤖 Using model: {model}")
+    
     if dry_run:
         return
     
@@ -232,7 +234,7 @@ def process_file(filepath: Path, dry_run: bool = False, force_context: bool = Fa
         
         try:
             code, node = extract_function_code(filepath, lineno)
-            docstring = generate_docstring(code, str(filepath))
+            docstring = generate_docstring(code, str(filepath), model=model)
             insert_docstring(filepath, node, docstring, force_context=force_context)
             
             if force_context:
@@ -242,7 +244,7 @@ def process_file(filepath: Path, dry_run: bool = False, force_context: bool = Fa
         except Exception as e:
             print(f"  ❌ Error processing {name}: {e}")
 
-def run(target: str, dry_run: bool = False, force_context: bool = False) -> int:
+def run(target: str, dry_run: bool = False, force_context: bool = False, model: str = "claude-sonnet-4-20250514") -> int:
     """
     CLI entry point for generating docstrings.
     
@@ -250,6 +252,7 @@ def run(target: str, dry_run: bool = False, force_context: bool = False) -> int:
         target: File or directory path
         dry_run: If True, preview only without modifying files
         force_context: If True, add print() statements to force context loading
+        model: Claude model to use for generation
     
     Returns:
         Exit code (0 for success, 1 for error)
@@ -270,11 +273,11 @@ def run(target: str, dry_run: bool = False, force_context: bool = False) -> int:
     
     try:
         if path.is_file():
-            process_file(path, dry_run, force_context)
+            process_file(path, dry_run, force_context, model)
         else:
             for filepath in path.rglob("*.py"):
                 try:
-                    process_file(filepath, dry_run, force_context)
+                    process_file(filepath, dry_run, force_context, model)
                 except Exception as e:
                     print(f"❌ Error processing {filepath}: {e}")
         
@@ -288,18 +291,27 @@ def run(target: str, dry_run: bool = False, force_context: bool = False) -> int:
 def main():
     """Standalone script entry point."""
     if len(sys.argv) < 2:
-        print("Usage: python generate.py <file_or_dir> [--dry-run] [--force-context]")
+        print("Usage: python generate.py <file_or_dir> [--dry-run] [--force-context] [--model MODEL]")
         print("\nRequires ANTHROPIC_API_KEY environment variable")
         print("\nOptions:")
-        print("  --dry-run        Preview without modifying files")
-        print("  --force-context  Add print() statements to force LLMs to load context")
+        print("  --dry-run           Preview without modifying files")
+        print("  --force-context     Add print() statements to force LLMs to load context")
+        print("  --model MODEL       Claude model to use (default: claude-sonnet-4-20250514)")
+        print("                      Options: claude-haiku-4-5-20250929, claude-sonnet-4-5-20250929")
         sys.exit(1)
     
     path = sys.argv[1]
     dry_run = '--dry-run' in sys.argv
     force_context = '--force-context' in sys.argv
     
-    exit_code = run(path, dry_run, force_context)
+    # Parse model flag
+    model = "claude-sonnet-4-20250514"
+    if '--model' in sys.argv:
+        model_index = sys.argv.index('--model')
+        if model_index + 1 < len(sys.argv):
+            model = sys.argv[model_index + 1]
+    
+    exit_code = run(path, dry_run, force_context, model)
     sys.exit(exit_code)
 
 if __name__ == "__main__":
