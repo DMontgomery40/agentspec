@@ -784,7 +784,7 @@ def main():
             "Generate or refresh agentspec docstrings from code.\n\n"
             "Common flows:\n"
             "- Keep docs in sync: --update-existing\n"
-            "- Higher accuracy for ambiguous or uncommon code: --critical\n"
+            "- For ambiguous or uncommon code: avoid --terse for thoroughness\n"
             "- Fit more into LLM context: --terse\n"
             "- Add commit-intent summaries: --diff-summary\n\n"
             "Providers:\n"
@@ -794,7 +794,7 @@ def main():
         epilog=(
             "Examples:\n"
             "  agentspec generate src/ --update-existing --terse\n"
-            "  agentspec generate src/core/ --critical --diff-summary\n"
+            "  agentspec generate src/core/ --diff-summary\n"
             "  agentspec generate src/ --provider openai --model gpt-4o-mini\n"
             "  agentspec generate src/ --provider openai --model llama3.2 --base-url http://localhost:11434/v1\n"
         ),
