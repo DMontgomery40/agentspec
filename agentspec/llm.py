@@ -16,38 +16,136 @@ from typing import List, Dict, Optional
 
 def _is_anthropic_model(model: str) -> bool:
     """
-    Brief one-line description.
+    ---agentspec
+    what: |
+      This function performs model identifier classification to determine if a given string represents an Anthropic-provided language model.
 
-    Classifies whether a model identifier string represents an Anthropic-provided language model by checking for 'claude' or 'anthropic' prefixes.
+      **Input Processing:**
+      - Accepts a single parameter `model` of type `str` (though None is handled defensively)
+      - Normalizes input by applying the defensive pattern `(model or '')` which coerces None to empty string, then converts to lowercase via `.lower()`
+      - This normalization ensures consistent comparison regardless of input casing or None values
 
-    WHAT THIS DOES:
-    This function performs defensive model identifier classification to determine if a given string represents an Anthropic model. It accepts a `model` parameter of type `str` (though None values are handled gracefully), normalizes the input by coercing None to empty string and converting to lowercase, then performs two independent prefix checks using `.startswith()`. The function returns True if the normalized model string begins with either 'claude' OR 'anthropic', and False otherwise. It handles multiple edge cases including None inputs (coerced to empty string, returns False), empty strings (returns False), mixed-case inputs like 'Claude-2' or 'ANTHROPIC-CLAUDE' (correctly identified as True), partial matches like 'claude-2-100k' (correctly identified as True), non-matching strings like 'gpt-4' or 'llama-2' (return False), and leading/trailing whitespace which is NOT stripped (so ' claude-2' would return False). The function uses short-circuit OR evaluation, meaning if the first condition is True, the second is not evaluated. No exceptions are raised under any input condition due to the defensive design pattern that prevents AttributeError.
+      **Core Logic:**
+      - Performs two independent prefix checks on the normalized string using `.startswith()` method
+      - Returns True if the normalized model string begins with either 'claude' OR 'anthropic'
+      - Returns False if neither prefix matches
+      - Uses short-circuit OR evaluation, so if first condition is True, second is not evaluated
 
-    WHY THIS APPROACH:
-    Case-insensitive matching is essential because model identifiers from various sources (user input, configuration files, API responses) may use inconsistent casing conventions, and case-insensitive comparison ensures robust identification regardless of source formatting. The defensive `(model or '')` pattern is a critical safeguard that prevents AttributeError when None is passed, which can occur due to optional parameters or missing configuration values; rather than forcing all callers to validate input, this function gracefully handles the edge case internally. The dual prefix strategy checking both 'claude' and 'anthropic' accommodates potential future naming conventions and future-proofs the function without requiring code changes if Anthropic's naming conventions evolve. String prefix matching via `.startswith()` is O(n) where n is the length of the prefix (typically 6-10 characters), which is significantly faster than regex compilation/matching or list lookups against a registry, making this approach ideal for a function called frequently in request routing paths where latency overhead must be minimized. Alternatives were rejected: regex matching introduces higher overhead and unnecessary complexity for simple prefix matching; exact matching against a hardcoded list is brittle when Anthropic releases new model variants and requires code changes for each new model; external model registry lookup introduces I/O latency and external dependencies inappropriate for a simple classification utility; whitespace normalization via `.strip()` was not included because model identifiers are typically well-formed and adding it would mask upstream data quality issues.
+      **Edge Cases Handled:**
+      - None input: Coerced to empty string, returns False (empty string doesn't start with 'claude' or 'anthropic')
+      - Empty string: Returns False
+      - Mixed case inputs: 'Claude-2', 'ANTHROPIC-CLAUDE', 'cLaUdE-3' all correctly identified as True
+      - Partial matches: 'claude-2-100k', 'anthropic-claude-v1' correctly identified as True
+      - Non-matching strings: 'gpt-4', 'llama-2', 'mistral' correctly return False
+      - Whitespace: Leading/trailing whitespace is NOT stripped; ' claude-2' would return False
 
-    AGENT INSTRUCTIONS:
-    - DO NOT modify the prefix strings ('claude', 'anthropic') without auditing all downstream code that depends on this function's classification, as changes here affect model routing throughout the system and could cause requests to be sent to wrong API endpoints.
-    - DO NOT remove the defensive `(model or '')` pattern without ensuring all callers guarantee non-None input and adding explicit type validation, as this pattern is the only safeguard against AttributeError from None values.
-    - DO NOT add `.strip()` to normalize whitespace without verifying that all upstream model identifier sources are properly formatted, as silently accepting malformed identifiers could mask data quality issues.
-    - DO NOT change the return type from boolean without updating all conditional logic that depends on this function, as it is used in if/elif chains and ternary operators throughout the codebase.
-    - DO NOT add regex or complex matching logic without performance testing, as this function may be called in hot paths (per-request model selection) and any performance regression could impact API latency.
-    - ALWAYS maintain both prefix checks ('claude' AND 'anthropic') unless Anthropic's official documentation explicitly deprecates one naming convention.
-    - ALWAYS preserve case-insensitivity behavior, as model identifiers from configuration and user input cannot be guaranteed to use consistent casing.
-    - NOTE: This function is a gatekeeper for routing requests to Anthropic's API. Any logic error here will cause misrouting of requests, potentially sending Anthropic-destined requests to other providers or vice versa, resulting in authentication failures or incorrect API behavior. Treat changes to this function with extreme caution and ensure comprehensive testing of model routing behavior across all supported model identifier formats.
-
-    DEPENDENCIES (from code analysis):
-    Calls: lower, m.startswith
-    Imports: __future__.annotations, os, typing.Dict, typing.List, typing.Optional
-
-
-    CHANGELOG (from git history):
-    - 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features
+      **Return Value:**
+      - Boolean primitive (True or False) suitable for conditional branching in model routing logic
+      - No exceptions raised under any input condition (defensive design prevents AttributeError)
+        deps:
+          calls:
+            - lower
+            - m.startswith
+          imports:
+            - __future__.annotations
+            - os
+            - typing.Dict
+            - typing.List
+            - typing.Optional
 
 
-    FUNCTION CODE DIFF SUMMARY (LLM-generated):
-    Added function to identify Anthropic models by checking if model name starts with 'claude' or 'anthropic' prefix.
+    why: |
+      **Case-Insensitive Matching:**
+      Model identifiers from various sources (user input, configuration files, API responses) may use inconsistent casing. Case-insensitive comparison ensures robust identification regardless of source formatting conventions.
 
+      **Defensive None Handling:**
+      The pattern `(model or '')` is a defensive programming practice that prevents AttributeError when None is passed. This is critical because the function signature accepts `str` but callers may pass None due to optional parameters or missing configuration. Rather than forcing callers to validate input, this function gracefully handles the edge case.
+
+      **Dual Prefix Strategy:**
+      Checking both 'claude' and 'anthropic' accommodates potential future naming conventions. Anthropic may release models under either prefix, and this approach future-proofs the function without requiring code changes if naming conventions evolve.
+
+      **Performance Characteristics:**
+      String prefix matching is O(n) where n is the length of the prefix being checked (typically 6-10 characters). This is significantly faster than regex compilation/matching or list lookups against a registry. For a function called frequently in request routing paths, this lightweight approach minimizes latency overhead.
+
+      **Alternatives Rejected:**
+      - Regex matching: Higher overhead, less readable, unnecessary complexity for simple prefix matching
+      - Exact matching against a hardcoded list: Brittle when Anthropic releases new model variants; requires code changes for each new model
+      - External model registry lookup: Introduces I/O latency and external dependency; inappropriate for a simple classification utility
+      - Whitespace normalization: Not included because model identifiers are typically well-formed; adding `.strip()` would mask upstream data quality issues
+
+    guardrails:
+      - DO NOT modify the prefix strings ('claude', 'anthropic') without auditing all downstream code that depends on this function's classification. Changes here affect model routing throughout the system and could cause requests to be sent to wrong API endpoints.
+      - DO NOT remove the defensive `(model or '')` pattern without ensuring all callers guarantee non-None input and adding explicit type validation. This pattern is the only safeguard against AttributeError from None values.
+      - DO NOT add `.strip()` to normalize whitespace without verifying that all upstream model identifier sources are properly formatted. Silently accepting malformed identifiers could mask data quality issues.
+      - DO NOT change the return type from boolean without updating all conditional logic that depends on this function. This function is used in if/elif chains and ternary operators throughout the codebase.
+      - DO NOT add regex or complex matching logic without performance testing. This function may be called in hot paths (per-request model selection); any performance regression could impact API latency.
+      - ALWAYS maintain both prefix checks ('claude' AND 'anthropic') unless Anthropic's official documentation explicitly deprecates one naming convention.
+      - ALWAYS preserve case-insensitivity behavior; model identifiers from configuration and user input cannot be guaranteed to use consistent casing.
+      - CRITICAL: This function is a gatekeeper for routing requests to Anthropic's API. Any logic error here will cause misrouting of requests, potentially sending Anthropic-destined requests to other providers or vice versa, resulting in authentication failures or incorrect API behavior.
+
+        changelog:
+          - "- 2025-10-30: feat: enhance CLI help and add rich formatting support"
+          - "-    ---agentspec"
+          - "-    what: |"
+          - "-      This function performs model identifier classification to determine if a given string represents an Anthropic-provided language model."
+          - "-      **Input Processing:**"
+          - "-      - Accepts a single parameter `model` of type `str` (though None is handled defensively)"
+          - "-      - Normalizes input by applying the defensive pattern `(model or '')` which coerces None to empty string, then converts to lowercase via `.lower()`"
+          - "-      - This normalization ensures consistent comparison regardless of input casing or None values"
+          - "-      **Core Logic:**"
+          - "-      - Performs two independent prefix checks on the normalized string using `.startswith()` method"
+          - "-      - Returns True if the normalized model string begins with either 'claude' OR 'anthropic'"
+          - "-      - Returns False if neither prefix matches"
+          - "-      - Uses short-circuit OR evaluation, so if first condition is True, second is not evaluated"
+          - "-      **Edge Cases Handled:**"
+          - "-      - None input: Coerced to empty string, returns False (empty string doesn't start with 'claude' or 'anthropic')"
+          - "-      - Empty string: Returns False"
+          - "-      - Mixed case inputs: 'Claude-2', 'ANTHROPIC-CLAUDE', 'cLaUdE-3' all correctly identified as True"
+          - "-      - Partial matches: 'claude-2-100k', 'anthropic-claude-v1' correctly identified as True"
+          - "-      - Non-matching strings: 'gpt-4', 'llama-2', 'mistral' correctly return False"
+          - "-      - Whitespace: Leading/trailing whitespace is NOT stripped; ' claude-2' would return False"
+          - "-      **Return Value:**"
+          - "-      - Boolean primitive (True or False) suitable for conditional branching in model routing logic"
+          - "-      - No exceptions raised under any input condition (defensive design prevents AttributeError)"
+          - "-        deps:"
+          - "-          calls:"
+          - "-            - lower"
+          - "-            - m.startswith"
+          - "-            - print"
+          - "-          imports:"
+          - "-            - __future__.annotations"
+          - "-            - os"
+          - "-            - typing.Dict"
+          - "-            - typing.List"
+          - "-            - typing.Optional"
+          - "-    why: |"
+          - "-      **Case-Insensitive Matching:**"
+          - "-      Model identifiers from various sources (user input, configuration files, API responses) may use inconsistent casing. Case-insensitive comparison ensures robust identification regardless of source formatting conventions."
+          - "-      **Defensive None Handling:**"
+          - "-      The pattern `(model or '')` is a defensive programming practice that prevents AttributeError when None is passed. This is critical because the function signature accepts `str` but callers may pass None due to optional parameters or missing configuration. Rather than forcing callers to validate input, this function gracefully handles the edge case."
+          - "-      **Dual Prefix Strategy:**"
+          - "-      Checking both 'claude' and 'anthropic' accommodates potential future naming conventions. Anthropic may release models under either prefix, and this approach future-proofs the function without requiring code changes if naming conventions evolve."
+          - "-      **Performance Characteristics:**"
+          - "-      String prefix matching is O(n) where n is the length of the prefix being checked (typically 6-10 characters). This is significantly faster than regex compilation/matching or list lookups against a registry. For a function called frequently in request routing paths, this lightweight approach minimizes latency overhead."
+          - "-      **Alternatives Rejected:**"
+          - "-      - Regex matching: Higher overhead, less readable, unnecessary complexity for simple prefix matching"
+          - "-      - Exact matching against a hardcoded list: Brittle when Anthropic releases new model variants; requires code changes for each new model"
+          - "-      - External model registry lookup: Introduces I/O latency and external dependency; inappropriate for a simple classification utility"
+          - "-      - Whitespace normalization: Not included because model identifiers are typically well-formed; adding `.strip()` would mask upstream data quality issues"
+          - "-    guardrails:"
+          - "-      - DO NOT modify the prefix strings ('claude', 'anthropic') without auditing all downstream code that depends on this function's classification. Changes here affect model routing throughout the system and could cause requests to be sent to wrong API endpoints."
+          - "-      - DO NOT remove the defensive `(model or '')` pattern without ensuring all callers guarantee non-None input and adding explicit type validation. This pattern is the only safeguard against AttributeError from None values."
+          - "-      - DO NOT add `.strip()` to normalize whitespace without verifying that all upstream model identifier sources are properly formatted. Silently accepting malformed identifiers could mask data quality issues."
+          - "-      - DO NOT change the return type from boolean without updating all conditional logic that depends on this function. This function is used in if/elif chains and ternary operators throughout the codebase."
+          - "-      - DO NOT add regex or complex matching logic without performance testing. This function may be called in hot paths (per-request model selection); any performance regression could impact API latency."
+          - "-      - ALWAYS maintain both prefix checks ('claude' AND 'anthropic') unless Anthropic's official documentation explicitly deprecates one naming convention."
+          - "-      - ALWAYS preserve case-insensitivity behavior; model identifiers from configuration and user input cannot be guaranteed to use consistent casing."
+          - "-      - CRITICAL: This function is a gatekeeper for routing requests to Anthropic's API. Any logic error here will cause misrouting of requests, potentially sending Anthropic-destined requests to other providers or vice versa, resulting in authentication failures or incorrect API behavior."
+          - "-        changelog:"
+          - "-          - "- no git history available""
+          - "-        ---/agentspec"
+          - "- 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features"
+        ---/agentspec
     """
     m = (model or '').lower()
     return m.startswith('claude') or m.startswith('anthropic')
@@ -62,88 +160,173 @@ def generate_chat(
     provider: Optional[str] = 'auto',
 ) -> str:
     """
-    Brief one-line description.
+    ---agentspec
+    what: |
+      generate_chat() is a unified LLM interface that routes requests to either Anthropic Claude or OpenAI-compatible providers (including local Ollama instances). It accepts a model identifier, message list, temperature, max_tokens, optional base_url, and provider hint, returning a single string response.
 
-    WHAT THIS DOES:
-    Unified LLM interface that routes requests to either Anthropic Claude or OpenAI-compatible providers (including local Ollama instances), accepting a model identifier, message list, temperature, max_tokens, optional base_url, and provider hint, returning a single string response.
+      **Anthropic Path (Claude models):**
+      - Triggered when provider='anthropic' is explicit, or when _is_anthropic_model(model) returns True and provider is not forced to 'openai'
+      - Concatenates all 'system' and 'user' role messages with "\n\n" separator into a single prompt string
+      - Filters out 'assistant' role messages (one-way conversation)
+      - Creates Anthropic client with lazy import; raises RuntimeError if anthropic SDK not installed
+      - Calls client.messages.create() with model, max_tokens, temperature, and reconstructed single-message format
+      - Returns resp.content[0].text directly
 
-    The function implements two distinct code paths:
+      **OpenAI-Compatible Path (default):**
+      - Triggered for all non-Anthropic models or when provider='openai' is explicit
+      - Resolves API key from environment: OPENAI_API_KEY → AGENTSPEC_OPENAI_API_KEY → 'not-needed' (permissive fallback for local services)
+      - Resolves base_url from parameter → OPENAI_BASE_URL → AGENTSPEC_OPENAI_BASE_URL → OLLAMA_BASE_URL → 'https://api.openai.com/v1' (default OpenAI)
+      - Creates OpenAI client with resolved base_url and api_key
+      - **Primary attempt: Responses API** (newer OpenAI interface)
+        - Concatenates system + user/assistant messages with "\n\n" separator into input_text
+        - Calls client.responses.create() with model, input, temperature, max_output_tokens
+        - Extracts text via defensive attribute chain: output_text → output[].content.text → text
+        - Returns first non-empty text found; silently catches all exceptions and falls through
+      - **Fallback: Chat Completions API** (OpenAI-compatible standard)
+        - Normalizes message roles: unknown roles default to 'user'
+        - Preserves original message structure (system/user/assistant roles intact)
+        - Calls client.chat.completions.create() with model, messages, temperature, max_tokens
+        - Returns comp.choices[0].message.content or empty string if response malformed
 
-    **Anthropic Path (Claude models):**
-    - Triggered when provider='anthropic' is explicit, or when _is_anthropic_model(model) returns True and provider is not forced to 'openai'
-    - Concatenates all 'system' and 'user' role messages with "\n\n" separator into a single prompt string
-    - Filters out 'assistant' role messages (one-way conversation, not multi-turn)
-    - Creates Anthropic client with lazy import; raises RuntimeError if anthropic SDK not installed
-    - Calls client.messages.create() with model, max_tokens, temperature, and reconstructed single-message format
-    - Returns resp.content[0].text directly
-
-    **OpenAI-Compatible Path (default):**
-    - Triggered for all non-Anthropic models or when provider='openai' is explicit
-    - Resolves API key from environment: OPENAI_API_KEY → AGENTSPEC_OPENAI_API_KEY → 'not-needed' (permissive fallback for local services)
-    - Resolves base_url from parameter → OPENAI_BASE_URL → AGENTSPEC_OPENAI_BASE_URL → OLLAMA_BASE_URL → 'https://api.openai.com/v1' (default OpenAI)
-    - Creates OpenAI client with resolved base_url and api_key
-    - **Primary attempt: Responses API** (newer OpenAI interface)
-      - Concatenates system + user/assistant messages with "\n\n" separator into input_text
-      - Calls client.responses.create() with model, input, temperature, max_output_tokens
-      - Extracts text via defensive attribute chain: output_text → output[].content.text → text
-      - Returns first non-empty text found; silently catches all exceptions and falls through
-    - **Fallback: Chat Completions API** (OpenAI-compatible standard)
-      - Normalizes message roles: unknown roles default to 'user'
-      - Preserves original message structure (system/user/assistant roles intact)
-      - Calls client.chat.completions.create() with model, messages, temperature, max_tokens
-      - Returns comp.choices[0].message.content or empty string if response malformed
-
-    **Edge Cases Handled:**
-    - Missing dependencies: Raises RuntimeError with installation instructions (lazy import pattern)
-    - Empty/None content fields: Defaults to empty string
-    - Malformed response objects: Defensive hasattr/getattr chain with fallbacks
-    - Responses API unavailable: Silent exception catch, automatic fallback to Chat Completions
-    - Invalid message roles: Coerced to 'user' role
-    - Missing API key for local services: Accepts 'not-needed' placeholder
-    - Empty response choices: Returns empty string instead of crashing
-
-    WHY THIS APPROACH:
-    **Provider Routing:** The dual-path design accommodates two distinct LLM ecosystems with incompatible APIs. Anthropic's message format differs fundamentally from OpenAI's, requiring separate client initialization and message reconstruction. The provider parameter allows explicit control while defaulting to auto-detection via _is_anthropic_model(), reducing caller burden and enabling transparent provider switching.
-
-    **Lazy Imports:** Both anthropic and openai SDKs are imported only when needed within their respective code paths. This avoids hard dependencies and allows users to install only the SDK(s) they require, reducing package bloat and installation friction. The try/except ImportError pattern provides clear error messages directing users to install missing dependencies.
-
-    **Message Concatenation (Anthropic):** Claude's API expects a different message structure than the input format. Rather than complex transformation logic that preserves multi-turn conversation history, concatenating system+user content into a single prompt is sufficient for most use cases and simplifies the interface. Assistant messages are dropped because the Anthropic path reconstructs messages as a single user message, which doesn't preserve multi-turn conversation history—this is an intentional tradeoff favoring simplicity over fidelity.
-
-    **Responses API with Chat Completions Fallback:** The Responses API is OpenAI's newer, simpler interface but not all providers support it (e.g., Ollama, local deployments, older OpenAI-compatible services). The try/except pattern attempts the modern API first, then silently falls back to the widely-supported Chat Completions API. This maximizes compatibility without requiring caller awareness of provider capabilities or version-specific API support.
-
-    **Defensive Response Extraction:** Response objects vary across providers and API versions. The hasattr/getattr chain with multiple fallback paths (output_text → output → text) ensures robustness against schema variations without requiring strict type checking. This defensive approach prevents AttributeError crashes when response structures differ from expected schemas.
-
-    **Environment Variable Hierarchy:** Multiple environment variable names (OPENAI_API_KEY, AGENTSPEC_OPENAI_API_KEY, OLLAMA_BASE_URL) allow flexible configuration across different deployment contexts (CI/CD, Docker, local dev) without code changes. The hierarchy respects parameter overrides first, then checks provider-specific variables, then falls back to defaults. This enables infrastructure automation to configure different providers without modifying application code.
-
-    **Tradeoff: Simplicity vs. Fidelity:** Message concatenation loses conversation structure (no role preservation in Anthropic path). This is acceptable for single-turn use cases but limits multi-turn dialogue. The alternative (full message transformation with conversation history management) would add complexity, maintenance burden, and require changes to the Anthropic API call structure.
-
-    AGENT INSTRUCTIONS:
-    - DO NOT remove the lazy import pattern for anthropic/openai. Hard dependencies would break installations for users who only need one provider. The try/except ImportError is critical for graceful degradation and clear error messaging.
-    - DO NOT change the message concatenation separator from "\n\n" without testing against actual Claude models. This separator is semantic—changing it alters prompt meaning and model behavior in ways that may not be immediately apparent.
-    - DO NOT remove the Responses API try/except fallback. Silently catching exceptions here is intentional for provider compatibility. Removing it would break Ollama and other Chat Completions-only providers that don't support the newer Responses API.
-    - DO NOT modify the environment variable resolution order without coordinating with deployment documentation. The hierarchy (parameter → OPENAI_BASE_URL → AGENTSPEC_OPENAI_BASE_URL → OLLAMA_BASE_URL → default) is relied upon by infrastructure automation and deployment scripts.
-    - DO NOT change the 'not-needed' API key fallback without understanding local service requirements. Some providers (Ollama, local LLaMA, local Mistral) don't validate API keys; removing this breaks their usage and forces unnecessary authentication configuration.
-    - DO NOT add strict type validation to response extraction (e.g., isinstance checks on resp.output). Providers return varying structures; defensive getattr/hasattr is more robust than strict typing and prevents crashes on schema variations.
-    - DO NOT preserve 'assistant' role messages in the Anthropic path without adding multi-turn support. Current design reconstructs all messages as a single user message; preserving assistant messages would require conversation history management and API changes to support multi-turn dialogue.
-    - DO NOT change role normalization logic (unknown roles → 'user') without considering downstream impact. Some callers may rely on this coercion for malformed input handling; changing it could break existing integrations.
-    - DO NOT remove the empty string fallback in Chat Completions return. This prevents AttributeError crashes when comp.choices is empty or message.content is None, ensuring the function always returns a string.
-    - ALWAYS preserve the parameter order and type hints; callers may use positional arguments or rely on the current signature.
-    - ALWAYS test changes against both Anthropic and OpenAI providers, plus at least one local provider (Ollama) to ensure compatibility across all code paths.
-    - NOTE: This function silently falls back from Responses API to Chat Completions. If you add logging or error tracking, ensure it doesn't spam logs with expected fallback events.
-    - NOTE: The Anthropic path does not preserve multi-turn conversation history. If multi-turn support is needed, the message reconstruction logic must be redesigned and the Anthropic API call structure must change.
-    - NOTE: Empty message content is normalized to empty string, not None. Ensure downstream code handles empty strings appropriately.
-
-    DEPENDENCIES (from code analysis):
-    Calls: Anthropic, OpenAI, RuntimeError, _is_anthropic_model, completions.create, getattr, hasattr, isinstance, join, lower, m.get, messages.create, oai_messages.append, os.getenv, responses.create, str, user_content.append
-    Imports: __future__.annotations, os, typing.Dict, typing.List, typing.Optional
+      **Edge Cases Handled:**
+      - Missing dependencies: Raises RuntimeError with installation instructions (lazy import pattern)
+      - Empty/None content fields: Defaults to empty string
+      - Malformed response objects: Defensive hasattr/getattr chain with fallbacks
+      - Responses API unavailable: Silent exception catch, automatic fallback to Chat Completions
+      - Invalid message roles: Coerced to 'user' role
+      - Missing API key for local services: Accepts 'not-needed' placeholder
+      - Empty response choices: Returns empty string instead of crashing
+        deps:
+          calls:
+            - Anthropic
+            - OpenAI
+            - RuntimeError
+            - _is_anthropic_model
+            - completions.create
+            - getattr
+            - hasattr
+            - isinstance
+            - join
+            - lower
+            - m.get
+            - messages.create
+            - oai_messages.append
+            - os.getenv
+            - responses.create
+            - str
+            - user_content.append
+          imports:
+            - __future__.annotations
+            - os
+            - typing.Dict
+            - typing.List
+            - typing.Optional
 
 
-    CHANGELOG (from git history):
-    - 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features
+    why: |
+      **Provider Routing:** The dual-path design accommodates two distinct LLM ecosystems with incompatible APIs. Anthropic's message format differs fundamentally from OpenAI's, requiring separate client initialization and message reconstruction. The provider parameter allows explicit control while defaulting to auto-detection via _is_anthropic_model(), reducing caller burden.
 
+      **Lazy Imports:** Both anthropic and openai SDKs are imported only when needed. This avoids hard dependencies and allows users to install only the SDK(s) they require, reducing package bloat and installation friction.
 
-    FUNCTION CODE DIFF SUMMARY (LLM-generated):
-    Added provider parameter and conditional logic to support both Anthropic and OpenAI APIs with graceful fallback, plus improved dependency error messages and environment variable resolution for flexible model provider selection.
+      **Message Concatenation (Anthropic):** Claude's API expects a different message structure than the input format. Rather than complex transformation logic, concatenating system+user content into a single prompt is sufficient for most use cases and simplifies the interface. Assistant messages are dropped because the Anthropic path reconstructs messages as a single user message, which doesn't preserve multi-turn conversation history.
+
+      **Responses API with Chat Completions Fallback:** The Responses API is OpenAI's newer, simpler interface but not all providers support it (e.g., Ollama, local deployments). The try/except pattern attempts the modern API first, then silently falls back to the widely-supported Chat Completions API. This maximizes compatibility without requiring caller awareness of provider capabilities.
+
+      **Defensive Response Extraction:** Response objects vary across providers and API versions. The hasattr/getattr chain with multiple fallback paths (output_text → output → text) ensures robustness against schema variations without requiring strict type checking.
+
+      **Environment Variable Hierarchy:** Multiple environment variable names (OPENAI_API_KEY, AGENTSPEC_OPENAI_API_KEY, OLLAMA_BASE_URL) allow flexible configuration across different deployment contexts (CI/CD, Docker, local dev) without code changes. The 'not-needed' fallback permits local services that don't require authentication.
+
+      **Tradeoff: Simplicity vs. Fidelity:** Message concatenation loses conversation structure (no role preservation in Anthropic path). This is acceptable for single-turn use cases but limits multi-turn dialogue. The alternative (full message transformation) would add complexity and maintenance burden.
+
+    guardrails:
+      - "DO NOT remove the lazy import pattern for anthropic/openai. Hard dependencies would break installations for users who only need one provider. The try/except ImportError is critical for graceful degradation."
+      - "DO NOT change the message concatenation separator from '\\n\\n' without testing against actual Claude models. This separator is semantic—changing it alters prompt meaning and model behavior."
+      - "DO NOT remove the Responses API try/except fallback. Silently catching exceptions here is intentional for provider compatibility. Removing it would break Ollama and other Chat Completions-only providers."
+      - "DO NOT modify the environment variable resolution order without coordinating with deployment documentation. The hierarchy (parameter → OPENAI_BASE_URL → AGENTSPEC_OPENAI_BASE_URL → OLLAMA_BASE_URL → default) is relied upon by infrastructure automation."
+      - "DO NOT change the 'not-needed' API key fallback without understanding local service requirements. Some providers (Ollama, local LLaMA) don't validate API keys; removing this breaks their usage."
+      - "DO NOT add strict type validation to response extraction (e.g., isinstance
+        changelog:
+          - "- 2025-10-30: feat: enhance CLI help and add rich formatting support"
+          - "-    ---agentspec"
+          - "-    what: |"
+          - "-      generate_chat() is a unified LLM interface that routes requests to either Anthropic Claude or OpenAI-compatible providers (including local Ollama instances). It accepts a model identifier, message list, temperature, max_tokens, optional base_url, and provider hint, returning a single string response."
+          - "-      **Anthropic Path (Claude models):**"
+          - "-      - Triggered when provider='anthropic' is explicit, or when _is_anthropic_model(model) returns True and provider is not forced to 'openai'"
+          - "-      - Concatenates all 'system' and 'user' role messages with "\n\n" separator into a single prompt string"
+          - "-      - Filters out 'assistant' role messages (one-way conversation)"
+          - "-      - Creates Anthropic client with lazy import; raises RuntimeError if anthropic SDK not installed"
+          - "-      - Calls client.messages.create() with model, max_tokens, temperature, and reconstructed single-message format"
+          - "-      - Returns resp.content[0].text directly"
+          - "-      **OpenAI-Compatible Path (default):**"
+          - "-      - Triggered for all non-Anthropic models or when provider='openai' is explicit"
+          - "-      - Resolves API key from environment: OPENAI_API_KEY → AGENTSPEC_OPENAI_API_KEY → 'not-needed' (permissive fallback for local services)"
+          - "-      - Resolves base_url from parameter → OPENAI_BASE_URL → AGENTSPEC_OPENAI_BASE_URL → OLLAMA_BASE_URL → 'https://api.openai.com/v1' (default OpenAI)"
+          - "-      - Creates OpenAI client with resolved base_url and api_key"
+          - "-      - **Primary attempt: Responses API** (newer OpenAI interface)"
+          - "-        - Concatenates system + user/assistant messages with "\n\n" separator into input_text"
+          - "-        - Calls client.responses.create() with model, input, temperature, max_output_tokens"
+          - "-        - Extracts text via defensive attribute chain: output_text → output[].content.text → text"
+          - "-        - Returns first non-empty text found; silently catches all exceptions and falls through"
+          - "-      - **Fallback: Chat Completions API** (OpenAI-compatible standard)"
+          - "-        - Normalizes message roles: unknown roles default to 'user'"
+          - "-        - Preserves original message structure (system/user/assistant roles intact)"
+          - "-        - Calls client.chat.completions.create() with model, messages, temperature, max_tokens"
+          - "-        - Returns comp.choices[0].message.content or empty string if response malformed"
+          - "-      **Edge Cases Handled:**"
+          - "-      - Missing dependencies: Raises RuntimeError with installation instructions (lazy import pattern)"
+          - "-      - Empty/None content fields: Defaults to empty string"
+          - "-      - Malformed response objects: Defensive hasattr/getattr chain with fallbacks"
+          - "-      - Responses API unavailable: Silent exception catch, automatic fallback to Chat Completions"
+          - "-      - Invalid message roles: Coerced to 'user' role"
+          - "-      - Missing API key for local services: Accepts 'not-needed' placeholder"
+          - "-      - Empty response choices: Returns empty string instead of crashing"
+          - "-        deps:"
+          - "-          calls:"
+          - "-            - Anthropic"
+          - "-            - OpenAI"
+          - "-            - RuntimeError"
+          - "-            - _is_anthropic_model"
+          - "-            - completions.create"
+          - "-            - getattr"
+          - "-            - hasattr"
+          - "-            - isinstance"
+          - "-            - join"
+          - "-            - lower"
+          - "-            - m.get"
+          - "-            - messages.create"
+          - "-            - oai_messages.append"
+          - "-            - os.getenv"
+          - "-            - responses.create"
+          - "-            - str"
+          - "-            - user_content.append"
+          - "-          imports:"
+          - "-            - __future__.annotations"
+          - "-            - os"
+          - "-            - typing.Dict"
+          - "-            - typing.List"
+          - "-            - typing.Optional"
+          - "-    why: |"
+          - "-      **Provider Routing:** The dual-path design accommodates two distinct LLM ecosystems with incompatible APIs. Anthropic's message format differs fundamentally from OpenAI's, requiring separate client initialization and message reconstruction. The provider parameter allows explicit control while defaulting to auto-detection via _is_anthropic_model(), reducing caller burden."
+          - "-      **Lazy Imports:** Both anthropic and openai SDKs are imported only when needed. This avoids hard dependencies and allows users to install only the SDK(s) they require, reducing package bloat and installation friction."
+          - "-      **Message Concatenation (Anthropic):** Claude's API expects a different message structure than the input format. Rather than complex transformation logic, concatenating system+user content into a single prompt is sufficient for most use cases and simplifies the interface. Assistant messages are dropped because the Anthropic path reconstructs messages as a single user message, which doesn't preserve multi-turn conversation history."
+          - "-      **Responses API with Chat Completions Fallback:** The Responses API is OpenAI's newer, simpler interface but not all providers support it (e.g., Ollama, local deployments). The try/except pattern attempts the modern API first, then silently falls back to the widely-supported Chat Completions API. This maximizes compatibility without requiring caller awareness of provider capabilities."
+          - "-      **Defensive Response Extraction:** Response objects vary across providers and API versions. The hasattr/getattr chain with multiple fallback paths (output_text → output → text) ensures robustness against schema variations without requiring strict type checking."
+          - "-      **Environment Variable Hierarchy:** Multiple environment variable names (OPENAI_API_KEY, AGENTSPEC_OPENAI_API_KEY, OLLAMA_BASE_URL) allow flexible configuration across different deployment contexts (CI/CD, Docker, local dev) without code changes. The 'not-needed' fallback permits local services that don't require authentication."
+          - "-      **Tradeoff: Simplicity vs. Fidelity:** Message concatenation loses conversation structure (no role preservation in Anthropic path). This is acceptable for single-turn use cases but limits multi-turn dialogue. The alternative (full message transformation) would add complexity and maintenance burden."
+          - "-    guardrails:"
+          - "-      - "DO NOT remove the lazy import pattern for anthropic/openai. Hard dependencies would break installations for users who only need one provider. The try/except ImportError is critical for graceful degradation.""
+          - "-      - "DO NOT change the message concatenation separator from '\\n\\n' without testing against actual Claude models. This separator is semantic—changing it alters prompt meaning and model behavior.""
+          - "-      - "DO NOT remove the Responses API try/except fallback. Silently catching exceptions here is intentional for provider compatibility. Removing it would break Ollama and other Chat Completions-only providers.""
+          - "-      - "DO NOT modify the environment variable resolution order without coordinating with deployment documentation. The hierarchy (parameter → OPENAI_BASE_URL → AGENTSPEC_OPENAI_BASE_URL → OLLAMA_BASE_URL → default) is relied upon by infrastructure automation.""
+          - "-      - "DO NOT change the 'not-needed' API key fallback without understanding local service requirements. Some providers (Ollama, local LLaMA) don't validate API keys; removing this breaks their usage.""
+          - "-      - "DO NOT add strict type validation to response extraction (e.g., isinstance checks on resp.output). Providers return varying structures; defensive getattr/hasattr is more robust than strict typing.""
+          - "-      - "DO NOT preserve 'assistant' role messages in the Anthropic path without adding multi-turn support. Current design reconstructs all messages as a single user message; preserving assistant messages would require conversation history management and API changes.""
+          - "-      - "DO NOT change role normalization logic (unknown roles → 'user') without considering downstream impact. Some callers may rely on this coercion for malformed input handling.""
+          - "-      - "DO NOT remove the empty string fallback in Chat Completions return. This prevents AttributeError crashes when comp.choices is empty or message.content is None.""
+          - "-        changelog:"
+          - "-          - "- no git history available""
+          - "-        ---/agentspec"
+          - "- 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features"
 
     """
     force_anthropic = (provider or 'auto').lower() == 'anthropic'

@@ -6,7 +6,6 @@
 
 Think of it as something between `black`, `autodoc`, and `copilot-lint`, but tailored for LLMs.
 
-> Currently python only, js next on the roadmap, any TreeSitter contributions would be greatly appreciated. 
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -151,6 +150,12 @@ def process_embeddings(text: str, model: str = "gpt-5-turbo") -> np.ndarray:
     # ... actual implementation
 ```
 
+### CLI Help (Rich Terminal UI)
+
+The agentspec CLI features a beautiful, Rich-formatted help interface:
+
+<img src="assets/TUI-secreenshot.png" alt="Agentspec CLI Help" width="800">
+
 ---
 
 ## 🚀 Quick Start
@@ -193,8 +198,14 @@ agentspec generate src/ --model claude-haiku-4-5
 # Add context-forcing print() statements (recommended for AI agents)
 agentspec generate src/ --model claude-haiku-4-5 --force-context
 
-# CRITICAL MODE: Ultra-accurate generation for important code (NEW!)
-agentspec generate src/auth/ --critical
+# High‑Accuracy Guidance for Important Code
+
+For especially important code paths (auth, payments, security):
+- Avoid `--terse` so the model can include thorough context
+- Consider a higher‑quality model; choose based on your environment and current options
+
+Example:
+agentspec generate src/auth/
 
 # UPDATE EXISTING: Regenerate when code changes (NEW!)
 agentspec generate src/ --update-existing
@@ -217,7 +228,7 @@ agentspec extract src/ --format json
 #### Critical Mode - Ultra-Accurate Documentation
 ```bash
 # For your most important code (auth, payments, security)
-agentspec generate src/payments/ --critical
+agentspec generate src/payments/
 
 # What it does:
 # - Processes ONE function at a time (no context pollution)
@@ -232,8 +243,8 @@ agentspec generate src/payments/ --critical
 # Regenerate ALL docstrings when code changes
 agentspec generate src/ --update-existing
 
-# Combine with critical for maximum accuracy
-agentspec generate src/core/ --critical --update-existing
+# Combine with update-existing for maximum coverage
+agentspec generate src/core/ --update-existing
 ```
 
 ### Advanced Options
@@ -380,7 +391,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.11.7'
       - name: Install agentspec
         run: pip install -e .
       - name: Lint agentspecs
@@ -426,6 +437,12 @@ chmod +x .git/hooks/pre-commit
 ---
 
 ## 📊 Real-World Impact
+
+### Agents Following Agentspecs
+
+Here's a real example of an AI agent reading agentspecs and following guardrails:
+
+<img src="assets/sgent-response-to-rules-screenshot.png" alt="Agent following agentspec guardrails" width="900">
 
 ### Before Agentspec
 - ❌ Claude Code deleted 800 lines of "dead code" (actually used via dynamic imports)
@@ -494,8 +511,6 @@ Every bit helps make AI agent collaboration safer and more reliable.
 ## 📮 Contact
 
 - **Issues**: [GitHub Issues](https://github.com/DMontgomery40/agentspec/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/DMontgomery40/agentspec/discussions)
-- **Twitter**: [@dmontgomery40](https://twitter.com/dmontgomery40)
 
 ---
 

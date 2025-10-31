@@ -1,6 +1,6 @@
 # 🚀 Agentspec CLI Quick Reference
 
-A practical guide to agentspec commands, including powerful new features like critical mode and update-existing.
+A practical guide to agentspec commands, including update-existing and diff summaries.
 
 ---
 
@@ -9,7 +9,6 @@ A practical guide to agentspec commands, including powerful new features like cr
 - [Essential New Features](#essential-new-features)
 - [Basic Commands](#basic-commands)
 - [Single File Operations](#single-file-operations)
-- [Critical Mode (Ultra-Accurate)](#critical-mode-ultra-accurate)
 - [Update Existing Docstrings](#update-existing-docstrings)
 - [Creative Workflows](#creative-workflows)
 - [Model Selection](#model-selection)
@@ -19,25 +18,25 @@ A practical guide to agentspec commands, including powerful new features like cr
 
 ## Essential New Features
 
-### 🔬 Critical Mode - For Your Most Important Code
+### 🔍 High‑Accuracy Guidance (for important code)
 
 ```bash
-# Ultra-accurate generation with verification for critical code
-agentspec generate src/auth.py --critical
+# Thorough generation for critical paths (auth, payments, security)
+agentspec generate src/auth.py
 
-# Critical mode with specific model (defaults to high-quality)
-agentspec generate src/payments/ --critical --model claude-opus-4-1-20250805
+# Choose your best model explicitly when needed
+agentspec generate src/payments/ --model <your_best_model>
 
-# Combine with update-existing to regenerate critical docs
-agentspec generate src/security.py --critical --update-existing
+# Combine with update-existing to refresh docs
+agentspec generate src/security.py --update-existing
 
-# Dry run to preview critical mode
-agentspec generate src/core.py --critical --dry-run
+# Dry run to preview changes
+agentspec generate src/core.py --dry-run
 ```
 
-**What Critical Mode Does:**
-- Processes ONE function at a time (no context pollution)
-- Collects metadata for each function AND its dependencies
+**Recommendations:**
+- Avoid `--terse` for high‑stakes code; allow more room for context
+- Use a stronger model when accuracy matters (pick based on your setup)
 - Uses two-pass generation: Generate → Verify
 - Employs ULTRATHINK prompts for deeper reasoning
 - Lower temperature for consistency
@@ -67,7 +66,7 @@ agentspec generate src/ --update-existing --dry-run
 agentspec generate src/ --update-existing --model claude-haiku-4-5
 
 # Combine with critical for maximum accuracy on updates
-agentspec generate src/core/ --update-existing --critical
+agentspec generate src/core/ --update-existing
 ```
 
 **When to Use --update-existing:**
@@ -137,10 +136,9 @@ agentspec generate src/utils.py
 
 # With all the flags
 agentspec generate src/critical_auth.py \
-  --critical \
   --update-existing \
   --force-context \
-  --model claude-sonnet-4-5-20250929
+  --model <your_best_model>
 
 # Quick preview
 agentspec generate src/api.py --dry-run
@@ -168,32 +166,32 @@ agentspec extract src/config.py --format json
 
 ---
 
-## Critical Mode (Ultra-Accurate)
+## High-Accuracy Tips
 
 ### When to Use Critical Mode
 
 ```bash
-# Payment processing - ALWAYS use critical
-agentspec generate src/payments/ --critical
+# Payment processing — prefer thorough output and a stronger model
+agentspec generate src/payments/
 
 # Authentication - accuracy is paramount
-agentspec generate src/auth/ --critical --model claude-sonnet-4-5-20250929
+agentspec generate src/auth/ --model <your_best_model>
 
 # Security boundaries
-agentspec generate src/security/ --critical --force-context
+agentspec generate src/security/ --force-context
 
 # Data validation that affects business logic
-agentspec generate src/validators/ --critical
+agentspec generate src/validators/
 ```
 
 ### Critical Mode Workflow
 
 ```bash
-# Step 1: Preview in critical mode
-agentspec generate src/critical_module.py --critical --dry-run
+# Step 1: Preview thoroughly
+agentspec generate src/critical_module.py --dry-run
 
 # Step 2: Generate with verification
-agentspec generate src/critical_module.py --critical
+agentspec generate src/critical_module.py
 
 # Step 3: Lint to ensure quality
 agentspec lint src/critical_module.py --strict --min-lines 20
@@ -205,16 +203,15 @@ agentspec extract src/critical_module.py
 ### Performance Considerations
 
 ```bash
-# Critical mode is SLOWER but MORE ACCURATE
-# For non-critical code, use standard mode:
-agentspec generate src/utils/ --model claude-haiku-4-5
+# For less critical code, fast defaults are fine:
+agentspec generate src/utils/
 
-# For critical code, the time is worth it:
-agentspec generate src/auth/ --critical
+# For important code, the extra time is worth it:
+agentspec generate src/auth/
 
-# Mix and match - critical for some, standard for others:
-agentspec generate src/auth/ --critical
-agentspec generate src/ui/  # standard mode
+# Mix and match per folder or file:
+agentspec generate src/auth/
+agentspec generate src/ui/
 ```
 
 ---
@@ -228,7 +225,7 @@ agentspec generate src/ui/  # standard mode
 agentspec generate src/refactored_module.py --update-existing
 
 # When code behavior changed
-agentspec generate src/api.py --update-existing --critical
+agentspec generate src/api.py --update-existing
 
 # Switching from old docstring format to agentspec
 agentspec generate src/ --update-existing --agentspec-yaml
@@ -277,11 +274,11 @@ agentspec generate tests/ --update-existing --model claude-haiku-4-5
 # 1. Extract current state for backup
 agentspec extract src/payments.py --format json > backup.json
 
-# 2. Dry run with critical mode
-agentspec generate src/payments.py --critical --update-existing --dry-run
+# 2. Dry run
+agentspec generate src/payments.py --update-existing --dry-run
 
 # 3. Generate with verification
-agentspec generate src/payments.py --critical --update-existing
+agentspec generate src/payments.py --update-existing
 
 # 4. Lint with maximum strictness
 agentspec lint src/payments.py --strict --min-lines 30
@@ -323,7 +320,7 @@ CRITICAL_FILES="src/auth.py src/payments.py src/security.py"
 
 # Regenerate critical files with high accuracy
 for file in $CRITICAL_FILES; do
-  agentspec generate "$file" --critical --update-existing
+  agentspec generate "$file" --update-existing
 done
 
 # Verify everything passes
@@ -339,10 +336,10 @@ git diff --name-only main | grep '\.py$' | while read file; do
   agentspec generate "$file" --update-existing
 done
 
-# Or for critical files in the changeset
+# Or for key files in the changeset
 git diff --name-only main | grep -E '(auth|payment|security).*\.py$' | while read file; do
   echo "Critical update for $file..."
-  agentspec generate "$file" --critical --update-existing
+  agentspec generate "$file" --update-existing
 done
 ```
 
@@ -503,11 +500,10 @@ echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 
 | Task | Command |
 |------|---------|
-| **Generate (standard)** | `agentspec generate src/` |
-| **Generate (critical)** | `agentspec generate src/ --critical` |
+| **Generate** | `agentspec generate src/` |
 | **Generate (terse)** | `agentspec generate src/ --terse` |
 | **Update existing** | `agentspec generate src/ --update-existing` |
-| **Ultra-accurate update** | `agentspec generate src/ --critical --update-existing` |
+| **Thorough update** | `agentspec generate src/ --update-existing` |
 | **With diff summaries** | `agentspec generate src/ --diff-summary` |
 | **Preview changes** | `agentspec generate src/ --dry-run` |
 | **Single file** | `agentspec generate src/file.py` |
@@ -522,11 +518,11 @@ echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 ## Pro Tips
 
 1. **Always start with --dry-run** to preview changes
-2. **Use --critical for auth, payments, security** code
+2. **Avoid --terse for auth, payments, security** code
 3. **Use --update-existing after refactoring** to keep docs in sync
-4. **Combine flags** for power: `--critical --update-existing --force-context`
+4. **Combine flags** for power: `--update-existing --force-context`
 5. **Process single files** for surgical precision
-6. **Use Haiku for bulk**, Sonnet/Opus for critical
+6. **Pick models based on your environment** (no single best model)
 7. **Extract after generation** to review quality
 8. **Lint after updates** to ensure standards
 
@@ -538,14 +534,14 @@ echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 # The "Fix Everything" Command
 agentspec generate src/ --update-existing --model claude-haiku-4-5
 
-# The "Document Critical Code Perfectly" Command
-agentspec generate src/auth/ --critical --force-context --model claude-sonnet-4-5-20250929
+# The "Document Critical Code Thoroughly" Command
+agentspec generate src/auth/ --force-context --model <your_best_model>
 
 # The "Quick Single File Update" Command
 agentspec generate src/changed_file.py --update-existing
 
 # The "Paranoid Preview" Command
-agentspec generate src/payments.py --critical --update-existing --dry-run
+agentspec generate src/payments.py --update-existing --dry-run
 
 # The "Free Local Generation" Command
 agentspec generate src/ --model llama3.2 --provider openai --base-url http://localhost:11434/v1
