@@ -57,7 +57,7 @@ def _is_excluded_by_dir(path: Path) -> bool:
       - Works correctly with relative and absolute paths
       - Preserves Windows and Unix path separator semantics via pathlib.Path
       - Empty paths or single-component paths are handled safely
-        deps:
+    deps:
           imports:
             - __future__.annotations
             - os
@@ -85,7 +85,7 @@ def _is_excluded_by_dir(path: Path) -> bool:
       - ALWAYS ensure DEFAULT_EXCLUDE_DIRS contains only universally excluded directory names (.git, .venv, __pycache__, node_modules, etc.) that should never be traversed
       - DO NOT modify the path object; this function is read-only and must remain side-effect free
 
-        changelog:
+    changelog:
           - "- 2025-10-30: feat: robust docstring generation and Haiku defaults"
           - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
         ---/agentspec
@@ -113,7 +113,7 @@ def _find_git_root(start: Path) -> Path | None:
       - Symlinks are resolved to their canonical paths via resolve()
       - Returns None gracefully when operating outside any Git repository
       - Efficiently terminates on first match without traversing entire filesystem
-        deps:
+    deps:
           calls:
             - cur.is_file
             - exists
@@ -148,35 +148,9 @@ def _find_git_root(start: Path) -> Path | None:
       - ALWAYS maintain the iteration order from current directory upward; ancestors must be checked in order from closest to furthest
       - NOTE: This function performs filesystem I/O operations (exists() checks) for each ancestor directory; in deeply nested directory structures or slow filesystems, this could be a performance bottleneck if called repeatedly without caching
 
-        changelog:
-          - "- 2025-10-30: feat: enhance CLI help and add rich formatting support"
-          - "- Accepts a Path object (file or directory) and resolves it to an absolute path"
-          - "- If the path points to a file, extracts its parent directory as the starting search point"
-          - "- Iterates through the directory hierarchy from the current location upward through all ancestor directories"
-          - "- For each directory in the traversal chain, checks whether a `.git` subdirectory exists at that location"
-          - "- Returns the first ancestor directory containing a `.git` folder (indicating a Git repository root), or None if no Git repository is found in the entire ancestry chain"
-          - "- This function is used to identify repository boundaries for operations like respecting .gitignore files and determining project scope"
-          - "- Called by: [Inferred to be called by repository scanning/initialization functions in agentspec that need to honor .gitignore and .venv conventions]"
-          - "- Calls: start.resolve() [pathlib.Path method to convert to absolute path], cur.is_file() [pathlib.Path method to check if path is a file], (ancestor / ".git").exists() [pathlib.Path methods for path joining and existence checking]"
-          - "- Imports used: __future__.annotations [for PEP 563 postponed evaluation of type hints], pathlib.Path [for cross-platform filesystem path manipulation]"
-          - "- External services: None; this is a pure filesystem operation with no external dependencies"
-          - "- Using pathlib.Path provides cross-platform compatibility (Windows, macOS, Linux) without manual path separator handling"
-          - "- The resolve() call ensures absolute paths are used, preventing issues with relative path traversal and symlink resolution"
-          - "- The file-to-parent conversion handles both file and directory inputs gracefully, allowing callers to pass either without special handling"
-          - "- Iterating through [cur, *cur.parents] is more efficient than a while loop with manual parent traversal, as it leverages pathlib's built-in parents tuple"
-          - "- Checking for .git directory existence is the standard Git convention for identifying repository roots (more reliable than checking for .gitignore alone, which may not exist in all repos)"
-          - "- Early return on first match avoids unnecessary traversal of the entire filesystem hierarchy"
-          - "- Returning None (rather than raising an exception) allows graceful degradation when operating outside a Git repository"
-          - "- 2025-10-29: Initial implementation as part of feature to honor .gitignore and .venv; added agentspec YAML generation support"
-          - "- DO NOT modify the .git directory name check (it is a Git standard and must remain hardcoded)"
-          - "- DO NOT change the return type from Path | None to raise exceptions instead (callers depend on None for non-repository contexts)"
-          - "- DO NOT remove the file-to-parent conversion logic (it enables flexible input handling)"
-          - "- ALWAYS preserve the resolve() call to ensure absolute path handling"
-          - "- ALWAYS maintain the iteration order from current directory upward (ancestors must be checked in order from closest to furthest)"
-          - "- NOTE: This function performs filesystem I/O operations (exists() checks) for each ancestor directory; in deeply nested directory structures or slow filesystems, this could be a performance bottleneck if called repeatedly without caching"
-          - "-    print(f"[AGENTSPEC_CONTEXT] _find_git_root: Accepts a Path object (file or directory) and resolves it to an absolute path | If the path points to a file, extracts its parent directory as the starting search point | Iterates through the directory hierarchy from the current location upward through all ancestor directories")"
-          - "- 2025-10-30: feat: robust docstring generation and Haiku defaults"
-          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
+    changelog:
+
+      - "2025-10-31: Clean up docstring formatting"
         ---/agentspec
     """
     cur = start.resolve()
@@ -195,7 +169,7 @@ def _git_check_ignore(repo_root: Path, paths: List[Path]) -> Set[Path]:
       Batch-checks which file paths are ignored by Git according to .gitignore rules, returning only the ignored subset as a Set[Path].
 
       Converts input paths to absolute form, then to relative paths anchored at repo_root to minimize stdin payload. Chunks the relative paths into groups of 1024 to prevent subprocess buffer exhaustion on large file lists. Constructs NUL-delimited input payload (each path followed by \0) and invokes `git check-ignore -z --stdin` with stderr suppressed. Parses the NUL-delimited output by splitting on \0, decodes each segment back to a path string, resolves to absolute form, and accumulates into the ignored set. Returns empty set on any exception (Git unavailable, not a Git repository, or subprocess failure), enabling graceful degradation.
-        deps:
+    deps:
           calls:
             - encode
             - ignored.add
@@ -232,11 +206,9 @@ def _git_check_ignore(repo_root: Path, paths: List[Path]) -> Set[Path]:
       - ALWAYS use relative_to(repo_root) before passing paths to Git; this ensures Git interprets them correctly within the repository context.
       - ALWAYS preserve the -z flag with git check-ignore; without it, the command cannot reliably parse filenames with special characters.
 
-        changelog:
-          - "- 2025-10-30: feat: robust docstring generation and Haiku defaults"
-          - "-    Batch check which paths are ignored by Git according to .gitignore."
-          - "-    Returns the subset of input paths that are ignored."
-          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
+    changelog:
+
+      - "2025-10-31: Clean up docstring formatting"
         ---/agentspec
     """
     ignored: Set[Path] = set()
@@ -292,7 +264,7 @@ def _parse_agentspecignore(ignore_path: Path, repo_root: Path) -> List[str]:
 def _matches_pattern(path: Path, pattern: str, repo_root: Path) -> bool:
     """
     Check if a path matches a gitignore-style pattern.
-    
+
     Supports:
     - * wildcards (via fnmatch)
     - **/ for any directory depth
@@ -303,26 +275,26 @@ def _matches_pattern(path: Path, pattern: str, repo_root: Path) -> bool:
         # Convert path to relative path from repo root
         rel_path = path.resolve().relative_to(repo_root.resolve())
         rel_str = str(rel_path).replace('\\', '/')  # Normalize separators
-        
+
         # Handle leading / (match from root)
         pattern = pattern.strip()
         if pattern.startswith('/'):
             pattern = pattern[1:]
             # Must match from beginning
             return fnmatch.fnmatch(rel_str, pattern) or fnmatch.fnmatch(rel_str, pattern + '/*')
-        
+
         # Handle trailing / (directory only)
         dir_only = pattern.endswith('/')
         if dir_only:
             pattern = pattern[:-1]
-        
+
         # Handle **/ (any directory depth)
         if pattern.startswith('**/'):
             pattern = pattern[3:]
         elif '**/' in pattern:
             # Replace **/ with * for fnmatch
             pattern = pattern.replace('**/', '*')
-        
+
         # Check if any component matches
         parts = rel_str.split('/')
         for i in range(len(parts)):
@@ -333,14 +305,14 @@ def _matches_pattern(path: Path, pattern: str, repo_root: Path) -> bool:
                     test_full = repo_root / test_path
                     return test_full.is_dir()
                 return True
-        
+
         # Also check full path
         if fnmatch.fnmatch(rel_str, pattern):
             if dir_only:
                 test_full = repo_root / rel_str
                 return test_full.is_dir()
             return True
-        
+
         return False
     except Exception:
         return False
@@ -350,16 +322,16 @@ def _check_agentspecignore(path: Path, repo_root: Path | None) -> bool:
     """Check if a path is ignored by .agentspecignore. Returns True if ignored."""
     if not repo_root:
         return False
-    
+
     ignore_file = _find_agentspecignore(repo_root)
     if not ignore_file:
         return False
-    
+
     patterns = _parse_agentspecignore(ignore_file, repo_root)
     for pattern in patterns:
         if _matches_pattern(path, pattern, repo_root):
             return True
-    
+
     return False
 
 
@@ -378,7 +350,7 @@ def collect_python_files(target: Path) -> List[Path]:
       Gracefully degrades to unfiltered discovery (still excluding common directories) if no git repository root is found, allowing the function to work outside git repositories.
 
       Edge cases: symlinks are resolved before gitignore comparison to ensure correct path matching; lazy evaluation of repo_root and ignored set avoids expensive git operations when not needed; sorting by string representation ensures deterministic, human-readable output across different runs and platforms.
-        deps:
+    deps:
           calls:
             - _find_git_root
             - _git_check_ignore
@@ -425,39 +397,9 @@ def collect_python_files(target: Path) -> List[Path]:
       - NOTE: This function depends on external git availability; if git is not installed or the target is not in a git repository, gitignore filtering is silently skipped (not an error condition)
       - NOTE: Performance scales with the number of .py files in the target tree; for very large codebases, gitignore queries may be slow; consider caching results if called repeatedly on the same tree
 
-        changelog:
-          - "- 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features"
-          - "- Accepts either a single file path or a directory path as the `target` parameter"
-          - "- For file inputs: validates that the file has a .py extension, is not in an excluded directory, and is not ignored by .gitignore; returns a single-element list containing the file or an empty list if validation fails"
-          - "- For directory inputs: recursively globs all .py files using `target.rglob("*.py")`, filters out files in excluded directories (e.g., .venv, __pycache__, .git, build, dist), then applies .gitignore filtering if a git repository root is found"
-          - "- Returns a sorted list of absolute Path objects representing all discovered Python files that pass all filters"
-          - "- Returns an empty list if the target is a non-.py file, is in an excluded directory, or is gitignored"
-          - "- Gracefully degrades to unfiltered discovery if no git repository root is found (still excludes common directories)"
-          - "- Called by: [inferred to be called by higher-level discovery/collection routines in agentspec, likely from a main entry point or CLI handler]"
-          - "- Calls: _find_git_root (locates the root directory of a git repository), _git_check_ignore (queries git to determine which files are ignored), _is_excluded_by_dir (checks if a path is within a common exclusion directory like .venv or __pycache__)"
-          - "- Imports used: pathlib.Path (for filesystem path operations), typing.List (for return type annotation), subprocess (used indirectly by _git_check_ignore), os (used indirectly by helper functions)"
-          - "- External services: git command-line tool (invoked via subprocess to check .gitignore status)"
-          - "- Two-path branching (file vs. directory) allows efficient handling of both single-file and bulk discovery scenarios without redundant logic"
-          - "- .gitignore integration respects developer intent by excluding files already marked as ignored, reducing noise in analysis and respecting repository conventions"
-          - "- Excluded directory filtering (via _is_excluded_by_dir) prevents traversal into virtual environments, build artifacts, and cache directories, which would be wasteful and incorrect to analyze"
-          - "- Graceful degradation when git is unavailable or target is not in a repository ensures the function remains useful in non-git contexts"
-          - "- Sorting by string representation of paths ensures deterministic, human-readable output order across different runs and platforms"
-          - "- Use of resolved paths (target.resolve()) in gitignore checks ensures consistent comparison even with symlinks or relative path variations"
-          - "- Lazy evaluation of repo_root and ignored set avoids expensive git operations when not needed (e.g., for single non-gitignored files)"
-          - "- 2025-10-29: Initial implementation with .gitignore and excluded directory support; honors .venv, __pycache__, .git, build, dist, and similar common exclusions; added as part of agentspec YAML generation feature"
-          - "- DO NOT remove or bypass the _is_excluded_by_dir check, as it prevents analysis of virtual environments and build artifacts"
-          - "- DO NOT change the sorting key from `str(p)` without ensuring output remains deterministic across platforms"
-          - "- DO NOT modify the .resolve() calls in gitignore comparisons, as they are necessary for correct path matching with symlinks"
-          - "- DO NOT remove the graceful fallback when repo_root is None, as this allows the function to work outside git repositories"
-          - "- ALWAYS preserve the two-branch logic (file vs. directory) to maintain efficiency and clarity"
-          - "- ALWAYS ensure that returned paths are absolute (via Path.resolve() or rglob behavior) for consistency with downstream consumers"
-          - "- ALWAYS maintain the order of operations: suffix check → excluded dir check → gitignore check, to fail fast on obvious non-matches"
-          - "- NOTE: This function depends on external git availability; if git is not installed or the target is not in a git repository, gitignore filtering is silently skipped (not an error condition)"
-          - "- NOTE: Performance scales with the number of .py files in the target tree; for very large codebases, gitignore queries may be slow; consider caching results if called repeatedly on the same tree"
-          - "- 2025-10-30: feat: robust docstring generation and Haiku defaults"
-          - "-    Discover Python files under target honoring .gitignore if possible and"
-          - "-    excluding common environment/cache/build directories."
-          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
+    changelog:
+
+      - "2025-10-31: Clean up docstring formatting"
         ---/agentspec
     """
     if target.is_file():
@@ -504,7 +446,7 @@ def load_env_from_dotenv(env_path: Optional[Path] = None, override: bool = False
       Inputs: optional env_path (Path object or None) to specify explicit file location; override boolean flag (default False) to control whether existing environment variables are overwritten. Outputs: Path object pointing to the loaded .env file, or None if file not found or parsing failed.
 
       Edge cases: handles missing files gracefully, tolerates malformed lines by skipping them, preserves intentional environment overrides when override=False, and continues searching candidates if any candidate file access fails.
-        deps:
+    deps:
           calls:
             - Path
             - Path.cwd
@@ -546,7 +488,7 @@ def load_env_from_dotenv(env_path: Optional[Path] = None, override: bool = False
       - DO NOT assume UTF-8 encoding will always succeed; use errors="ignore" to handle mixed or legacy encodings without crashing
       - DO NOT split on all = characters; split only on the first = to allow = characters in values (e.g., connection strings, base64 data)
 
-        changelog:
+    changelog:
           - "- 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features"
         ---/agentspec
     """
