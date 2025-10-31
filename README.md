@@ -2,7 +2,7 @@
 
 **Verbose, structured, YAML-parsable docstrings for AI-assisted codebases.**
 
-> Currently only python codebases but TreeSitter is next on the roadmap and any contributions would be greatly appreciated, would personally love to get js/ts in ASAP
+> **NEW:** Now supports both Python and JavaScript! Tree-sitter integration enables JSDoc comment parsing for JavaScript/TypeScript projects.
 
 Think of it as something between `black`, `autodoc`, and `copilot-lint`, but tailored for LLMs.
 
