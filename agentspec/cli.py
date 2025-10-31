@@ -713,8 +713,9 @@ def main():
         _show_rich_help()
         sys.exit(0)
     
-    # Use Rich-based help formatter (required dependency)
+    # Use Rich-based help formatters (required dependency)
     from rich_argparse import RichHelpFormatter as _HelpFmt  # type: ignore
+    from rich_argparse import RawDescriptionRichHelpFormatter
 
     parser = FuzzyArgumentParser(
         description="Agentspec: Structured, enforceable docstrings for AI agents",
@@ -732,8 +733,6 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
     
     # Lint command
-    from rich_argparse import RawDescriptionRichHelpFormatter
-    
     lint_parser = subparsers.add_parser(
         "lint",
         help="Validate agentspec blocks in Python files",
@@ -806,8 +805,6 @@ def main():
     )
     
     # Generate command
-    from rich_argparse import RawDescriptionRichHelpFormatter
-    
     generate_parser = subparsers.add_parser(
         "generate",
         help="Auto-generate verbose agentspec docstrings",
