@@ -516,35 +516,32 @@ def inject_deterministic_metadata(llm_output: str, metadata: Dict[str, Any], as_
         else:
             changelog_content += "No git history available\n"
 
-        if "CHANGELOG (from git history):" in llm_output:
-            # Replace existing CHANGELOG section with deterministic content
-            llm_output = re.sub(
-                r'CHANGELOG \(from git history\):.*?(?=\n+[A-Z]|\Z)',
-                changelog_content.rstrip(),
-                llm_output,
-                flags=re.DOTALL
-            )
-        else:
-            # Append deterministic sections if not already present
-            llm_output += "\n\n" + changelog_content
+        # Strip any existing LLM-emitted CHANGELOG section(s) entirely, then append deterministic one.
+        # Robust boundary: stop at the next non-indented header (line starting at column 1) or end-of-text.
+        llm_output = re.sub(
+            r'(?ms)^\s*CHANGELOG \(from git history\):\s*\n.*?(?=^(?:FUNCTION CODE DIFF SUMMARY|DEPENDENCIES \(from code analysis\):|WHAT:|WHY:)|\Z)',
+            '',
+            llm_output,
+        )
 
-        # Inject deps section (this should come before changelog)
-        deps_text = "\n\nDEPENDENCIES (from code analysis):\n"
+        # Also strip any existing LLM-emitted DEPENDENCIES section(s) to prevent duplication, then append ours.
+        llm_output = re.sub(
+            r'(?ms)^\s*DEPENDENCIES \(from code analysis\):\s*\n.*?(?=^(?:CHANGELOG \(from git history\):|FUNCTION CODE DIFF SUMMARY|WHAT:|WHY:)|\Z)',
+            '',
+            llm_output,
+        )
+
+        # Build deterministic deps section
+        deps_text = "DEPENDENCIES (from code analysis):\n"
         if deps_data.get('calls'):
             deps_text += "Calls: " + ", ".join(deps_data['calls']) + "\n"
         if deps_data.get('imports'):
             deps_text += "Imports: " + ", ".join(deps_data['imports']) + "\n"
 
-        if "DEPENDENCIES (from code analysis):" in llm_output:
-            llm_output = re.sub(
-                r'DEPENDENCIES \(from code analysis\):.*?(?=\n\n(?:CHANGELOG|$)|\Z)',
-                deps_text.strip(),
-                llm_output,
-                flags=re.DOTALL
-            )
-        else:
-            # Insert deps before changelog
-            llm_output = llm_output.replace("\n\n" + changelog_content, deps_text + "\n\n" + changelog_content)
+        # Append deterministic sections at the end in a consistent order: deps then changelog
+        if not llm_output.endswith("\n"):
+            llm_output += "\n"
+        llm_output += "\n" + deps_text + "\n" + changelog_content
 
         return llm_output
 
