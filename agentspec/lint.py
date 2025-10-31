@@ -21,43 +21,62 @@ RECOMMENDED_KEYS = ["changelog", "testing", "performance"]
 class AgentSpecLinter(ast.NodeVisitor):
     def __init__(self, filepath: str, min_lines: int = 10):
         """
-        Brief one-line description.
-        Initialize a linter instance with a target filepath and minimum line threshold for validation.
+        ---agentspec
+        what: |
+          Initializes a linter instance by storing the target filepath and establishing validation thresholds.
 
-        WHAT THIS DOES:
-        - Initializes a linter object that will analyze a Python file specified by `filepath` for code quality issues
-        - Sets up empty error and warning collections as lists of tuples, where each tuple contains (line_number: int, message: str)
-        - Stores the `min_lines` parameter which establishes a threshold—likely used to skip linting files below a certain length or to enforce minimum code structure requirements
-        - All instance variables are mutable and will be populated during subsequent linting operations (e.g., via other methods that append to `self.errors` and `self.warnings`)
-        - Does not perform file validation, I/O operations, or actual linting at initialization time—it is purely a setup method that prepares the linter state
+          Inputs:
+          - filepath (str): Path to the file to be linted; stored as-is without normalization or validation
+          - min_lines (int, default=10): Minimum line count threshold used by downstream validation logic
 
-        DEPENDENCIES:
-        - Called by: Assumed to be called by client code instantiating the linter class (e.g., `Linter(filepath="myfile.py")`)
-        - Calls: No function calls; this is a constructor that only assigns parameters to instance variables
-        - Imports used: `List` and `Tuple` from `typing` module (used in type annotations)
-        - External services: None directly; however, the `filepath` parameter is expected to reference a real file that will be accessed by other methods of this class
+          Outputs:
+          - Initializes instance state with four attributes:
+            - self.filepath: The provided filepath string
+            - self.errors: Empty list of (line_number, message) tuples for storing linting errors
+            - self.warnings: Empty list of (line_number, message) tuples for storing linting warnings
+            - self.min_lines: The minimum line threshold value
 
-        WHY THIS APPROACH:
-        - This is a standard Python `__init__` constructor pattern that initializes instance state before any linting operations occur
-        - Using `List[Tuple[int, str]]` for errors and warnings allows structured storage of issues tied to specific line numbers and human-readable messages
-        - Initializing these collections as empty lists (rather than None) prevents type errors in downstream code that appends or iterates—it's safer for agent manipulation
-        - The `min_lines` parameter with a default value of 10 provides flexibility: callers can either skip it (using the default) or override it for different linting strictness levels
-        - Storing `filepath` as an instance variable makes it accessible throughout the linter's lifetime without requiring it to be passed to every method
-        - This approach avoids performing expensive file I/O or validation in `__init__`, following the principle of lazy evaluation—the file is only read/validated when actual linting methods are called
+          Behavior:
+          - Performs no file I/O or filesystem operations; purely prepares linter state for lazy evaluation
+          - Error and warning lists are initialized as empty to prevent AttributeError during append operations in downstream methods
+          - Tuple structure (line_number, message) is established at initialization and must be preserved throughout the linter's lifetime
 
-        CHANGELOG:
-        - [Current date]: Initial implementation; basic initialization of linter state with filepath, error/warning collections, and configurable minimum line threshold
+          Edge cases:
+          - No validation of filepath existence or readability occurs; invalid paths are accepted and will fail only when actual linting methods attempt file access
+          - min_lines can be set to zero or negative values; validation of this parameter is deferred to downstream comparison logic
+            deps:
+              imports:
+                - agentspec.utils.collect_python_files
+                - ast
+                - pathlib.Path
+                - sys
+                - typing.Any
+                - typing.Dict
+                - typing.List
+                - typing.Tuple
+                - yaml
 
-        AGENT INSTRUCTIONS:
-        - DO NOT remove or rename `self.errors` or `self.warnings` without updating all code that appends to these collections
-        - DO NOT change the type signature of `min_lines` from `int` without updating any logic that compares against it
-        - DO NOT initialize `self.errors` or `self.warnings` to `None`; keep them as empty lists to prevent AttributeError in downstream methods
-        - ALWAYS preserve the `filepath` parameter as a string type; do not attempt to normalize or resolve it at this stage
-        - ALWAYS ensure the `min_lines` default value (10) remains unless explicitly approved by code review
-        - NOTE: This class assumes that `filepath` points to a valid, readable Python file; no existence checks occur in `__init__`, so file-not-found errors will occur later when linting methods attempt to read the file
-        - NOTE: The error and warning tuples use (line_number, message) ordering; do not reverse this order as other code likely depends on this structure
+
+        why: |
+          Deferred file I/O enables efficient initialization without blocking on filesystem access, allowing linter instances to be created and configured before actual linting begins.
+
+          Empty list initialization for errors and warnings prevents AttributeError exceptions when downstream methods append tuples, eliminating the need for existence checks before each append operation.
+
+          Storing filepath and min_lines as instance variables eliminates the need to pass these parameters repeatedly through method calls, reducing function signatures and improving code maintainability.
+
+          Preserving filepath as a raw string without normalization keeps initialization lightweight and defers path resolution logic to methods that actually need it, following the principle of lazy evaluation.
+
+        guardrails:
+          - DO NOT initialize self.errors or self.warnings to None; keep as empty lists to prevent AttributeError when downstream code appends tuples
+          - DO NOT change min_lines type from int without updating all downstream comparison operations that depend on numeric ordering
+          - ALWAYS preserve filepath as string type without normalization or Path object conversion at this stage; normalization belongs in methods that consume the path
+          - ALWAYS maintain (line_number, message) tuple ordering in errors and warnings lists; downstream code and external consumers depend on this consistent structure
+          - DO NOT perform file existence checks or I/O operations in __init__; keep initialization pure and defer validation to linting methods
+
+            changelog:
+              - "- no git history available"
+            ---/agentspec
         """
-        print(f"[AGENTSPEC_CONTEXT] __init__: Initializes a linter object that will analyze a Python file specified by `filepath` for code quality issues | Sets up empty error and warning collections as lists of tuples, where each tuple contains (line_number: int, message: str) | Stores the `min_lines` parameter which establishes a threshold—likely used to skip linting files below a certain length or to enforce minimum code structure requirements")
         self.filepath = filepath
         self.errors: List[Tuple[int, str]] = []
         self.warnings: List[Tuple[int, str]] = []
@@ -65,175 +84,218 @@ class AgentSpecLinter(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node):
         """
-        Brief one-line description.
-        Validates that a function definition node has an appropriate docstring and continues traversing the AST.
+        ---agentspec
+        what: |
+          Validates function definition docstrings and traverses child AST nodes.
 
-        WHAT THIS DOES:
-        - This is an AST visitor method that processes FunctionDef nodes during abstract syntax tree traversal
-        - Calls _check_docstring() to validate that the function node has a docstring (or enforces docstring requirements based on linting rules)
-        - Then calls generic_visit() to continue recursively visiting all child nodes in the AST subtree
-        - Returns None (implicitly), as is standard for AST visitor methods
-        - This method is part of a linting/validation workflow that checks Python code for documentation completeness
-        - Handles all function definitions encountered during tree traversal, whether they are module-level, nested, or method functions
+          This visitor method is invoked by the ast.NodeVisitor framework when encountering a FunctionDef node during AST traversal. It performs two sequential operations:
 
-        DEPENDENCIES:
-        - Called by: Python's ast.NodeVisitor framework (inherited parent class calls this automatically when visiting FunctionDef nodes)
-        - Calls: self._check_docstring(node) [performs the actual docstring validation logic], self.generic_visit(node) [from ast.NodeVisitor base class, continues AST traversal]
-        - Imports used: ast module (NodeVisitor, FunctionDef are from ast standard library)
-        - External services: None directly, though _check_docstring may record violations/warnings to a linting results collector
+          1. Docstring Validation: Calls _check_docstring(node) to inspect the function node and verify that required documentation is present and conforms to linting rules.
+          2. Child Node Traversal: Calls generic_visit(node) to recursively visit all child nodes within the function definition, ensuring nested functions, class definitions, and other child structures are also validated.
 
-        WHY THIS APPROACH:
-        - Uses the Visitor design pattern (ast.NodeVisitor) which is the standard Python approach for AST traversal and analysis
-        - Separates concerns: docstring validation logic is delegated to _check_docstring(), keeping this method focused on orchestration
-        - generic_visit() must be called to ensure child nodes (nested functions, decorators, arguments) are also visited; omitting it would break traversal of nested structures
-        - This pattern allows linting rules to be applied uniformly across all function definitions in a codebase
-        - Alternative (not used): manually walking the AST tree would be verbose and error-prone; using ast.walk() would lose parent-child context needed for proper linting
+          Inputs: node (ast.FunctionDef) - an AST node representing a function definition
+          Outputs: None (side effects include validation checks and recursive traversal)
 
-        CHANGELOG:
-        - [Implementation date unknown]: Initial implementation as part of AST-based linting framework
+          Edge cases:
+          - Nested function definitions are validated with the same rules as top-level functions
+          - Functions with no docstring will trigger validation failure via _check_docstring()
+          - Decorated functions are processed identically to undecorated ones
+          - Lambda functions are not visited by this method (they use visit_Lambda if implemented)
+            deps:
+              calls:
+                - self._check_docstring
+                - self.generic_visit
+              imports:
+                - agentspec.utils.collect_python_files
+                - ast
+                - pathlib.Path
+                - sys
+                - typing.Any
+                - typing.Dict
+                - typing.List
+                - typing.Tuple
+                - yaml
 
-        AGENT INSTRUCTIONS:
-        - DO NOT remove the self.generic_visit(node) call, as this breaks traversal of nested functions and child nodes
-        - DO NOT modify the method signature (visit_FunctionDef is a special method name required by ast.NodeVisitor)
-        - DO NOT skip calling _check_docstring() as that is where linting rules are enforced
-        - ALWAYS maintain this as an override of ast.NodeVisitor.visit_FunctionDef
-        - ALWAYS ensure child nodes are visited (either via generic_visit or explicit visit methods)
-        - NOTE: This method is automatically invoked by ast.NodeVisitor.visit() when it encounters a FunctionDef node; do not call it directly
-        - NOTE: Any modifications to docstring checking logic should be made in _check_docstring(), not here
+
+        why: |
+          The visitor pattern (ast.NodeVisitor) provides a clean, extensible mechanism for applying uniform linting rules across an entire AST. By implementing visit_FunctionDef, the linter automatically processes every function definition encountered during tree traversal without manual iteration.
+
+          Separating docstring validation (_check_docstring) from traversal (generic_visit) maintains single responsibility: validation logic is isolated in _check_docstring, while this method orchestrates the visitation strategy.
+
+          Recursive traversal via generic_visit ensures that nested functions and all descendant nodes are validated, preventing gaps in documentation coverage. This is critical for enforcing consistent standards across codebases with complex nesting.
+
+        guardrails:
+          - DO NOT omit the generic_visit(node) call; without it, child nodes will not be visited and nested function definitions will bypass validation entirely
+          - DO NOT modify the method signature; ast.NodeVisitor requires the exact name visit_FunctionDef and the single node parameter for the framework to dispatch correctly
+          - DO NOT skip _check_docstring(node); this is the enforcement point for documentation requirements and omitting it defeats the linting purpose
+          - DO NOT assume all child nodes are functions; generic_visit handles all node types, including nested classes and other definitions
+          - DO NOT catch or suppress exceptions from _check_docstring() unless explicitly designed to collect multiple errors; premature exception handling may hide validation failures
+
+            changelog:
+              - "- no git history available"
+            ---/agentspec
         """
-        print(f"[AGENTSPEC_CONTEXT] visit_FunctionDef: This is an AST visitor method that processes FunctionDef nodes during abstract syntax tree traversal | Calls _check_docstring() to validate that the function node has a docstring (or enforces docstring requirements based on linting rules) | Then calls generic_visit() to continue recursively visiting all child nodes in the AST subtree")
         self._check_docstring(node)
         self.generic_visit(node)
 
     def visit_AsyncFunctionDef(self, node):
         """
-        Brief one-line description.
-        Process async function definitions and validate they contain required docstrings.
+        ---agentspec
+        what: |
+          Validates async function definitions for required docstrings during AST traversal.
 
-        WHAT THIS DOES:
-        - This is a visitor method that processes AsyncFunctionDef AST nodes encountered during abstract syntax tree traversal
-        - Calls _check_docstring() to validate that the async function has a docstring, raising linting errors if missing
-        - Invokes generic_visit() to recursively traverse child nodes within the async function body
-        - Returns None (standard for AST visitor pattern methods)
-        - Acts as part of a linting/validation workflow that enforces documentation standards on async functions specifically (distinct from regular synchronous functions via visit_FunctionDef)
+          Behavior:
+          - Receives an AsyncFunctionDef node from the AST visitor pattern
+          - Invokes _check_docstring(node) to validate docstring presence on the async function
+          - Calls generic_visit(node) to recursively traverse and validate all child nodes
+          - Ensures both the async function itself and any nested definitions are checked
 
-        DEPENDENCIES:
-        - Called by: Python's ast.NodeVisitor framework during AST tree traversal (invoked automatically when visiting nodes)
-        - Calls: self._check_docstring(node) [validates docstring presence], self.generic_visit(node) [from ast.NodeVisitor parent class]
-        - Imports used: Implicitly uses ast module (AsyncFunctionDef node type), inherits from ast.NodeVisitor
-        - External services: None
+          Inputs:
+          - node: ast.AsyncFunctionDef object representing an async function definition
 
-        WHY THIS APPROACH:
-        - Uses the Visitor pattern (ast.NodeVisitor) which is the standard Python approach for AST traversal and analysis
-        - Separates async function checking into its own method rather than generic handling, allowing async-specific rules to be enforced independently
-        - The _check_docstring call ensures consistency with synchronous function checking, maintaining uniform docstring requirements across function types
-        - generic_visit() is essential for ensuring nested function definitions and code blocks within the async function are also visited and validated
-        - This approach leverages Python's built-in AST introspection rather than regex or text parsing, ensuring accurate structural analysis
+          Outputs:
+          - None (side effect: records linting errors via _check_docstring if docstring missing)
 
-        CHANGELOG:
-        - [Current date]: Initial implementation - basic async function docstring validation visitor
+          Edge cases:
+          - Async functions without docstrings trigger validation errors
+          - Nested async functions or inner definitions are validated recursively
+          - Decorated async functions are still subject to docstring requirements
+            deps:
+              calls:
+                - self._check_docstring
+                - self.generic_visit
+              imports:
+                - agentspec.utils.collect_python_files
+                - ast
+                - pathlib.Path
+                - sys
+                - typing.Any
+                - typing.Dict
+                - typing.List
+                - typing.Tuple
+                - yaml
 
-        AGENT INSTRUCTIONS:
-        - DO NOT modify the method signature (visit_AsyncFunctionDef must accept exactly self and node parameters)
-        - DO NOT remove the call to self.generic_visit(node) as this breaks recursive traversal of child nodes
-        - DO NOT change this to call a different validation method - must use _check_docstring
-        - ALWAYS preserve the order of _check_docstring() call before generic_visit() to validate parent before children
-        - ALWAYS ensure async functions are checked with same rigor as synchronous functions
-        - NOTE: This method is part of a linting visitor class; changes here affect all async function validation in the codebase
-        - NOTE: If _check_docstring behavior changes, it will automatically affect async function validation here
+
+        why: |
+          Enforces consistent documentation standards across both synchronous and asynchronous function definitions.
+          The visitor pattern enables automatic AST traversal during the linting workflow without manual recursion.
+          Checking the parent node before traversing children ensures validation occurs in logical order (parent before descendants).
+          Async functions require the same documentation rigor as sync functions to maintain codebase consistency.
+
+        guardrails:
+          - DO NOT omit the generic_visit() call; it breaks recursive traversal of child nodes and leaves nested definitions unvalidated
+          - DO NOT call generic_visit() before _check_docstring(); parent validation must occur before child traversal to maintain logical ordering
+          - DO NOT assume async functions are exempt from docstring requirements; they must meet the same standards as sync functions
+
+            changelog:
+              - "- no git history available"
+            ---/agentspec
         """
-        print(f"[AGENTSPEC_CONTEXT] visit_AsyncFunctionDef: This is a visitor method that processes AsyncFunctionDef AST nodes encountered during abstract syntax tree traversal | Calls _check_docstring() to validate that the async function has a docstring, raising linting errors if missing | Invokes generic_visit() to recursively traverse child nodes within the async function body")
         self._check_docstring(node)
         self.generic_visit(node)
 
     def visit_ClassDef(self, node):
         """
-        Brief one-line description.
-        Visits a ClassDef AST node and validates its docstring, then recursively processes all child nodes.
+        ---agentspec
+        what: |
+          Validates class docstring compliance and recursively processes all child nodes within a class definition.
 
-        WHAT THIS DOES:
-        - This is an AST visitor method that handles ClassDef (class definition) nodes during Abstract Syntax Tree traversal
-        - Calls _check_docstring() to validate that the class has proper documentation according to project linting rules
-        - Invokes generic_visit() to recursively traverse and process all child nodes of the class (methods, nested classes, etc.)
-        - Returns None (implicit return value of visitor pattern methods)
-        - Operates as part of a larger linting/validation framework that walks the entire Python AST
-        - The method follows the visitor pattern convention where methods are named visit_[NodeType] and are automatically dispatched by ast.NodeVisitor
+          Inputs:
+          - node: An ast.ClassDef node representing a class definition in the AST
 
-        DEPENDENCIES:
-        - Called by: ast.NodeVisitor.visit() method (framework calls this automatically when a ClassDef node is encountered during AST traversal)
-        - Calls: self._check_docstring(node) [performs docstring validation/linting], self.generic_visit(node) [continues AST traversal to children]
-        - Imports used: ast module (implicitly, as this inherits from ast.NodeVisitor)
-        - External services: None directly, though validation results may be logged or reported to linting systems
+          Behavior:
+          - Calls _check_docstring(node) to validate that the class has a compliant docstring according to project standards
+          - Calls self.generic_visit(node) to recursively traverse and visit all child nodes (methods, nested classes, attributes)
+          - Processes parent node validation before children to establish proper error context and reporting order
 
-        WHY THIS APPROACH:
-        - Uses the visitor pattern because it's the standard Python approach for AST traversal (via ast.NodeVisitor)
-        - Delegates docstring checking to _check_docstring() rather than implementing inline to maintain separation of concerns and allow method reuse across multiple node types (likely also used in visit_FunctionDef, visit_Module, etc.)
-        - Calls generic_visit() AFTER _check_docstring() to ensure the class itself is validated before examining its contents
-        - This two-step approach (check node, then visit children) ensures depth-first validation where parent nodes are processed before children
-        - Alternative approach of manually walking children via node.body would duplicate code already provided by generic_visit()
+          Outputs:
+          - No direct return value; side effects include docstring validation errors recorded in internal state and recursive visitation of child nodes
 
-        CHANGELOG:
-        - [Current implementation]: Initial implementation as part of AST-based linting framework for docstring validation
+          Edge cases:
+          - Classes with no docstring will be flagged by _check_docstring()
+          - Nested classes are recursively validated with the same rules
+          - Child methods within the class are visited and validated by their own visit_FunctionDef handler
+        what_else: |
+          This method is part of an AST visitor pattern implementation that enforces documentation standards across a Python codebase. It integrates into a larger linting workflow that traverses entire module ASTs to validate docstring presence and format compliance.
+            deps:
+              calls:
+                - self._check_docstring
+                - self.generic_visit
+              imports:
+                - agentspec.utils.collect_python_files
+                - ast
+                - pathlib.Path
+                - sys
+                - typing.Any
+                - typing.Dict
+                - typing.List
+                - typing.Tuple
+                - yaml
 
-        AGENT INSTRUCTIONS:
-        - DO NOT remove the call to generic_visit() as this would break recursive traversal of nested class members
-        - DO NOT change the method signature from visit_ClassDef to anything else, as ast.NodeVisitor uses reflection to dispatch based on node type names
-        - DO NOT reorder the _check_docstring() and generic_visit() calls without understanding the validation pipeline
-        - ALWAYS preserve the visitor pattern method naming convention (visit_[NodeType])
-        - ALWAYS ensure that if _check_docstring() is modified, the behavior remains consistent with docstring validation requirements
-        - NOTE: This method is part of a linting framework and changes here may affect all class definitions checked by this linter
-        - NOTE: The order of operations (check first, then recurse) ensures parent nodes are validated before children, which may be important for error reporting context
+
+        why: |
+          The visitor pattern (ast.NodeVisitor) provides a standard, maintainable mechanism for AST traversal with automatic node-type dispatch via method naming convention (visit_[NodeType]). By validating the parent class docstring before recursing into children, the validator establishes clear error context and ensures that documentation requirements are checked top-down through the class hierarchy. This ordering also allows parent-level validation errors to be reported before child-level errors, improving readability of lint output.
+
+        guardrails:
+          - DO NOT remove the generic_visit() call; it is essential for recursive traversal of all child nodes (methods, nested classes, attributes) and omitting it will cause child nodes to be silently skipped during validation
+          - DO NOT rename this method; ast.NodeVisitor uses reflection to dispatch to visit_[NodeType] methods by name, and renaming breaks the automatic dispatch mechanism
+          - DO NOT call _check_docstring() after generic_visit(); always validate the parent node before recursing into children to maintain proper error reporting order and context
+          - DO NOT modify the method signature; it must accept exactly one parameter (node) to conform to the ast.NodeVisitor interface contract
+
+            changelog:
+              - "- no git history available"
+            ---/agentspec
         """
-        print(f"[AGENTSPEC_CONTEXT] visit_ClassDef: This is an AST visitor method that handles ClassDef (class definition) nodes during Abstract Syntax Tree traversal | Calls _check_docstring() to validate that the class has proper documentation according to project linting rules | Invokes generic_visit() to recursively traverse and process all child nodes of the class (methods, nested classes, etc.)")
         self._check_docstring(node)
         self.generic_visit(node)
 
     def _check_docstring(self, node):
         """
-        Brief one-line description.
-        Validates that a function/class node has a properly formatted agentspec docstring block with all required metadata for AI agent consumption.
+        ---agentspec
+        what: |
+          Validates that function and class nodes contain properly formatted agentspec YAML docstring blocks with required and recommended metadata fields. The method extracts the docstring, locates the "---agentspec"/"---/agentspec" fenced block, parses its YAML content, and enforces structural constraints: REQUIRED_KEYS presence, RECOMMENDED_KEYS presence (warnings), 'what' field minimum character length (50+), 'deps' as dict structure, and 'guardrails' as non-empty list. Returns early on critical failures (missing docstring, missing fenced block, invalid YAML, non-dict YAML root) to prevent cascading validation errors. Appends validation results as (lineno, message) tuples to self.errors (critical issues prefixed with ❌) or self.warnings (advisory issues prefixed with ⚠️).
+            deps:
+              calls:
+                - ast.get_docstring
+                - doc.find
+                - errors.append
+                - fenced.split
+                - isinstance
+                - join
+                - l.strip
+                - len
+                - str
+                - strip
+                - warnings.append
+                - yaml.safe_load
+              imports:
+                - agentspec.utils.collect_python_files
+                - ast
+                - pathlib.Path
+                - sys
+                - typing.Any
+                - typing.Dict
+                - typing.List
+                - typing.Tuple
+                - yaml
 
-        WHAT THIS DOES:
-        - Extracts and validates the docstring from an AST node (function or class), checking for the presence of a fenced agentspec block delimited by "---agentspec" and "---/agentspec" markers
-        - Parses the fenced content as YAML and validates it contains a dictionary structure with all REQUIRED_KEYS present and RECOMMENDED_KEYS where applicable
-        - Performs verbosity checks on the overall fenced block (minimum line count) and specific fields like 'what' (minimum 50 characters) to ensure documentation is sufficiently detailed
-        - Validates field-specific constraints: ensures 'deps' is a dict structure, 'guardrails' is a non-empty list, and 'what' field contains substantive documentation
-        - Appends validation errors (❌) to self.errors list and non-critical issues (⚠️) to self.warnings list, each tuple containing (line_number, error_message)
-        - Returns early on critical failures (missing docstring, missing agentspec block, invalid YAML) to prevent cascading validation errors; continues checking optional/recommended fields even if some validations fail
 
-        DEPENDENCIES:
-        - Called by: LintChecker.check() or similar checker orchestration method in agentspec/lint.py that iterates through AST nodes
-        - Calls: ast.get_docstring() [stdlib], yaml.safe_load() [PyYAML], str.find(), str.strip(), list comprehensions for filtering
-        - Imports used: ast (stdlib), yaml (PyYAML library), presumably REQUIRED_KEYS and RECOMMENDED_KEYS constants defined at module level in agentspec/lint.py
-        - External services: None; this is purely static analysis on docstring text
+        why: |
+          Fenced YAML blocks balance human-readable docstring formatting with machine-parseable structured metadata for AI agent consumption. Using yaml.safe_load() prevents code injection vulnerabilities and handles YAML edge cases more robustly than manual string parsing. Early returns on critical failures prevent AttributeErrors when accessing dict keys and eliminate nonsensical cascading error messages that confuse developers. Separating errors from warnings enables configurable strictness policies across different CI/CD environments (e.g., fail on errors, warn on missing recommendations). Numeric thresholds (character counts, line counts) provide objective, configurable validation criteria rather than subjective heuristics.
 
-        WHY THIS APPROACH:
-        - Uses fenced blocks ("---agentspec"/"---/agentspec") rather than docstring sections to allow flexible human-readable formatting while maintaining machine-parseable YAML; this balances readability for developers with strict validation for AI agents
-        - Employs yaml.safe_load() rather than manual string parsing to leverage battle-tested YAML parsing, preventing injection attacks and handling edge cases like quoted strings, nested structures, and special characters
-        - Returns early on critical errors (missing docstring, malformed YAML) rather than attempting to validate downstream fields; this prevents AttributeErrors and nonsensical cascading error messages
-        - Separates errors (blocking issues) from warnings (quality/style issues) to allow linting at different strictness levels; CI/CD can fail on errors while only logging warnings in development
-        - Performs both container-level validation (is it a dict?) and content-level validation (does it have required keys?) for 'deps' and 'guardrails' to catch structural problems before type mismatches occur downstream
-        - Uses string length checks (chars for 'what', lines for fenced block) rather than semantic analysis because determining "adequate documentation" requires subjective judgment; numeric thresholds are objective and configurable
-        - NOT using: regex parsing of YAML (unmaintainable, fragile), strict enforcement on RECOMMENDED_KEYS as errors (allows gradual adoption), dynamic key validation against a schema file (simpler to maintain constants in code)
+        guardrails:
+          - DO NOT modify the "---agentspec" and "---/agentspec" fenced block delimiters without coordinating updates across all code that generates or parses agentspec docstrings, as this will break round-trip consistency.
+          - DO NOT remove early returns on critical failures (missing docstring, missing block, invalid YAML, non-dict root); they prevent AttributeErrors and cascading error messages that obscure root causes.
+          - DO NOT use yaml.load() instead of yaml.safe_load(); arbitrary code execution vulnerability when parsing untrusted docstrings.
+          - DO NOT access spec_data dict attributes without isinstance() type checks first; YAML parsing may produce unexpected types (None, list, scalar) if input is malformed.
+          - ALWAYS preserve the (lineno, message) tuple format when appending to self.errors and self.warnings; downstream code depends on this structure for sorting and reporting.
+          - ALWAYS include the emoji prefix (❌ for errors, ⚠️ for warnings) in error/warning messages for visual distinction in linter output.
+          - DO NOT treat missing recommended keys as errors; they should only generate warnings to allow gradual adoption of new metadata fields.
 
-        CHANGELOG:
-        - [2024-12-19]: Initial implementation with comprehensive validation of agentspec structure, YAML parsing, required/recommended keys, verbosity checks on 'what' field and fenced block, and type validation for 'deps' dict and 'guardrails' list
-
-        AGENT INSTRUCTIONS:
-        - DO NOT modify the fenced block delimiters ("---agentspec", "---/agentspec") without coordinating with all code that generates/parses agentspec docstrings
-        - DO NOT remove the early returns on critical validation failures; they prevent cascading errors and attribute errors
-        - DO NOT change the error/warning distinction without understanding downstream strictness levels in CI/CD configuration
-        - DO NOT convert length-based thresholds (50 chars, self.min_lines) into semantic validation without adding configuration options for customization
-        - ALWAYS preserve the tuple format (node.lineno, error_message) when appending to self.errors and self.warnings; downstream code depends on this structure for sorting and reporting
-        - ALWAYS include the emoji prefix (❌ for errors, ⚠️ for warnings) in error messages for visual distinction in output
-        - ALWAYS call yaml.safe_load() rather than yaml.load() to prevent arbitrary code execution vulnerabilities
-        - ALWAYS validate type before accessing attributes (check isinstance(spec_data['deps'], dict) before treating it as a dict)
-        - NOTE: The function assumes node.name and node.lineno attributes exist (valid for FunctionDef and ClassDef AST nodes); will fail silently or raise AttributeError if called on incompatible node types
-        - NOTE: REQUIRED_KEYS and RECOMMENDED_KEYS must be defined at module level or imported; this function does not validate their existence and will raise NameError if missing
-        - NOTE: The fenced block extraction logic (doc.find() approach) is vulnerable if "---agentspec" or "---/agentspec" appear elsewhere in the docstring; consider more robust regex or boundary-aware parsing if this becomes an issue
-        - NOTE: yaml.safe_load() can return None for empty YAML content, which will fail the isinstance(spec_data, dict) check; this is intentional to catch empty agentspec blocks
+            changelog:
+              - "- no git history available"
+            ---/agentspec
         """
-        print(f"[AGENTSPEC_CONTEXT] _check_docstring: Extracts and validates the docstring from an AST node (function or class), checking for the presence of a fenced agentspec block delimited by \"---agentspec\" and \"---/agentspec\" markers | Parses the fenced content as YAML and validates it contains a dictionary structure with all REQUIRED_KEYS present and RECOMMENDED_KEYS where applicable | Performs verbosity checks on the overall fenced block (minimum line count) and specific fields like 'what' (minimum 50 characters) to ensure documentation is sufficiently detailed")
         doc = ast.get_docstring(node)
         if not doc:
             self.errors.append((node.lineno, f"❌ {node.name} missing docstring"))
@@ -315,88 +377,131 @@ class AgentSpecLinter(ast.NodeVisitor):
                 )
 
     def check(self) -> Tuple[List[Tuple[int, str]], List[Tuple[int, str]]]:
-        """
-        Brief one-line description.
-        Returns the accumulated errors and warnings collected during linting operations.
+        '''
+        ---agentspec
+        what: |
+          Returns a tuple containing two lists of accumulated linting results from the checker instance.
+          The first list contains errors as Tuple[int, str] pairs (line number and error message).
+          The second list contains warnings as Tuple[int, str] pairs (line number and warning message).
+          This method provides direct access to internal state without filtering, sorting, or transformation.
+          Line numbers are integers (0 if unavailable), and messages are string descriptions of the linting issue.
+          The method returns references to the internal lists, not copies, making it a lightweight accessor.
+            deps:
+              imports:
+                - agentspec.utils.collect_python_files
+                - ast
+                - pathlib.Path
+                - sys
+                - typing.Any
+                - typing.Dict
+                - typing.List
+                - typing.Tuple
+                - yaml
 
-        WHAT THIS DOES:
-        - This function provides read-only access to two internal lists: self.errors and self.warnings
-        - Returns a tuple containing exactly two elements: (errors_list, warnings_list)
-        - Each error and warning is represented as a Tuple[int, str] where the int is typically a line number or error code and the str is the error/warning message
-        - The function performs no filtering, sorting, or modification of the accumulated data—it returns references to the internal state
-        - This is a simple accessor/getter method that exposes the diagnostic results collected during the linting process
-        - Return type is Tuple[List[Tuple[int, str]], List[Tuple[int, str]]], which is a 2-tuple containing two lists of 2-tuples
 
-        DEPENDENCIES:
-        - Called by: [Likely called by external code or test suites that need to retrieve linting results after calling other methods on this class]
-        - Calls: [This function calls no other functions; it only accesses instance attributes]
-        - Imports used: [typing.Tuple, typing.List (implicit from type hints)]
-        - External services: [None - this is a pure accessor method with no external dependencies]
+        why: |
+          The simple getter pattern avoids unnecessary copying overhead when callers need to inspect accumulated linting results.
+          Returning a tuple with fixed (errors, warnings) order provides type safety and semantic clarity about which list contains which category of issues.
+          Direct reference returns are appropriate here since the caller receives the authoritative state of the linter at the moment of the call.
+          This design supports efficient batch retrieval of all linting diagnostics without intermediate transformations.
 
-        WHY THIS APPROACH:
-        - This simple getter pattern is used because it provides direct access to accumulated diagnostic data without unnecessary copying or transformation
-        - Alternative approaches considered but NOT used: (1) Creating copies of the lists to prevent external mutation (would add memory overhead and is not done here), (2) Returning a dictionary instead of tuple (tuple is more structured and type-safe), (3) Filtering/sorting results (unnecessary at retrieval time; consumers can sort if needed)
-        - Performance: O(1) operation—just returns existing references with no iteration or processing
-        - The design assumes that the caller will not mutate these lists, or if they do, it's acceptable behavior; this is a common pattern in Python
+        guardrails:
+          - DO NOT add filtering, sorting, or transformation logic to the returned lists
+          - DO NOT change the return type from Tuple[List[Tuple[int, str]], List[Tuple[int, str]]]
+          - ALWAYS preserve the (errors, warnings) order in the returned tuple
+          - ALWAYS return direct references to self.errors and self.warnings without copying
+          - DO NOT modify the structure or content of error/warning tuples before returning
 
-        CHANGELOG:
-        - [Unknown date]: Initial implementation as simple accessor method
-
-        AGENT INSTRUCTIONS:
-        - DO NOT modify the return type or structure of the tuple
-        - DO NOT add filtering, sorting, or transformation logic to this method
-        - DO NOT change self.errors or self.warnings attribute names without updating all call sites
-        - ALWAYS preserve the tuple unpacking order: (errors, warnings) not (warnings, errors)
-        - ALWAYS maintain the Tuple[int, str] format for individual error/warning entries
-        - NOTE: This method returns direct references to internal state, not copies—external mutations will affect the object's internal state
-        """
-        print(f"[AGENTSPEC_CONTEXT] check: This function provides read-only access to two internal lists: self.errors and self.warnings | Returns a tuple containing exactly two elements: (errors_list, warnings_list) | Each error and warning is represented as a Tuple[int, str] where the int is typically a line number or error code and the str is the error/warning message")
+            changelog:
+              - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
+              - "-    """Check a single Python file for compliance.""""
+              - "- 2025-10-29: Enhanced lint.py with YAML validation and verbose checks"
+              - "-        checker = AgentSpecLinter(str(filepath))"
+              - "-        return [(e.lineno or 0, f"Syntax error: {e}")]"
+              - "-        return [(0, f"Error parsing {filepath}: {e}")]"
+              - "-    """Main lint runner for CLI.""""
+              - "- 2025-10-29: Add agent spec linter for Python files"
+            ---/agentspec
+        '''
         return self.errors, self.warnings
 
 
 def check_file(filepath: Path, min_lines: int = 10) -> Tuple[List[Tuple[int, str]], List[Tuple[int, str]]]:
-    """
-    Brief one-line description.
-    Validates a single Python file for AgentSpec compliance and returns a list of violations and warnings.
+    '''
+    ---agentspec
+    what: |
+      Validates a single Python file for AgentSpec compliance by parsing its AST and running a linter visitor.
 
-    WHAT THIS DOES:
-    - Reads a Python file from disk using UTF-8 encoding, parses it into an Abstract Syntax Tree (AST), and runs the AgentSpecLinter visitor across the tree to check for compliance violations
-    - Returns a tuple of two lists: (violations, warnings), where each element is a tuple of (line_number, message_string)
-    - Handles SyntaxError exceptions by capturing the line number (defaulting to 0 if unavailable) and returning it as a violation
-    - Handles all other exceptions (file not found, encoding errors, etc.) by returning a generic error message at line 0
-    - The min_lines parameter controls the minimum number of lines required for certain linting rules (defaults to 10); this is passed directly to the AgentSpecLinter constructor
-    - Returns violations and warnings separately so callers can handle them with different severity levels
+      Inputs:
+      - filepath: Path object pointing to a Python file to validate
+      - min_lines: integer threshold (default 10) for minimum acceptable docstring/block length; passed to AgentSpecLinter for strictness control
 
-    DEPENDENCIES:
-    - Called by: [Likely linting orchestration functions in agentspec/lint.py that iterate over multiple files, or CLI entry points that process individual files]
-    - Calls: filepath.read_text() [Path method from pathlib], ast.parse() [standard library AST parser], AgentSpecLinter class [defined in same module], checker.visit() [AST visitor pattern], checker.check() [AgentSpecLinter method that returns results]
-    - Imports used: Path from pathlib, Tuple and List from typing, ast standard library module, AgentSpecLinter class from current module
-    - External services: None - this is purely local file system and in-memory AST analysis
+      Outputs:
+      - Returns Tuple[List[Tuple[int, str]], List[Tuple[int, str]]] where:
+        - First list contains violations (line_number, error_message pairs)
+        - Second list contains warnings (line_number, warning_message pairs)
 
-    WHY THIS APPROACH:
-    - Using ast.parse() instead of regex or string parsing ensures accurate detection of Python syntax elements and respects actual code structure (e.g., detecting docstrings vs comments, handling nested definitions)
-    - The visitor pattern (AgentSpecLinter.visit()) allows modular, reusable checking logic that can be extended for new rule types without modifying this function
-    - Encoding is explicitly set to UTF-8 to ensure consistency across platforms and avoid platform-specific default encoding issues
-    - Exception handling is deliberately broad (catching all Exception types) to ensure this function never crashes even on malformed files, returning an error result instead; SyntaxError is caught separately because it has a lineno attribute that should be preserved for debugging
-    - Returning (violations, warnings) as separate lists allows callers to distinguish between hard failures and soft warnings without post-processing
-    - The min_lines parameter is configurable to allow different strictness levels in different contexts (e.g., relaxed checking for test files)
-    - Alternatives NOT used: regex-based checking (too fragile), subprocess calls to external linters (too slow, harder to control), caching (would require cache invalidation logic beyond scope)
+      Behavior:
+      - Reads file with UTF-8 encoding to ensure cross-platform consistency
+      - Parses source to AST using ast.parse with filename context
+      - Instantiates AgentSpecLinter visitor with filepath and min_lines parameter
+      - Visits AST tree to collect compliance issues
+      - Calls checker.check() to finalize and unpack violations/warnings lists
 
-    CHANGELOG:
-    - [Current date]: Initial implementation with dual return value structure for violations and warnings, configurable min_lines threshold, and comprehensive exception handling for both SyntaxError and general parsing failures
+      Error handling:
+      - SyntaxError: caught separately, preserves line number (or 0 if unavailable), returns as violation with "Syntax error:" prefix
+      - All other exceptions: caught broadly, reported as line 0 error with "Error parsing {filepath}:" prefix, returns empty warnings list
+      - Ensures function never raises; always returns valid tuple structure
+        deps:
+          calls:
+            - AgentSpecLinter
+            - ast.parse
+            - checker.check
+            - checker.visit
+            - filepath.read_text
+            - str
+          imports:
+            - agentspec.utils.collect_python_files
+            - ast
+            - pathlib.Path
+            - sys
+            - typing.Any
+            - typing.Dict
+            - typing.List
+            - typing.Tuple
+            - yaml
 
-    AGENT INSTRUCTIONS:
-    - DO NOT modify the exception handling structure; both SyntaxError and generic Exception catches are critical for robustness
-    - DO NOT change the return type from Tuple[List[Tuple[int, str]], List[Tuple[int, str]]] as downstream code depends on this exact structure
-    - DO NOT remove the encoding="utf-8" parameter from read_text(); this ensures cross-platform consistency
-    - DO NOT pass checker results directly without unpacking via checker.check(); the checker may perform post-processing that should not be skipped
-    - ALWAYS preserve the str(filepath) conversion when passing to ast.parse() and AgentSpecLinter; this ensures compatibility with Path objects and error messages
-    - ALWAYS maintain the (line_number, message) tuple structure in return values for consistent error reporting
-    - ALWAYS pass the min_lines parameter through to AgentSpecLinter to allow external callers to control linting strictness
-    - NOTE: If filepath.read_text() fails (file not found, permission denied, etc.), the generic Exception handler catches it; consider whether callers need more specific error information
-    - NOTE: Line numbers in AST may be 0-indexed or None for some constructs; the min_lines threshold in AgentSpecLinter should account for this
-    """
-    print(f"[AGENTSPEC_CONTEXT] check_file: Reads a Python file from disk using UTF-8 encoding, parses it into an Abstract Syntax Tree (AST), and runs the AgentSpecLinter visitor across the tree to check for compliance violations | Returns a tuple of two lists: (violations, warnings), where each element is a tuple of (line_number, message_string) | Handles SyntaxError exceptions by capturing the line number (defaulting to 0 if unavailable) and returning it as a violation")
+
+    why: |
+      AST parsing provides accurate Python structure detection compared to fragile regex-based approaches, enabling reliable identification of docstrings, function signatures, and code blocks.
+
+      Visitor pattern (AgentSpecLinter) allows modular, extensible rule checking without modifying this function's core logic; new compliance rules can be added to the visitor without touching check_file.
+
+      Separate violations/warnings lists enable downstream callers to apply different severity handling—violations may fail CI/CD while warnings only log.
+
+      Broad exception handling ensures robustness on malformed or edge-case files instead of crashing the entire linting process; line 0 errors signal parse-time failures distinct from content violations.
+
+      min_lines parameter exposed as function argument allows external control over strictness without hardcoding thresholds.
+
+    guardrails:
+      - DO NOT remove encoding="utf-8" from read_text(); ensures consistent behavior across Windows, macOS, and Linux
+      - DO NOT change return type signature; downstream code (CLI, CI integrations) depends on Tuple[List[Tuple[int, str]], List[Tuple[int, str]]]
+      - DO NOT skip checker.check() unpacking; may perform critical post-processing, aggregation, or filtering of collected violations/warnings
+      - ALWAYS pass min_lines through to AgentSpecLinter constructor; omitting it removes external strictness control
+      - ALWAYS preserve str(filepath) conversion for Path object compatibility with AgentSpecLinter and error messages
+      - DO NOT catch SyntaxError in the broad Exception handler; must preserve line number context from SyntaxError.lineno
+
+        changelog:
+          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
+          - "-    """Check a single Python file for compliance.""""
+          - "- 2025-10-29: Enhanced lint.py with YAML validation and verbose checks"
+          - "-        checker = AgentSpecLinter(str(filepath))"
+          - "-        return [(e.lineno or 0, f"Syntax error: {e}")]"
+          - "-        return [(0, f"Error parsing {filepath}: {e}")]"
+          - "-    """Main lint runner for CLI.""""
+          - "- 2025-10-29: Add agent spec linter for Python files"
+        ---/agentspec
+    '''
     try:
         src = filepath.read_text(encoding="utf-8")
         tree = ast.parse(src, filename=str(filepath))
@@ -410,14 +515,54 @@ def check_file(filepath: Path, min_lines: int = 10) -> Tuple[List[Tuple[int, str
 
 
 def run(target: str, min_lines: int = 10, strict: bool = False) -> int:
-    """
-    Main lint runner for CLI.
-    
-    Args:
-        target: File or directory to lint
-        min_lines: Minimum lines required in agentspec block
-        strict: Treat warnings as errors
-    """
+    '''
+    ---agentspec
+    what: |
+      Executes batch linting validation on Python files within a target directory to verify agentspec block compliance. Collects all Python files from the target path (file or directory), invokes check_file on each to validate agentspec requirements, and aggregates error and warning counts. Returns exit code 0 on success (no errors, and either no warnings or strict mode disabled), or exit code 1 on failure (errors present, or warnings present in strict mode). Prints per-file diagnostics with line numbers and messages, followed by a summary line showing total files checked and issue counts. Edge case: empty directory returns 0 with zero files checked and no output per file.
+        deps:
+          calls:
+            - Path
+            - check_file
+            - collect_python_files
+            - len
+            - print
+          imports:
+            - agentspec.utils.collect_python_files
+            - ast
+            - pathlib.Path
+            - sys
+            - typing.Any
+            - typing.Dict
+            - typing.List
+            - typing.Tuple
+            - yaml
+
+
+    why: |
+      Provides a CLI-friendly batch validation entry point for enforcing agentspec compliance across entire codebases. Separates errors (blocking issues) from warnings (advisory issues) to allow flexible enforcement policies. Strict mode enables CI/CD pipelines to enforce zero-warning policies by treating warnings as failures, while permissive mode allows warnings to pass. Summary statistics printed before exit code ensure visibility into validation scope and results.
+
+    guardrails:
+      - DO NOT return 0 when strict=True and total_warnings > 0; strict mode must treat warnings as blocking failures to enforce zero-warning policies in CI/CD
+      - DO NOT skip summary statistics output; always print the separator line and final status message to ensure visibility of validation results
+      - DO NOT modify or filter files during linting; only validate and report, preserving immutability of the target codebase
+      - DO NOT assume target path exists; rely on Path and collect_python_files to handle missing paths gracefully
+
+        changelog:
+          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
+          - "-    files = [path] if path.is_file() else list(path.rglob("*.py"))"
+          - "- 2025-10-29: Enhanced lint.py with YAML validation and verbose checks"
+          - "-        return [(0, f"Error parsing {filepath}: {e}")]"
+          - "-    """Main lint runner for CLI.""""
+          - "-        results = check_file(file)"
+          - "-        if results:"
+          - "-            for line, msg in results:"
+          - "-            total_errors += len(results)"
+          - "-    if total_errors == 0:"
+          - "-        print(f"\n❌ Found {total_errors} lint issues.")"
+          - "-        return 1"
+          - "- 2025-10-29: Add agent spec linter for Python files"
+        ---/agentspec
+    '''
     path = Path(target)
     files = collect_python_files(path)
 

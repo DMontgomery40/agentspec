@@ -6,7 +6,6 @@
 
 Think of it as something between `black`, `autodoc`, and `copilot-lint`, but tailored for LLMs.
 
-> Currently python only, js next on the roadmap, any TreeSitter contributions would be greatly appreciated. 
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -150,6 +149,12 @@ def process_embeddings(text: str, model: str = "gpt-5-turbo") -> np.ndarray:
     print(f"[AGENTSPEC] process_embeddings: Using {model} for {len(text)} chars")
     # ... actual implementation
 ```
+
+### CLI Help (Rich Terminal UI)
+
+The agentspec CLI features a beautiful, Rich-formatted help interface:
+
+<img src="assets/TUI-secreenshot.png" alt="Agentspec CLI Help" width="800">
 
 ---
 
@@ -380,7 +385,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.11.7'
       - name: Install agentspec
         run: pip install -e .
       - name: Lint agentspecs
@@ -426,6 +431,12 @@ chmod +x .git/hooks/pre-commit
 ---
 
 ## 📊 Real-World Impact
+
+### Agents Following Agentspecs
+
+Here's a real example of an AI agent reading agentspecs and following guardrails:
+
+<img src="assets/sgent-response-to-rules-screenshot.png" alt="Agent following agentspec guardrails" width="900">
 
 ### Before Agentspec
 - ❌ Claude Code deleted 800 lines of "dead code" (actually used via dynamic imports)
@@ -494,8 +505,6 @@ Every bit helps make AI agent collaboration safer and more reliable.
 ## 📮 Contact
 
 - **Issues**: [GitHub Issues](https://github.com/DMontgomery40/agentspec/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/DMontgomery40/agentspec/discussions)
-- **Twitter**: [@dmontgomery40](https://twitter.com/dmontgomery40)
 
 ---
 
