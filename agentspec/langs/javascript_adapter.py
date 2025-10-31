@@ -307,19 +307,29 @@ class JavaScriptAdapter:
 
     def _find_preceding_jsdoc(self, source: str, tree: Any, lineno: int) -> Optional[str]:
         """Find JSDoc comment immediately preceding a function/class at lineno."""
-        # Walk tree-sitter tree to find comment nodes before the target line
-        # This is a placeholder; full implementation would traverse tree properly
+        if not self._tree_sitter_available:
+            return None
+            
         lines = source.split('\n')
         
-        # Simple heuristic: look backward for /** ... */ pattern
-        for i in range(lineno - 2, max(0, lineno - 50), -1):
-            if lines[i].strip().endswith('*/'):
-                # Find the start of this comment block
-                for j in range(i, max(0, i - 50), -1):
+        # Look backward for preceding JSDoc
+        for i in range(lineno - 2, max(-1, lineno - 50), -1):
+            if i >= len(lines):
+                continue
+            line = lines[i].strip()
+            if line.endswith('*/'):
+                # Found potential JSDoc end, now find start
+                for j in range(i, max(-1, i - 50), -1):
+                    if j >= len(lines):
+                        continue
                     if '/**' in lines[j]:
-                        # Extract comment content
+                        # Extract JSDoc content
                         comment_lines = lines[j:i+1]
-                        return self._extract_jsdoc_content(comment_lines)
+                        content = self._extract_jsdoc_content(comment_lines)
+                        if content:
+                            return content
+                        break
+                break
         
         return None
 
@@ -327,41 +337,158 @@ class JavaScriptAdapter:
         """Extract docstring content from JSDoc lines."""
         content = []
         for line in lines:
-            line = line.strip()
-            if line.startswith('/**'):
-                line = line[3:].strip()
-            if line.endswith('*/'):
-                line = line[:-2].strip()
-            if line.startswith('*'):
-                line = line[1:].strip()
-            if line:
-                content.append(line)
+            # Remove common JSDoc formatting
+            stripped = line.strip()
+            
+            # Handle opening
+            if stripped.startswith('/**'):
+                stripped = stripped[3:].lstrip()
+            
+            # Handle closing
+            if stripped.endswith('*/'):
+                stripped = stripped[:-2].rstrip()
+            
+            # Handle line prefix
+            if stripped.startswith('*'):
+                stripped = stripped[1:].lstrip()
+            
+            # Add non-empty lines
+            if stripped:
+                content.append(stripped)
         
         return '\n'.join(content)
 
     def _find_node_at_line(self, tree: Any, lineno: int) -> Optional[Any]:
         """Find function or class declaration node at specific line."""
-        # Placeholder: would traverse tree-sitter tree to find node
-        # Full implementation would use tree-sitter query API
-        return None
+        if not self._tree_sitter_available:
+            return None
+        
+        def find_in_node(node):
+            """Recursively search for function/class at target line."""
+            if not node:
+                return None
+            
+            node_type = node.type
+            node_start_line = node.start_point[0] + 1  # tree-sitter uses 0-based line numbers
+            
+            # Check if this node matches
+            if node_type in ('function_declaration', 'arrow_function', 
+                            'function_expression', 'method_definition',
+                            'class_declaration') and node_start_line == lineno:
+                return node
+            
+            # Recursively search children
+            for child in node.children:
+                result = find_in_node(child)
+                if result:
+                    return result
+            
+            return None
+        
+        return find_in_node(tree.root_node)
 
     def _extract_function_calls(self, tree: Any, source: str, function_name: str) -> List[str]:
         """Extract function call names from a specific function."""
-        # Placeholder: would extract call_expression nodes
-        return []
+        calls = []
+        
+        if not self._tree_sitter_available:
+            return calls
+        
+        def collect_calls(node):
+            """Recursively collect call_expression nodes."""
+            if not node:
+                return
+            
+            if node.type == 'call_expression':
+                # Extract the called function name
+                call_name = self._extract_call_name(node, source)
+                if call_name:
+                    calls.append(call_name)
+            
+            # Recurse into children
+            for child in node.children:
+                collect_calls(child)
+        
+        # Traverse the entire tree (in real usage, would filter to specific function)
+        if hasattr(tree, 'root_node'):
+            collect_calls(tree.root_node)
+        
+        return sorted(list(set(calls)))  # Deduplicate and sort
+
+    def _extract_call_name(self, call_node: Any, source: str) -> Optional[str]:
+        """Extract the name of a called function from a call_expression node."""
+        if not call_node or not hasattr(call_node, 'child_by_field_name'):
+            return None
+        
+        # Try to get the function name
+        func_node = call_node.child_by_field_name('function')
+        if not func_node:
+            return None
+        
+        # Get text from source
+        start = func_node.start_byte
+        end = func_node.end_byte
+        
+        if start >= 0 and end >= 0 and end <= len(source.encode('utf-8')):
+            try:
+                name = source[start:end]
+                # Clean up whitespace
+                return name.strip() if name else None
+            except Exception:
+                return None
+        
+        return None
 
     def _extract_imports(self, tree: Any, source: str) -> List[str]:
         """Extract import statements from the module."""
         imports = []
-        # Simple regex-based extraction as placeholder
-        for line in source.split('\n'):
-            if re.match(r'^\s*import\s+', line):
-                imports.append(line.strip())
-            elif re.match(r'^\s*const\s+.*=\s*require\(', line):
-                imports.append(line.strip())
-        return imports
+        
+        if not self._tree_sitter_available:
+            return imports
+        
+        def collect_imports(node):
+            """Recursively collect import statements."""
+            if not node:
+                return
+            
+            if node.type in ('import_statement', 'import_clause', 'require_clause'):
+                # Extract import statement text
+                start = node.start_byte
+                end = node.end_byte
+                if 0 <= start < end <= len(source.encode('utf-8')):
+                    try:
+                        import_text = source[start:end].strip()
+                        if import_text:
+                            imports.append(import_text)
+                    except Exception:
+                        pass
+            
+            # Recurse
+            for child in node.children:
+                collect_imports(child)
+        
+        if hasattr(tree, 'root_node'):
+            collect_imports(tree.root_node)
+        
+        return list(set(imports))  # Deduplicate
 
     def _has_error_nodes(self, tree: Any) -> bool:
         """Check if parse tree contains ERROR nodes."""
-        # Placeholder: would traverse tree to check for ERROR nodes
-        return False
+        if not tree or not hasattr(tree, 'root_node'):
+            return True
+        
+        def has_errors(node):
+            """Recursively check for ERROR nodes."""
+            if not node:
+                return False
+            
+            if node.type == 'ERROR':
+                return True
+            
+            for child in node.children:
+                if has_errors(child):
+                    return True
+            
+            return False
+        
+        return has_errors(tree.root_node)

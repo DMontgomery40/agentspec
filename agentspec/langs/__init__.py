@@ -178,8 +178,15 @@ from agentspec.langs.python_adapter import PythonAdapter
 _python_adapter = PythonAdapter()
 LanguageRegistry.register(_python_adapter)
 
+# Import and register the JavaScript adapter
+from agentspec.langs.javascript_adapter import JavaScriptAdapter
+
+_javascript_adapter = JavaScriptAdapter()
+LanguageRegistry.register(_javascript_adapter)
+
 __all__ = [
     'LanguageAdapter',
     'LanguageRegistry',
     'PythonAdapter',
+    'JavaScriptAdapter',
 ]
