@@ -7,9 +7,9 @@ name = "agentspec"
 version = "0.1.0"
 description = "Structured, enforceable, and extractable docstrings for AI-assisted codebases."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
-    "pyyaml",
+    "pyyaml>=6.0.3",
     "rich>=13.7.0",
     "rich-argparse>=1.4.0",
 ]
@@ -20,9 +20,9 @@ authors = [
 keywords = ["ai", "lint", "docstrings", "agents", "developer-tools"]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]

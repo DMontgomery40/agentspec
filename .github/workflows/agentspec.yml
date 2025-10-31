@@ -6,21 +6,44 @@ on:
   pull_request:
 
 jobs:
-  lint-and-extract:
+  test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+      fail-fast: false
+    
+    name: Python ${{ matrix.python-version }}
+    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
+
+      - name: Display Python version
+        run: python --version
 
       - name: Install package
         run: |
           python -m pip install --upgrade pip
           pip install -e .
+
+      - name: Test imports
+        run: |
+          python -c "import agentspec; print('✓ Import successful')"
+          python -c "from agentspec.generate import generate_docstring; print('✓ generate.py imports work')"
+          python -c "from agentspec.utils import _find_git_root; print('✓ utils.py imports work')"
+
+      - name: Test CLI help
+        run: |
+          agentspec --help
+          agentspec lint --help
+          agentspec extract --help
+          agentspec generate --help
 
       - name: Run linter
         run: |
@@ -28,5 +51,11 @@ jobs:
 
       - name: Extract agent specs
         run: |
-          agentspec extract agentspec/ --json
+          agentspec extract agentspec/ --format json
+        continue-on-error: true
+
+      - name: Run tests
+        run: |
+          pip install pytest
+          pytest tests/ -v
         continue-on-error: true
