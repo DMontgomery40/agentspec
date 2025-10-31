@@ -3856,7 +3856,7 @@ Find JSDoc comment immediately preceding a function/class at lineno.
 
 ## _extract_jsdoc_content
 
-**Location:** `agentspec/langs/javascript_adapter.py:326`
+**Location:** `agentspec/langs/javascript_adapter.py:336`
 
 ### What This Does
 
@@ -3872,7 +3872,7 @@ Extract docstring content from JSDoc lines.
 
 ## _find_node_at_line
 
-**Location:** `agentspec/langs/javascript_adapter.py:342`
+**Location:** `agentspec/langs/javascript_adapter.py:361`
 
 ### What This Does
 
@@ -3882,13 +3882,29 @@ Find function or class declaration node at specific line.
 
 ```yaml
 Find function or class declaration node at specific line.
+```
+
+---
+
+## find_in_node
+
+**Location:** `agentspec/langs/javascript_adapter.py:366`
+
+### What This Does
+
+Recursively search for function/class at target line.
+
+### Raw YAML Block
+
+```yaml
+Recursively search for function/class at target line.
 ```
 
 ---
 
 ## _extract_function_calls
 
-**Location:** `agentspec/langs/javascript_adapter.py:348`
+**Location:** `agentspec/langs/javascript_adapter.py:390`
 
 ### What This Does
 
@@ -3898,13 +3914,45 @@ Extract function call names from a specific function.
 
 ```yaml
 Extract function call names from a specific function.
+```
+
+---
+
+## collect_calls
+
+**Location:** `agentspec/langs/javascript_adapter.py:397`
+
+### What This Does
+
+Recursively collect call_expression nodes.
+
+### Raw YAML Block
+
+```yaml
+Recursively collect call_expression nodes.
+```
+
+---
+
+## _extract_call_name
+
+**Location:** `agentspec/langs/javascript_adapter.py:418`
+
+### What This Does
+
+Extract the name of a called function from a call_expression node.
+
+### Raw YAML Block
+
+```yaml
+Extract the name of a called function from a call_expression node.
 ```
 
 ---
 
 ## _extract_imports
 
-**Location:** `agentspec/langs/javascript_adapter.py:353`
+**Location:** `agentspec/langs/javascript_adapter.py:442`
 
 ### What This Does
 
@@ -3918,9 +3966,25 @@ Extract import statements from the module.
 
 ---
 
+## collect_imports
+
+**Location:** `agentspec/langs/javascript_adapter.py:449`
+
+### What This Does
+
+Recursively collect import statements.
+
+### Raw YAML Block
+
+```yaml
+Recursively collect import statements.
+```
+
+---
+
 ## _has_error_nodes
 
-**Location:** `agentspec/langs/javascript_adapter.py:364`
+**Location:** `agentspec/langs/javascript_adapter.py:475`
 
 ### What This Does
 
@@ -3930,6 +3994,22 @@ Check if parse tree contains ERROR nodes.
 
 ```yaml
 Check if parse tree contains ERROR nodes.
+```
+
+---
+
+## has_errors
+
+**Location:** `agentspec/langs/javascript_adapter.py:480`
+
+### What This Does
+
+Recursively check for ERROR nodes.
+
+### Raw YAML Block
+
+```yaml
+Recursively check for ERROR nodes.
 ```
 
 ---

@@ -613,6 +613,12 @@ def main():
     )
     lint_parser.add_argument("target", help="File or directory to lint")
     lint_parser.add_argument(
+        "--language",
+        choices=["py", "js", "auto"],
+        default="auto",
+        help="Source language: 'py' (Python), 'js' (JavaScript), or 'auto' to detect from file extensions (default: auto)",
+    )
+    lint_parser.add_argument(
         "--min-lines", type=int, default=10, help="Minimum lines required in agentspec blocks (default: 10)"
     )
     lint_parser.add_argument("--strict", action="store_true", help="Treat warnings as errors")
@@ -641,6 +647,12 @@ def main():
         formatter_class=RawDescriptionRichHelpFormatter,
     )
     extract_parser.add_argument("target", help="File or directory to extract from")
+    extract_parser.add_argument(
+        "--language",
+        choices=["py", "js", "auto"],
+        default="auto",
+        help="Source language: 'py' (Python), 'js' (JavaScript), or 'auto' to detect from file extensions (default: auto)",
+    )
     extract_parser.add_argument(
         "--format",
         choices=["markdown", "json", "agent-context"],
@@ -673,6 +685,12 @@ def main():
         formatter_class=RawDescriptionRichHelpFormatter,
     )
     generate_parser.add_argument("target", help="File or directory to generate docstrings for")
+    generate_parser.add_argument(
+        "--language",
+        choices=["py", "js", "auto"],
+        default="auto",
+        help="Source language: 'py' (Python), 'js' (JavaScript), or 'auto' to detect from file extensions (default: auto)",
+    )
     generate_parser.add_argument(
         "--dry-run", action="store_true", help="Preview what would be generated without modifying files"
     )
