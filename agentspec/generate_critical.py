@@ -202,7 +202,7 @@ def generate_critical_docstring(
             except Exception:
                 call_chain_meta[called_func] = {"type": "not_found_in_file"}
 
-    # Prepare metadata summary
+    # Prepare metadata summary (for logs only; NOT shown to LLM)
     metadata_json = json.dumps(meta, indent=2)
     chain_json = json.dumps(call_chain_meta, indent=2) if call_chain_meta else "No dependency chain found"
 
@@ -212,18 +212,12 @@ def generate_critical_docstring(
     # CRITICAL DIFFERENCE #4: Build ultra-detailed prompt with ULTRATHINK
     critical_prompt = f"""CRITICAL MODE ACTIVE: You are documenting a critical function.
 
-METADATA (DETERMINISTIC - THIS IS GROUND TRUTH):
-{metadata_json}
-
-DEPENDENCY CHAIN ANALYSIS:
-{chain_json}
-
 REQUIREMENTS:
 1. ULTRATHINK - engage deep reasoning about this code
 2. Generate ONLY: 'what', 'why', 'guardrails' sections
 3. DO NOT generate 'deps' or 'changelog' - they will be inserted by code
 4. DO NOT generate both YAML and plain text formats - generate ONLY the format specified by the prompt template
-5. Base your narrative on code analysis and provided metadata
+5. Base your narrative on the given code only. You will NOT receive metadata.
 6. Be exhaustively thorough - this is critical code
 
 {base_prompt.format(code=code, filepath=filepath, hard_data="(deterministic fields will be injected by code)")}
@@ -256,9 +250,6 @@ ORIGINAL CODE:
 
 GENERATED DOCUMENTATION:
 {first_pass}
-
-METADATA FOR REFERENCE:
-{metadata_json}
 
 YOUR TASK:
 1. ULTRATHINK: Review the generated documentation for accuracy
