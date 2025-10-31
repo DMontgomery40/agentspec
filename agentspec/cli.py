@@ -371,7 +371,7 @@ def _show_rich_help():
       1. Title panel introducing Agentspec as "Structured, enforceable docstrings for AI agents"
       2. Commands table listing three primary commands (lint, extract, generate) with descriptions
       3. Quick-start examples panel showing common usage patterns for each command
-      4. Key flags reference table documenting important CLI flags grouped by command (--strict for lint, --format for extract, --critical/--terse/--update-existing/--diff-summary for generate)
+      4. Key flags reference table documenting important CLI flags grouped by command (--strict for lint, --format for extract, --terse/--update-existing/--diff-summary for generate)
 
       The function constructs Rich Table and Panel objects with styled headers, colored text, and box drawing, then prints each section sequentially to console. No return value; output is side-effect only (stdout).
 
@@ -478,7 +478,7 @@ def _show_rich_help():
         "[green]agentspec lint src/ --strict[/green]\n"
         "[green]agentspec extract src/ --format json > specs.json[/green]\n"
         "[green]agentspec generate src/ --update-existing --terse[/green]\n"
-        "[green]agentspec generate src/core/ --critical --diff-summary[/green]",
+        "[green]agentspec generate src/core/ --diff-summary[/green]",
         title="[bold]Examples[/bold]",
         border_style="dim",
         padding=(0, 1),
@@ -497,7 +497,6 @@ def _show_rich_help():
     
     flags_table.add_row("--strict", "Treat warnings as errors (lint)")
     flags_table.add_row("--format", "Output format: markdown/json/agent-context (extract)")
-    flags_table.add_row("--critical", "Ultra-accurate generation with verification (generate)")
     flags_table.add_row("--terse", "Shorter output with max_tokens=500 (generate)")
     flags_table.add_row("--update-existing", "Regenerate existing docstrings (generate)")
     flags_table.add_row("--diff-summary", "Add per-function code diff summaries (generate)")
@@ -521,7 +520,7 @@ def main():
 
       **Extract subcommand**: Exports agentspec blocks from Python files to portable formats. Accepts target (file or directory) and --format flag (choices: markdown, json, agent-context; default markdown). Calls extract.run() with parsed arguments.
 
-      **Generate subcommand**: Auto-generates or refreshes agentspec docstrings using Claude or OpenAI-compatible APIs. Accepts target (file or directory), --dry-run (preview without modifying), --force-context (add print() statements for LLM context), --model (Claude model identifier, default claude-haiku-4-5), --agentspec-yaml (embed YAML block), --provider (auto/anthropic/openai, default auto), --base-url (for OpenAI-compatible endpoints), --update-existing (regenerate existing docstrings), --critical (ultra-accurate mode), --terse (shorter output), and --diff-summary (add git diff summaries). Lazy-imports generate module to avoid requiring anthropic dependency unless command is used. Calls generate.run() with all parsed arguments.
+      **Generate subcommand**: Auto-generates or refreshes agentspec docstrings using Claude or OpenAI-compatible APIs. Accepts target (file or directory), --dry-run (preview without modifying), --force-context (add print() statements for LLM context), --model (model identifier), --agentspec-yaml (embed YAML block), --provider (auto/anthropic/openai, default auto), --base-url (for OpenAI-compatible endpoints), --update-existing (regenerate existing docstrings), --terse (shorter output), and --diff-summary (add git diff summaries). Lazy-imports generate module to avoid requiring anthropic dependency unless command is used. Calls generate.run() with all parsed arguments.
 
       **Behavior**: Loads .env file automatically via load_env_from_dotenv(). Displays rich-formatted help if no arguments or --help flag provided. Uses argparse with RichHelpFormatter for improved CLI UX. Routes parsed args to appropriate submodule handler (lint.run(), extract.run(), or generate.run()). Exits with status code 0 on success or 1 on error/missing command. Prints help and exits if no subcommand provided.
 
@@ -698,7 +697,7 @@ def main():
             "  agentspec lint src/ --strict\n"
             "  agentspec extract src/ --format json > specs.json\n"
             "  agentspec generate src/ --dry-run\n"
-            "  agentspec generate src/auth.py --critical --diff-summary\n\n"
+            "  agentspec generate src/auth.py --diff-summary\n\n"
             "Tip: run 'agentspec <command> --help' for detailed flags."
         ),
     )
@@ -847,11 +846,6 @@ def main():
         help="Regenerate docstrings even for functions that already have them (useful when code changes)"
     )
     generate_parser.add_argument(
-        "--critical",
-        action="store_true",
-        help="CRITICAL MODE: Ultra-accurate generation with verification for important code (slower but more accurate)"
-    )
-    generate_parser.add_argument(
         "--terse",
         action="store_true",
         help="TERSE MODE: Shorter output with max_tokens=500 and temperature=0.0 (more concise, deterministic)"
@@ -895,7 +889,6 @@ def main():
             provider=args.provider,
             base_url=args.base_url,
             update_existing=args.update_existing,
-            critical=args.critical,
             terse=args.terse,
             diff_summary=args.diff_summary,
         )

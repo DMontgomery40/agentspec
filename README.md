@@ -198,8 +198,14 @@ agentspec generate src/ --model claude-haiku-4-5
 # Add context-forcing print() statements (recommended for AI agents)
 agentspec generate src/ --model claude-haiku-4-5 --force-context
 
-# CRITICAL MODE: Ultra-accurate generation for important code (NEW!)
-agentspec generate src/auth/ --critical
+# High‑Accuracy Guidance for Important Code
+
+For especially important code paths (auth, payments, security):
+- Avoid `--terse` so the model can include thorough context
+- Consider a higher‑quality model; choose based on your environment and current options
+
+Example:
+agentspec generate src/auth/
 
 # UPDATE EXISTING: Regenerate when code changes (NEW!)
 agentspec generate src/ --update-existing
@@ -222,7 +228,7 @@ agentspec extract src/ --format json
 #### Critical Mode - Ultra-Accurate Documentation
 ```bash
 # For your most important code (auth, payments, security)
-agentspec generate src/payments/ --critical
+agentspec generate src/payments/
 
 # What it does:
 # - Processes ONE function at a time (no context pollution)
@@ -237,8 +243,8 @@ agentspec generate src/payments/ --critical
 # Regenerate ALL docstrings when code changes
 agentspec generate src/ --update-existing
 
-# Combine with critical for maximum accuracy
-agentspec generate src/core/ --critical --update-existing
+# Combine with update-existing for maximum coverage
+agentspec generate src/core/ --update-existing
 ```
 
 ### Advanced Options

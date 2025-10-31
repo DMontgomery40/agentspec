@@ -1620,19 +1620,17 @@ def process_file(filepath: Path, dry_run: bool = False, force_context: bool = Fa
         except Exception as e:
             print(f"  ❌ Error processing {name}: {e}")
 
-def run(target: str, dry_run: bool = False, force_context: bool = False, model: str = "claude-haiku-4-5", as_agentspec_yaml: bool = False, provider: str | None = 'auto', base_url: str | None = None, update_existing: bool = False, critical: bool = False, terse: bool = False, diff_summary: bool = False) -> int:
+def run(target: str, dry_run: bool = False, force_context: bool = False, model: str = "claude-haiku-4-5", as_agentspec_yaml: bool = False, provider: str | None = 'auto', base_url: str | None = None, update_existing: bool = False, terse: bool = False, diff_summary: bool = False) -> int:
     '''
     ---agentspec
     what: |
       CLI entry point for batch docstring generation across Python files with multi-provider LLM support.
 
-      Accepts a target path (file or directory) and routes Python files through either critical or standard processing modes. Performs provider auto-detection (Anthropic/OpenAI-compatible), validates API credentials before processing, and defaults to local Ollama (http://localhost:11434/v1) if OpenAI provider is selected without credentials.
-
-      Critical mode forces full regeneration of all docstrings for maximum accuracy by internally setting update_existing=True and delegating to process_file_critical(). Standard mode respects the update_existing flag to selectively regenerate or skip existing docstrings.
+      Accepts a target path (file or directory). Performs provider auto-detection (Anthropic/OpenAI-compatible), validates API credentials before processing, and defaults to local Ollama (http://localhost:11434/v1) if OpenAI provider is selected without credentials.
 
       Collects all Python files from target path using collect_python_files(), then iterates through each file, catching per-file exceptions to allow batch processing to continue despite individual failures. Dry-run mode prevents all file modifications and displays what would be processed. Returns 0 on success, 1 on credential validation failure or fatal errors.
 
-      Inputs: target (str path), dry_run (bool), force_context (bool), model (str, defaults to "claude-haiku-4-5"), as_agentspec_yaml (bool), provider (str or None, defaults to 'auto'), base_url (str or None), update_existing (bool), critical (bool), terse (bool), diff_summary (bool).
+      Inputs: target (str path), dry_run (bool), force_context (bool), model (str, defaults to "claude-haiku-4-5"), as_agentspec_yaml (bool), provider (str or None, defaults to 'auto'), base_url (str or None), update_existing (bool), terse (bool), diff_summary (bool).
 
       Outputs: int exit code (0 for success, 1 for failure).
 
@@ -1647,7 +1645,6 @@ def run(target: str, dry_run: bool = False, force_context: bool = False, model: 
             - path.exists
             - print
             - process_file
-            - process_file_critical
             - startswith
           imports:
             - agentspec.collect.collect_metadata
@@ -1666,22 +1663,21 @@ def run(target: str, dry_run: bool = False, force_context: bool = False, model: 
     why: |
       Centralizes provider detection and credential validation at batch entry point to prevent runtime failures across multiple files. Auto-detection logic (checking model name for "claude" prefix, falling back to Ollama for OpenAI provider) enables offline-first workflows without credential setup while maintaining explicit control via provider parameter.
 
-      Critical mode ensures precision when accuracy is paramount by forcing regeneration; standard mode respects user intent via update_existing flag to avoid unnecessary API calls. Dry-run mode provides safe preview capability before committing changes.
+      Dry-run mode provides safe preview capability before committing changes.
 
       Per-file exception handling allows batch operations to be resilient—one malformed file or API failure does not block processing of remaining files. Early path validation prevents wasted API calls on non-existent targets.
 
-      Lazy import of process_file_critical (only when critical=True) reduces module load overhead for standard mode operations.
+      Lazy import patterns keep optional dependencies out of non-generate code paths and reduce module load overhead for standard operations.
 
     guardrails:
       - DO NOT proceed without valid API credentials (ANTHROPIC_API_KEY for Anthropic, OPENAI_API_KEY or base_url for OpenAI-compatible) unless dry_run=True, as this prevents silent failures mid-batch
-      - DO NOT allow critical mode to skip regeneration; critical mode must always set update_existing=True internally to guarantee maximum accuracy
-      - DO NOT hardcode model names or remove the model parameter; model selection must remain configurable for testing different Claude versions
+      - DO NOT hardcode model names or remove the model parameter; model selection must remain configurable for testing different versions
       - DO NOT remove the dry-run early return; users depend on this to preview changes without file modification
       - ALWAYS validate target path exists before file collection to fail fast with clear error message
       - ALWAYS default to http://localhost:11434/v1 (local Ollama) if OpenAI provider is selected with no credentials, enabling offline-first workflows
       - ALWAYS preserve per-file exception handling to allow batch processing to continue despite individual file failures
       - ALWAYS load .env via load_env_from_dotenv() before credential checks to respect environment configuration
-      - ALWAYS pass base_url through to process_file/process_file_critical to maintain provider configuration across batch operations
+      - ALWAYS pass base_url through to process_file to maintain provider configuration across batch operations
       - NOTE: This function modifies source files in-place during non-dry-run execution; ensure files are version-controlled or backed up
       - NOTE: Provider auto-detection checks model name for "claude" prefix (case-insensitive) to route to Anthropic; explicit provider parameter overrides this logic
       - NOTE: Batch processing catches exceptions per-file but does not retry; users should monitor printed error messages for failures
@@ -1810,24 +1806,15 @@ def run(target: str, dry_run: bool = False, force_context: bool = False, model: 
     if dry_run:
         print("🔍 DRY RUN MODE - no files will be modified\n")
 
-    if critical:
-        print("🔬 CRITICAL MODE - Ultra-accurate generation with verification")
-        print("   (automatically regenerates ALL docstrings for maximum accuracy)\n")
-    elif update_existing:
+    if update_existing:
         print("🔄 UPDATE MODE - Regenerating existing docstrings\n")
 
     try:
         files = collect_python_files(path)
         for filepath in files:
             try:
-                if critical:
-                    # Use critical mode for ultra-accuracy
-                    # IMPORTANT: Critical mode ALWAYS updates existing (you want max accuracy)
-                    from agentspec.generate_critical import process_file_critical
-                    process_file_critical(filepath, dry_run, force_context, model, as_agentspec_yaml, base_url, prov, update_existing=True, terse=terse, diff_summary=diff_summary)
-                else:
-                    # Standard mode
-                    process_file(filepath, dry_run, force_context, model, as_agentspec_yaml, base_url, prov, update_existing, terse, diff_summary)
+                # Standard mode
+                process_file(filepath, dry_run, force_context, model, as_agentspec_yaml, base_url, prov, update_existing, terse, diff_summary)
             except Exception as e:
                 print(f"❌ Error processing {filepath}: {e}")
 
