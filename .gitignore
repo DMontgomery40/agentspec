@@ -218,6 +218,9 @@ function_docs.json
 agentspec_output.json
 agentspec_output.md
 
+# Archived documentation
+archived_docs/
+
 # Test outputs
 test_output/
 .test_cache/

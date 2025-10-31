@@ -7,8 +7,9 @@
 Think of it as something between `black`, `autodoc`, and `copilot-lint`, but tailored for LLMs.
 
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![CI Status](https://github.com/DMontgomery40/agentspec/workflows/Agentspec%20CI/badge.svg)](https://github.com/DMontgomery40/agentspec/actions)
 
 ---
 
@@ -160,9 +161,17 @@ The agentspec CLI features a beautiful, Rich-formatted help interface:
 
 ## 🚀 Quick Start
 
+### Requirements
+
+- **Python 3.10 or later** (Python 3.11+ recommended)
+- Why 3.10+? agentspec uses modern Python syntax (PEP 604 union types)
+
 ### Installation
 
 ```bash
+# Verify Python version (must be 3.10+)
+python --version
+
 # Install from source (core package only - lint and extract commands)
 git clone https://github.com/DMontgomery40/agentspec.git
 cd agentspec
@@ -223,21 +232,6 @@ agentspec extract src/ --format agent-context
 agentspec extract src/ --format json
 ```
 
-### 🆕 New Power Features
-
-#### Critical Mode - Ultra-Accurate Documentation
-```bash
-# For your most important code (auth, payments, security)
-agentspec generate src/payments/
-
-# What it does:
-# - Processes ONE function at a time (no context pollution)
-# - Collects metadata for each function AND its dependencies
-# - Two-pass generation with verification
-# - Uses ULTRATHINK reasoning for deeper analysis
-# - Lower temperature for consistency
-```
-
 #### Update Existing - Keep Docs in Sync
 ```bash
 # Regenerate ALL docstrings when code changes
@@ -260,7 +254,7 @@ agentspec generate src/ --model claude-3-5-sonnet-20241022
 
 # - OpenAI cloud (requires OPENAI_API_KEY):
 export OPENAI_API_KEY=sk-...
-agentspec generate src/ --model gpt-4o-mini --provider openai
+agentspec generate src/ --model gpt-5 --provider openai
 
 # - Local Ollama (no API key needed):
 agentspec generate src/ --model llama3.2 --provider openai --base-url http://localhost:11434/v1
@@ -389,9 +383,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.11.7'
+          python-version: '3.11'  # or '3.10', '3.12'
       - name: Install agentspec
         run: pip install -e .
       - name: Lint agentspecs

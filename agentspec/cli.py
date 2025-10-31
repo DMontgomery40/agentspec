@@ -510,6 +510,30 @@ def _show_rich_help():
     )
 
 
+def _check_python_version():
+    """Check Python version meets minimum requirements."""
+    import sys
+    
+    REQUIRED_MAJOR = 3
+    REQUIRED_MINOR = 10
+    
+    current = sys.version_info[:2]
+    if current[0] < REQUIRED_MAJOR or (current[0] == REQUIRED_MAJOR and current[1] < REQUIRED_MINOR):
+        print(f"""
+╔══════════════════════════════════════════════════════════════════════════╗
+║                     ❌ PYTHON VERSION TOO OLD                            ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+Current Python: {current[0]}.{current[1]}
+Required minimum: {REQUIRED_MAJOR}.{REQUIRED_MINOR}+
+
+agentspec requires Python {REQUIRED_MAJOR}.{REQUIRED_MINOR}+ because it uses modern syntax (PEP 604 union types).
+
+To upgrade, see: https://github.com/DMontgomery40/agentspec/blob/main/COMPATIBILITY.md
+""", file=sys.stderr)
+        sys.exit(1)
+
+
 def main():
     """
     ---agentspec
@@ -678,6 +702,9 @@ def main():
           - "-        help="Claude model to use (default: claude-sonnet-4-20250514)""
         ---/agentspec
     """
+    # Check Python version before anything else
+    _check_python_version()
+    
     # Load .env automatically (nearest) so users don't have to export manually
     load_env_from_dotenv()
     
@@ -705,18 +732,20 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
     
     # Lint command
+    from rich_argparse import RawDescriptionRichHelpFormatter
+    
     lint_parser = subparsers.add_parser(
         "lint",
         help="Validate agentspec blocks in Python files",
         description=(
             "Validate agentspec docstrings for presence, structure, and verbosity.\n\n"
             "Common flows:\n"
-            "- Enforce standards in CI: --strict (warnings cause non-zero exit)\n"
-            "- Raise minimum spec verbosity: --min-lines N\n"
-            "- Quick check of a single file before commit\n\n"
+            "  • Enforce standards in CI: --strict (warnings cause non-zero exit)\n"
+            "  • Raise minimum spec verbosity: --min-lines N\n"
+            "  • Quick check of a single file before commit\n\n"
             "Behavior:\n"
-            "- Prints per-file errors and warnings\n"
-            "- Exits non-zero on errors (and on warnings when --strict)\n"
+            "  • Prints per-file errors and warnings\n"
+            "  • Exits non-zero on errors (and on warnings when --strict)\n"
         ),
         epilog=(
             "Examples:\n"
@@ -724,7 +753,7 @@ def main():
             "  agentspec lint src/payments.py --strict --min-lines 20\n"
             "  agentspec lint src/ --min-lines 15\n"
         ),
-        formatter_class=_HelpFmt,
+        formatter_class=RawDescriptionRichHelpFormatter,
     )
     lint_parser.add_argument(
         "target",
@@ -749,13 +778,13 @@ def main():
         description=(
             "Extract agentspecs from code into portable docs for humans/CI/LLMs.\n\n"
             "Common flows:\n"
-            "- Human-readable docs site or review bundle: (default) markdown\n"
-            "- Machine-readable output for pipelines: --format json\n"
-            "- Agent-executable context with print() prompts: --format agent-context\n\n"
+            "  • Human-readable docs site or review bundle: (default) markdown\n"
+            "  • Machine-readable output for pipelines: --format json\n"
+            "  • Agent-executable context with print() prompts: --format agent-context\n\n"
             "Outputs:\n"
-            "- markdown → agent_specs.md\n"
-            "- json → agent_specs.json\n"
-            "- agent-context → AGENT_CONTEXT.md\n"
+            "  • markdown → agent_specs.md\n"
+            "  • json → agent_specs.json\n"
+            "  • agent-context → AGENT_CONTEXT.md\n"
         ),
         epilog=(
             "Examples:\n"
@@ -763,7 +792,7 @@ def main():
             "  agentspec extract src/ --format json > specs.json\n"
             "  agentspec extract src/auth.py --format agent-context\n"
         ),
-        formatter_class=_HelpFmt,
+        formatter_class=RawDescriptionRichHelpFormatter,
     )
     extract_parser.add_argument(
         "target",
@@ -777,28 +806,30 @@ def main():
     )
     
     # Generate command
+    from rich_argparse import RawDescriptionRichHelpFormatter
+    
     generate_parser = subparsers.add_parser(
         "generate",
         help="Auto-generate verbose agentspec docstrings",
         description=(
             "Generate or refresh agentspec docstrings from code.\n\n"
             "Common flows:\n"
-            "- Keep docs in sync: --update-existing\n"
-            "- For ambiguous or uncommon code: avoid --terse for thoroughness\n"
-            "- Fit more into LLM context: --terse\n"
-            "- Add commit-intent summaries: --diff-summary\n\n"
+            "  • Keep docs in sync: --update-existing\n"
+            "  • For ambiguous or uncommon code: avoid --terse for thoroughness\n"
+            "  • Fit more into LLM context: --terse\n"
+            "  • Add commit-intent summaries: --diff-summary\n\n"
             "Providers:\n"
-            "- Anthropic by model name (e.g., claude-haiku-4-5)\n"
-            "- OpenAI-compatible (incl. Ollama): --provider openai [--base-url URL]\n"
+            "  • Anthropic by model name (e.g., claude-haiku-4-5)\n"
+            "  • OpenAI-compatible (incl. Ollama): --provider openai [--base-url URL]\n"
         ),
         epilog=(
             "Examples:\n"
             "  agentspec generate src/ --update-existing --terse\n"
             "  agentspec generate src/core/ --diff-summary\n"
-            "  agentspec generate src/ --provider openai --model gpt-4o-mini\n"
+            "  agentspec generate src/ --provider openai --model gpt-5\n"
             "  agentspec generate src/ --provider openai --model llama3.2 --base-url http://localhost:11434/v1\n"
         ),
-        formatter_class=_HelpFmt,
+        formatter_class=RawDescriptionRichHelpFormatter,
     )
     generate_parser.add_argument(
         "target",
