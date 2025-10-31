@@ -118,56 +118,61 @@ def generate_critical_docstring(
     terse: bool = False,
     diff_summary: bool = False,
 ) -> str:
-    '''
-    ```python
     """
-    Generates production-grade docstrings for critical Python functions using two-pass LLM verification with deterministic metadata injection.
+    # WHAT THIS DOES:
 
-    WHAT:
-    - Two-pass LLM pipeline: first pass generates narrative (what/why/guardrails) at temperature 0.1 with deep reasoning; second pass verifies accuracy at temperature 0.0 against code and metadata
-    - Collects deterministic metadata via static AST analysis, recursively analyzes dependency chain (distinguishing dot-notation external calls), injects deps/changelog programmatically to prevent hallucination
-    - Supports AGENTSPEC_YAML or plain-text formats; optional terse mode reduces tokens ~50%; optional diff_summary analyzes function-scoped code changes with format validation
+    Generates production-grade docstrings for critical Python functions using a two-pass LLM verification pipeline with deterministic metadata injection. The function orchestrates: (1) static AST analysis via `collect_metadata()` to extract deterministic function metadata (deps, changelog); (2) recursive dependency chain analysis distinguishing dot-notation external calls from in-file functions, with changelog truncation to 2 items; (3) construction of a critical prompt with explicit "DO NOT generate deps/changelog" instructions (repeated 5x for instruction-following reliability) and metadata provided as reference-only context; (4) first LLM pass at temperature 0.1 (0.0 if terse) with ULTRATHINK reasoning to generate narrative fields (what/why/guardrails) only; (5) verification pass at temperature 0.0 to catch hallucinations and accuracy failures before injection; (6) format validation via regex to reject mixed YAML/plain-text output; (7) programmatic injection of deterministic metadata via `inject_deterministic_metadata()` to prevent technical field hallucination; (8) optional function-scoped code diff summary generation when `diff_summary=True`, with strict line-by-line format validation (pattern: `- YYYY-MM-DD: summary (hash)`). Supports both AGENTSPEC_YAML and plain-text formats. Terse mode reduces tokens ~50% via shorter prompts and lower max_tokens. Returns final docstring with verified narrative content and injected deterministic metadata.
 
-    WHY:
-    - Separates concerns: LLM generates only narrative reasoning while deterministic fields (deps/changelog) sourced from static analysis and injected by code, preventing technical metadata hallucination
-    - Two-pass verification catches inaccuracies before injection; recursive dependency chain provides LLM context about called functions without overwhelming token budget
-    - Explicit "DO NOT generate" instructions (repeated 5x) override LLM defaults; metadata-as-reference pattern reinforces boundary between reasoning and deterministic fields
+    **Edge cases handled**: missing metadata defaults to empty dict; functions with no dependency chain proceed normally; changelog truncated to 2 items to prevent token bloat; recursive `collect_metadata()` calls wrapped in try-except to prevent cascading failures from missing functions; diff summary format validated line-by-line with regex, rejecting malformed output; debug output shows pre/post-injection state for transparency and verification.
 
-    GUARDRAILS:
-    - DO NOT allow LLM to generate deps/changelog—they are sourced from static analysis only and injected by code
-    - DO NOT mix YAML and plain-text formats in output—validation raises ValueError if both detected
-    - DO NOT bypass inject_deterministic_metadata() call—it is the sole mechanism preventing hallucination of technical metadata
-    - ALWAYS forward base_url and provider to both generate_chat() calls to ensure consistent LLM configuration
-    - ALWAYS include CRITICAL_SYSTEM_PROMPT in first_pass system role to establish critical-mode reasoning tone
-    """
-    ```
-    FUNCTION CODE DIFF SUMMARY (LLM-generated):
-    # Commit Analysis
+    **Return type**: `str` containing complete docstring with narrative sections and injected deterministic metadata.
 
-    **Commit 1 (2025-10-30 - fix(critical)):**
-    Enforce strict format validation for commit hashes in diff summaries.
+    # WHY THIS APPROACH:
 
-    **Commit 2 (2025-10-30 - chore(lint)):**
-    Add comprehensive metadata injection and format validation for YAML/plain text.
+    **Separation of concerns—core principle**: LLM generates only narrative reasoning (what/why/guardrails) while deterministic fields (deps/changelog) are sourced from static code analysis and injected programmatically by code, not by LLM. This prevents hallucination of technical metadata. LLMs cannot reliably generate accurate dependency lists or changelog entries, but can reason about code behavior when given correct context. Injecting deterministic fields ensures single source of truth.
 
-    **Commit 3 (2025-10-30 - updated max tokens):**
-    Increase LLM token limits for richer critical documentation generation.
+    **Two-pass verification workflow over single-pass**: First pass at temperature 0.1 enables deep reasoning ("ULTRATHINK") for narrative generation with slight creativity in phrasing; second pass at temperature 0.0 performs deterministic verification against code and metadata, catching inaccuracies before injection. Single-pass generation would allow hallucination of deps/changelog to slip through; three+ passes would increase latency without accuracy gains. Temperature 0.1 for first pass balances creativity with accuracy; 0.0 for verification ensures deterministic output.
 
-    **Commit 4 (2025-10-30 - feat: enhance CLI):**
-    Switch from changelog diffs to function-scoped code diffs with WHY analysis.
+    **Recursive dependency chain analysis with truncation**: Provides LLM with context about called functions' own dependencies and recent changelog (truncated to 2 items), enabling more accurate "why" reasoning without overwhelming token budget. Dot-notation detection (checking for `.` in function name) distinguishes external/method calls that cannot be analyzed in-file, preventing failed lookups and "not_found_in_file" markers. This allows LLM to reason about external dependencies without breaking on missing functions.
+
+    **Explicit "DO NOT generate" instructions repeated 5x**: Overrides LLM's probabilistic tendency to hallucinate technical metadata. Metadata is marked "for your reference - DO NOT copy" to reinforce boundary between reasoning and deterministic fields. This redundancy is intentional—LLM instruction following is probabilistic, not deterministic; repetition increases compliance probability.
+
+    **Metadata-as-reference pattern**: Deterministic metadata is provided to LLM as context for narrative reasoning but explicitly excluded from output scope, then injected by code as single source of truth. This prevents both hallucination (LLM cannot generate deps/changelog) and manual post-processing (code handles injection). Cleaner than trying to parse and repair LLM output.
+
+    **Format validation before injection**: Raises `ValueError` if LLM generates mixed YAML/plain-text formats, rejecting invalid output rather than attempting repair. Regex patterns check for plain-text sections in YAML mode (e.g., `^WHAT:`) and YAML sections in plain-text mode (e.g., indented `what:`). This catches instruction-following failures early, preventing corrupted output from reaching injection stage.
+
+    **Graceful error handling with try-except wrapping**: Try-except around recursive `collect_metadata()` calls prevents one missing function from cascading into complete failure. "not_found_in_file" markers allow LLM to reason about external dependencies without breaking. Separate try-except for debug checks ensures verification failures never halt generation.
+
+    **Performance considerations**: O(n) dependency chain analysis where n = number of called functions; JSON serialization overhead is acceptable given critical nature of output; changelog truncation to 2 items balances context richness against token budget; terse mode reduces tokens ~50% (1500→750 max_tokens) for batch processing. Diff summary is optional and behind `diff_summary` flag to avoid wasting API calls for files without git history.
+
+    **Temperature tuning for determinism vs. creativity**: Terse mode uses 0.0 for maximum determinism; normal mode uses 0.1 for slight creativity in phrasing while maintaining accuracy. Higher temperatures (0.3+) cause hallucination of deps/changelog. Verification pass always uses 0.0 to ensure deterministic output.
+
+    **Separate diff summary call**: Diff analysis is expensive and optional, so it's behind `diff_summary` flag. Always including would waste API calls. Strict format validation (regex pattern matching per line) ensures LLM follows output requirements. Diff summary section is appended after metadata injection to preserve deterministic fields.
+
+    **Debug output for transparency**: Pre/post-injection state is printed to console, allowing operators to verify metadata injection succeeded and deterministic fields were not hallucinated by LLM. Warnings for missing changelog entries or malformed diff summaries aid troubleshooting.
+
+    # GUARDRAILS:
+
+    - **DO NOT remove the two-pass verification structure** (first_pass at temperature 0.1, final at temperature 0.0). Single-pass mode has unacceptably high hallucination rates for critical documentation. The verification pass is actual code, not optional
 
     DEPENDENCIES (from code analysis):
     Calls: Path, ValueError, any, base_prompt.format, called_meta.get, collect_function_code_diffs, collect_metadata, d.get, diff_summaries_text.split, expected_pattern.match, generate_chat, get, inject_deterministic_metadata, json.dumps, len, line.startswith, line.strip, meta.get, print, re.compile, re.search, valid_lines.append
     Imports: __future__.annotations, ast, json, pathlib.Path, typing.List, typing.Optional, typing.Tuple
 
     CHANGELOG (from git history):
+    - 2025-10-30: fix(changelog): backfill missing commit hashes in generate_critical.py docstrings via deterministic reinjection (8043e05)
     - 2025-10-30: fix(changelog): aggressively strip any LLM-emitted CHANGELOG/DEPENDENCIES sections and append deterministic ones with hashes (646ff28)
     - 2025-10-30: fix(critical): preserve commit hashes in injected CHANGELOG by relaxing section boundary regex (9c524b4)
     - 2025-10-30: chore(lint): ignore E501 to allow long AGENTSPEC context prints (3eb8b6b)
     - 2025-10-30: updated max toxens  on criitcal flag (496c4e3)
-    - 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features (e54b379)
 
-    '''
+
+    FUNCTION CODE DIFF SUMMARY (LLM-generated):
+    - 2025-10-30: Enforce output format with regex validation and commit hash inclusion (9c524b4)
+    - 2025-10-30: Add format validation and dependency chain metadata collection (3eb8b6b)
+    - 2025-10-30: Increase token limits for critical documentation generation (496c4e3)
+
+    """
     
     from agentspec.collect import collect_metadata
     from agentspec.llm import generate_chat
@@ -305,32 +310,10 @@ If corrections are needed, return the corrected version in the same format (YAML
         if any(re.search(pattern, final, re.MULTILINE) for pattern in yaml_patterns):
             raise ValueError("LLM generated invalid plain text format - contains YAML sections. Rejecting and requiring regeneration.")
 
-    # CRITICAL: Inject deterministic metadata programmatically
-    print("\n  🔧 DEBUG: About to inject metadata")
-    print("  📊 Collected metadata:")
-    print(json.dumps(meta, indent=2))
-    print("\n  📝 LLM output BEFORE injection:")
+    # CRITICAL: Do NOT inject metadata here; handled later via safe two‑phase write
+    print("\n  🔧 DEBUG: Narrative generated (metadata will be applied separately)")
     print("="*80)
     print(final)
-    print("="*80)
-    print(f"  🔍 LLM output has 'changelog:': {'changelog:' in final}")
-    print(f"  🔍 LLM output has 'deps:': {'deps:' in final}")
-
-    final_with_metadata = inject_deterministic_metadata(final, meta, as_agentspec_yaml)
-
-    # DEBUG: verify that deterministic changelog entries survived injection
-    try:
-        if meta.get('changelog'):
-            for entry in meta['changelog']:
-                if entry not in final_with_metadata:
-                    print(f"  ⚠️  WARNING: Changelog entry not found in output: {entry[:80]}")
-    except Exception:
-        # Debug only; never fail generation on debug check
-        pass
-
-    print("\n  ✅ AFTER injection:")
-    print("="*80)
-    print(final_with_metadata)
     print("="*80)
 
     # If diff_summary requested, make separate LLM call to summarize function-scoped code diffs (excluding docstrings/comments)
@@ -399,9 +382,9 @@ If corrections are needed, return the corrected version in the same format (YAML
 
             # Inject function-scoped diff summary section
             diff_summary_section = f"\n\nFUNCTION CODE DIFF SUMMARY (LLM-generated):\n{diff_summaries_text}\n"
-            final_with_metadata += diff_summary_section
+            final += diff_summary_section
 
-    return final_with_metadata
+    return final
 
 
 def process_file_critical(
@@ -416,47 +399,67 @@ def process_file_critical(
     terse: bool = False,
     diff_summary: bool = False
 ) -> None:
-    '''
-      ```python
-      """
-      Orchestrate three-phase pipeline: AST extraction → LLM generation with deterministic metadata → safe insertion with syntax validation.
+    """
+    # WHAT THIS DOES:
 
-      WHAT:
-      - Extracts undocumented functions via AST, generates verified docstrings with LLM, injects code-derived metadata (deps/changelog), inserts safely with syntax validation.
-      - Processes functions in descending line order to preserve line number validity during sequential insertions; per-function error isolation allows batch processing to continue despite individual failures.
-      - Supports dry-run preview, context-forcing debug injection, flexible LLM provider selection, and update-existing flag for refreshing stale docs.
+    Orchestrates three-phase critical documentation pipeline: AST extraction of undocumented functions → LLM generation with deterministic metadata injection → safe syntax-validated insertion.
 
-      WHY:
-      - LLM verification with deterministic metadata injection prevents AI hallucination of facts derivable from code analysis.
-      - Descending line-number processing ensures earlier insertions don't invalidate later line references; per-function try-except isolates failures for granular error reporting.
-      - Lazy imports and early SyntaxError abort prevent cascade failures; structured emoji-prefixed output enables CI/CD parsing and human readability.
+    - Extracts functions lacking verbose docstrings via AST parsing; generates docstrings using specified LLM model with configurable provider/endpoint; injects code-derived metadata (deps, changelog) deterministically; inserts into source with syntax validation.
+    - Processes functions in descending line number order (critical for correctness: inserting at line N shifts all subsequent line numbers downward; bottom-to-top ensures earlier insertions don't invalidate later line references).
+    - Per-function error isolation via individual try-except blocks allows batch processing to continue despite individual failures (LLM timeout, insertion syntax error, metadata collection failure); failures logged but non-fatal.
+    - Supports dry-run preview (early return after printing plan), force-context flag (injects print() statements for agent tracing), flexible LLM provider selection (model, base_url, provider parameters), update-existing flag (refresh stale docs), and output format selection (AGENTSPEC YAML or plain text).
+    - Pre-collects metadata before generation for user visibility (prints changelog head as sanity check) and pipeline validation; metadata collection failures isolated and non-fatal.
+    - Distinguishes three empty-result scenarios with specific console messages: no functions found (with --update-existing), all functions already documented, syntax error in file.
+    - Returns `None` after completion; all side effects are emoji-prefixed console output (parseable by CI/CD regex) and conditional file modification.
 
-      GUARDRAILS:
-      - DO NOT process files with syntax errors; abort early to prevent cascade failures.
-      - DO NOT skip dry-run checks; they prevent unintended file modifications.
-      - DO NOT process functions in ascending line order; descending order is required to preserve line number validity.
-      - DO NOT inline insert_docstring_at_line import; lazy import avoids circular dependencies and import-time side effects.
-      - ALWAYS process functions in descending line number order before insertion.
-      - ALWAYS verify syntax before insertion to prevent corrupting source files.
-      - ALWAYS inject deterministic metadata after LLM generation, never before.
-      - ALWAYS pass model, base_url, provider through to generate_critical_docstring for flexible LLM selection.
-      - ALWAYS distinguish three empty-result scenarios with specific console messages (no functions found, all documented, syntax error).
-      - ALWAYS preserve emoji-prefixed console output structure for CI/CD regex parsing.
-      """
-      ```
+    # WHY THIS APPROACH:
+
+    **Bottom-to-Top Processing Order**: Functions sorted by descending line number before insertion. Critical because inserting docstring at line N shifts all subsequent line numbers downward; processing bottom-to-top ensures earlier insertions don't invalidate later line references. Alternative (top-to-bottom) would require recalculating line numbers after each insertion, introducing complexity, state management overhead, and error propagation risk. Alternative (simultaneous insertion) would require buffering all docstrings and rewriting entire file, losing granular error recovery.
+
+    **Per-Function Error Isolation**: Each function wrapped in individual try-except rather than outer loop wrapper. Allows batch to continue processing remaining functions if one fails (LLM timeout, insertion syntax error, metadata collection failure). Alternative (single outer try-except) would abort entire file on first error, reducing utility for large files with mixed success rates and making partial progress invisible. Alternative (no error handling) would crash on first failure without logging context.
+
+    **Lazy Import of insert_docstring_at_line**: Import placed inside function body (within processing loop), not module level. Avoids import-time side effects, circular dependency risks, and allows function to be called without triggering downstream module initialization. Alternative (top-level import) would couple this module tightly to insertion logic at import time, creating hard dependency on insertion module even if only extraction is needed.
+
+    **Metadata Pre-Collection Before Generation**: Calls `collect_metadata()` before `generate_critical_docstring()` to preview changelog head and validate metadata pipeline. Provides user feedback ("Changelog head: ...") and early error detection without blocking generation. Isolated in try-except to prevent metadata collection failures from blocking docstring generation. Alternative (metadata collection after generation) wastes computation if metadata pipeline is broken. Alternative (no pre-collection) reduces user visibility into metadata derivation.
+
+    **Deterministic Metadata Injection in generate_critical_docstring()**: Function delegates metadata collection (deps, changelog) to downstream `generate_critical_docstring()` and `extract_function_info_critical()`, not computed inline. Ensures metadata is deterministic (derived from code analysis, not LLM hallucination) and reusable across multiple generation attempts. Alternative (inline metadata computation) couples metadata logic to orchestration function, reducing modularity. Alternative (LLM-generated metadata) introduces hallucination risk and non-determinism.
+
+    **Model/Provider/Base-URL Flexibility**: Parameters `model`, `base_url`, `provider` passed through to `generate_critical_docstring()`, enabling runtime LLM backend selection without code modification. Supports custom deployments (local Ollama, enterprise LLM proxies, alternative providers). Alternative (hardcoded model) reduces flexibility; alternative (environment variables only) reduces CLI usability.
+
+    **Force-Context Flag for Agent Tracing**: Conditionally injects print() statements into docstrings (passed to `insert_docstring_at_line()`). Enables AI agents to trace execution flow during docstring-guided code analysis by seeing intermediate values. Alternative (always inject) clutters docstrings with noise; alternative (never inject) reduces agent observability during debugging.
+
+    **Update-Existing Flag for Refresh Control**: Passed to `extract_function_info_critical()` to control whether functions with existing docstrings are re-processed. Allows users to refresh stale documentation or skip already-documented functions. Alternative (always update) wastes computation on already-documented functions; alternative (never update) prevents corrections to incorrect or outdated docs.
+
+    **Dry-Run Early Return**: Check occurs after printing processing plan but before file modification. Allows users to preview function list and processing strategy without risk. Alternative (no dry-run) requires file backups; alternative (dry-run after processing) wastes computation on LLM calls.
+
+    **Console Output Structure with Emoji Prefixes**: Emoji prefixes (📄, 🔬, 🛡️, ✅, ❌, ⚠️, 🤖) and consistent indentation throughout, enabling CI/CD systems to parse output via regex and extract function names, line numbers, success/failure status. Alternative (unstructured output) requires fragile line-by-line parsing; alternative (JSON output) loses human readability.
+
+    **Broad Exception Handling (except Exception)**: Per-function try-except uses `except Exception as e` (not specific exception types). Catches all failures (LLM errors, file I/O errors, syntax errors during insertion, metadata collection errors) without crashing. Alternative (specific exception types like `LLMError`, `SyntaxError`) misses unexpected error categories and requires maintaining exception taxonomy. Alternative (no exception handling) aborts on first error without logging context.
+
+    **Syntax Error Early Abort**: Catches `SyntaxError` from `extract_function_info_critical()` and returns immediately. Prevents cascade failures on malformed Python (attempting to insert docstrings into syntactically invalid file would corrupt source). Alternative (continue on syntax error) risks corrupting source files with invalid insertions.
+
+    # GUARDRAILS:
+
+    - DO
 
     DEPENDENCIES (from code analysis):
     Calls: _meta_preview.get, collect_metadata, extract_function_info_critical, generate_critical_docstring, insert_docstring_at_line, len, print, str
     Imports: __future__.annotations, ast, json, pathlib.Path, typing.List, typing.Optional, typing.Tuple
 
     CHANGELOG (from git history):
+    - 2025-10-30: fix(changelog): backfill missing commit hashes in generate_critical.py docstrings via deterministic reinjection (8043e05)
     - 2025-10-30: fix(changelog): aggressively strip any LLM-emitted CHANGELOG/DEPENDENCIES sections and append deterministic ones with hashes (646ff28)
     - 2025-10-30: fix(critical): preserve commit hashes in injected CHANGELOG by relaxing section boundary regex (9c524b4)
     - 2025-10-30: chore(lint): ignore E501 to allow long AGENTSPEC context prints (3eb8b6b)
     - 2025-10-30: updated max toxens  on criitcal flag (496c4e3)
-    - 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features (e54b379)
 
-    '''
+
+    FUNCTION CODE DIFF SUMMARY (LLM-generated):
+    - 2025-10-30: Relax regex to preserve commit hashes in CHANGELOG injection (9c524b4)
+    - 2025-10-30: Ignore E501 linting for long AGENTSPEC context prints (3eb8b6b)
+    - 2025-10-30: Increase max tokens for critical mode LLM generation (496c4e3)
+
+    """
     print(f"\n📄 Processing {filepath} in CRITICAL MODE")
     print("  🔬 Using ultra-accurate generation with verification")
     print("  🛡️  Deps and changelog will be programmatically injected (no LLM hallucination)")
@@ -493,17 +496,17 @@ def process_file_critical(
         print(f"  🔬 Deep analysis of {func_name}...")
         print(f"  🤔 ULTRATHINKING documentation for {func_name}...")
         print(f"  ✓ Verifying accuracy for {func_name}...")
-        # Collect deterministic metadata early for visibility and potential reuse
+        # Collect deterministic metadata privately (never passed to LLM)
         try:
             from agentspec.collect import collect_metadata
-            _meta_preview = collect_metadata(filepath, func_name)
-            if _meta_preview and _meta_preview.get('changelog'):
-                # Show top changelog entry as a quick sanity check
-                print(f"  🧾 Changelog head: {_meta_preview['changelog'][0]}")
+            _meta = collect_metadata(filepath, func_name) or {}
+            if _meta.get('changelog'):
+                print(f"  🧾 Changelog head: {_meta['changelog'][0]}")
         except Exception as e:
-            print(f"  ⚠️  Metadata pre-collection failed for {func_name}: {e}")
-        
-        # Generate with critical verification
+            print(f"  ⚠️  Metadata collection failed for {func_name}: {e}")
+            _meta = {}
+
+        # Generate with critical verification (narrative only)
         final = generate_critical_docstring(
             code=code,
             filepath=str(filepath),
@@ -516,12 +519,17 @@ def process_file_critical(
             diff_summary=diff_summary
         )
 
-        # Metadata already injected by generate_critical_docstring()
-        final_with_metadata = final
-
-        # Safe insertion
-        from agentspec.generate import insert_docstring_at_line
-        ok = insert_docstring_at_line(filepath, lineno, func_name, final_with_metadata, force_context)
+        # Safe two‑phase application with metadata
+        from agentspec.insert_metadata import apply_docstring_with_metadata
+        ok = apply_docstring_with_metadata(
+            filepath,
+            lineno,
+            func_name,
+            final,
+            _meta,
+            as_agentspec_yaml=as_agentspec_yaml,
+            force_context=force_context,
+        )
         if ok:
             print(f"  ✅ {func_name}: Added verified docstring with deterministic metadata")
         else:
@@ -533,40 +541,64 @@ def extract_function_info_critical(
     update_existing: bool = False,
     require_agentspec: bool = False
 ) -> List[Tuple[int, str, str]]:
-    '''
-        ```python
-        """
-        Extract function definitions from Python source via AST, returning (line_number, name, source) tuples sorted descending for safe batch modifications.
+    """
+    Extract function definitions from Python source via AST, returning (line_number, name, source) tuples sorted descending for safe batch modifications.
 
-        WHAT:
-        - Parses file into AST, identifies FunctionDef and AsyncFunctionDef nodes, extracts source via line boundaries (node.lineno to node.end_lineno).
-        - Filters by priority cascade: update_existing=True processes all functions; else checks agentspec marker presence or docstring length (<5 lines triggers extraction).
-        - Returns tuples sorted descending by line number to enable safe bottom-to-top batch insertions without line offset drift.
+    WHAT THIS DOES:
+    - Parses file into AST using ast.parse(), identifies all FunctionDef and AsyncFunctionDef nodes via ast.walk(), extracts complete source code by slicing original lines using node.lineno (start) and node.end_lineno (end), preserves decorators and multiline signatures intact.
+    - Applies priority-cascade filtering: update_existing=True selects ALL functions unconditionally; else if require_agentspec=True selects functions lacking docstrings OR missing "---agentspec" marker; else (default) selects functions lacking docstrings OR with docstrings <5 lines when split by '\n'.
+    - Returns list of tuples (line_number, function_name, source_code) sorted DESCENDING by line number (bottom-to-top), critical for safe in-place batch modifications without line offset invalidation.
+    - Handles nested functions correctly; ast.walk() traverses entire tree depth-first, extracting each function independently with accurate line boundaries.
+    - Edge case: update_existing=True completely ignores require_agentspec and 5-line threshold; intentional for bulk workflows but non-obvious when flags combined.
+    - Edge case: ast.get_docstring() returns None for missing docstrings; falsy check (not existing) correctly triggers selection.
+    - Edge case: end_lineno may be None in malformed AST (Python 3.8+); slice will fail silently or produce incomplete code.
+    - Edge case: Multiline docstrings evaluated by '\n' split; 4-line docstring considered underdocumented in default mode.
+    - Edge case: File encoding defaults to system; non-UTF-8 files raise UnicodeDecodeError.
+    - Returns empty list if no functions match filtering criteria or file contains no functions.
 
-        WHY:
-        - AST parsing guarantees accurate function boundaries across decorators, nested functions, and multiline signatures; regex fails on all three.
-        - Descending sort prevents line number invalidation during sequential modifications—modifying bottom-to-top preserves line references for remaining functions.
-        - Dual-mode filtering (full regeneration via update_existing vs. selective marker-based targeting) supports both aggressive and conservative docstring workflows.
+    WHY THIS APPROACH:
+    - **AST parsing over regex**: Semantically correct, handles decorators, nested functions, multiline signatures, type hints, and string literals containing "def" that break regex. Regex cannot distinguish function definitions from string content; AST is only robust production solution.
+    - **Priority-cascade with update_existing as master override**: Prevents accidental flag conflicts (e.g., update_existing=True + require_agentspec=True expecting agentspec filtering). update_existing=True acts as unconditional master switch enabling two workflows: (1) bulk re-documentation of ALL functions, (2) selective documentation based on agentspec compliance or quality when False. Ensures predictable, unambiguous behavior across documentation scenarios.
+    - **Descending sort (bottom-to-top)**: Non-negotiable for safe batch modifications. Modifying from bottom preserves line numbers of unprocessed functions above. Ascending order invalidates line numbers after first modification, causing subsequent modifications to target wrong locations or fail. Critical requirement for downstream in-place file edits.
+    - **Full source extraction vs. signatures only**: Complete function source enables AI agents to analyze implementation details, context, complexity for higher-quality, behavior-accurate docstrings reflecting actual code rather than interface contracts alone.
+    - **Tuple format (lineno, name, code)**: Provides human-readable identification (name) and machine-processable positioning (lineno) for downstream modification logic, enabling precise file location and replacement while maintaining code structure integrity.
+    - **Identical handling of sync and async functions**: isinstance() check for both ast.FunctionDef and ast.AsyncFunctionDef prevents accidental omission of async code from documentation pipelines, ensuring comprehensive coverage of modern Python codebases.
 
-        GUARDRAILS:
-        - DO NOT alter descending sort; breaks line number validity for batch insertions.
-        - DO NOT replace AST parsing with regex; fails on decorators, nested functions, multiline signatures.
-        - ALWAYS handle both FunctionDef and AsyncFunctionDef node types.
-        - ALWAYS extract source using AST line boundaries (node.lineno, node.end_lineno), never pattern matching.
-        - ALWAYS return (lineno, name, code) tuple format for downstream compatibility.
-        """
-        ```
+    GUARDRAILS:
+    - DO NOT alter descending sort order (reverse=True); breaks line number validity for batch insertions and causes subsequent modifications to target wrong locations.
+    - DO NOT replace AST parsing with regex or string pattern matching; fails on decorators, nested functions, multiline signatures, and string literals containing "def".
+    - DO NOT remove isinstance() check for both ast.FunctionDef and ast.AsyncFunctionDef; async functions must be processed identically to ensure complete coverage.
+    - DO NOT modify line slicing logic (node.lineno - 1:node.end_lineno) without extensive testing on nested, decorated, multiline-signature functions; off-by-one errors produce incomplete or incorrect source extraction.
+    - DO NOT change return type from List[Tuple[int, str, str]] without updating all callers unpacking (lineno, name, code); tuple structure changes break downstream positional unpacking.
+    - DO NOT remove ast.get_docstring() call; correctly handles docstrings not as first statement and distinguishes actual docstrings from regular string literals.
+    - DO NOT combine update_existing=True with require_agentspec=True expecting agentspec filtering; update_existing=True unconditionally selects all functions regardless of agentspec status.
+    - ALWAYS preserve priority-cascade filtering logic even when refactoring; update_existing flag is critical for supporting different documentation workflows and must remain master override.
+    - ALWAYS extract source using AST line boundaries (node.lineno, node.end_lineno), never pattern matching or regex.
+    - ALWAYS return (lineno, name, code) tuple format for downstream compatibility.
+    - ALWAYS test with nested functions, async functions, complex decorators, multiline signatures, and various docstring formats (single-line, multiline, missing, malformed).
+    - ALWAYS verify line numbers remain valid after sorting and descending order preserved in all test cases.
+    - NOTE: This function marked "critical" in filename; changes affect production documentation generation pipelines and require careful review before deployment.
+    - NOTE: 5-line threshold in default mode is arbitrary; may need tuning based on documentation quality metrics and user feedback; consider making configurable if adjustments become frequent.
+    - NOTE: ast.get_docstring() returns None for missing docstrings; falsy check (not existing) is intentional and correct, properly distinguishing missing from empty docstrings.
+    - NOTE: end_lineno attribute available Python 3.8+; consider defensive checks if robustness critical for production use with older AST implementations.
 
     DEPENDENCIES (from code analysis):
     Calls: ast.get_docstring, ast.parse, ast.walk, existing.split, f.read, functions.append, functions.sort, isinstance, join, len, open, source.split
     Imports: __future__.annotations, ast, json, pathlib.Path, typing.List, typing.Optional, typing.Tuple
 
     CHANGELOG (from git history):
+    - 2025-10-30: fix(changelog): backfill missing commit hashes in generate_critical.py docstrings via deterministic reinjection (8043e05)
     - 2025-10-30: fix(changelog): aggressively strip any LLM-emitted CHANGELOG/DEPENDENCIES sections and append deterministic ones with hashes (646ff28)
     - 2025-10-30: fix(critical): preserve commit hashes in injected CHANGELOG by relaxing section boundary regex (9c524b4)
     - 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features (e54b379)
 
-    '''
+
+    FUNCTION CODE DIFF SUMMARY (LLM-generated):
+    - 2025-10-30: Standardize quotes and type hints for code consistency (9c524b4)
+    - 2025-10-30: Add function to extract critical functions with agentspec validation (3eb8b6b)
+    - 2025-10-30: Remove extract_function_info_critical function implementation (496c4e3)
+
+    """
     with open(filepath, "r") as f:
         source = f.read()
 

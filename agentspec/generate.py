@@ -564,13 +564,10 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5"
 
       **Processing flow:**
       1. Extracts function name from code using regex pattern matching
-      2. Collects deterministic metadata (deps.calls, deps.imports, changelog) via `collect_metadata()` from code analysis
-      3. Normalizes metadata via `_ensure_nonempty_metadata()` to guarantee non-empty sections with placeholder messages
-      4. Selects prompt template based on `as_agentspec_yaml` and `terse` flags
-      5. Routes through unified LLM layer (`generate_chat()`) with configurable provider and base_url
-      6. Injects deterministic metadata into generated text via `inject_deterministic_metadata()`
-      7. If `diff_summary=True` and function name found, collects function-scoped code diffs and makes secondary LLM call to summarize WHY changes were made
-      8. Appends diff summary section to result if generated
+      2. Selects prompt template based on `as_agentspec_yaml` and `terse` flags
+      3. Routes through unified LLM layer (`generate_chat()`) with configurable provider and base_url
+      4. Returns narrative-only output (what/why/guardrails). Deterministic metadata (deps/changelog) is applied later via a safe two‑phase write.
+      5. If `diff_summary=True` and function name found, collects function-scoped code diffs and makes secondary LLM call to summarize WHY changes were made, returning the narrative with an appended DIFF SUMMARY section (still narrative-only).
 
       **Outputs:**
       - Returns complete docstring string (narrative sections only; metadata injected deterministically)
@@ -818,75 +815,7 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5"
     import re
     func_name = None
     m = re.search(r"def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", code)
-    if m:
-        func_name = m.group(1)
-    meta = {}
-    if func_name:
-        try:
-            meta = collect_metadata(Path(filepath), func_name) or {}
-        except Exception:
-            meta = {}
-    
-    # Ensure no empty sections; fill with explicit placeholders so users don't
-    # think the tool is broken. For changelog, include a useful fallback line.
-    def _ensure_nonempty_metadata(m: dict) -> dict:
-        """
-        ---agentspec
-        what: |
-          Normalizes a metadata dictionary by ensuring all required sections (deps.calls, deps.imports, changelog) contain non-empty values. Accepts a metadata dict or None as input and returns a guaranteed non-empty normalized dict. When deterministic metadata fields are missing or empty, inserts placeholder strings that explicitly communicate why the data is absent. The changelog section receives a two-item template: an absence explanation followed by a "Current implementation: " stub for later completion. Handles gracefully the case where input is None by treating it as an empty dict.
-            deps:
-              calls:
-                - deps.get
-                - dict
-                - m.get
-              imports:
-                - agentspec.collect.collect_metadata
-                - agentspec.utils.collect_python_files
-                - agentspec.utils.load_env_from_dotenv
-                - ast
-                - json
-                - os
-                - pathlib.Path
-                - re
-                - sys
-                - typing.Any
-                - typing.Dict
-
-
-        why: |
-          Ensures that AI-facing docstrings never contain completely empty metadata sections, which could confuse agents or cause downstream processing failures. Placeholder strings serve as explicit communication to agents about metadata collection limitations and the distinction between deterministic and non-deterministic data. This defensive normalization prevents callers from needing to check for missing fields and maintains a consistent contract: the function always returns a fully populated dictionary suitable for docstring generation.
-
-        guardrails:
-          - DO NOT remove or modify placeholder message strings; they communicate to agents why deterministic metadata is absent and distinguish between data collection limitations and intentional non-deterministic allowances.
-          - DO NOT change the changelog template structure (two-item list with absence explanation + "Current implementation: " stub) without updating all dependent docstring generation code that relies on this format.
-          - ALWAYS preserve the None-handling pattern (m or {}) to accept None input gracefully and avoid AttributeError on dict operations.
-          - ALWAYS return a dictionary (never None) to maintain the caller's contract and prevent downstream code from needing null checks.
-          - ALWAYS populate all three metadata sections (deps.calls, deps.imports, changelog) even when input is empty, to guarantee consistent structure for template rendering.
-
-            changelog:
-              - "- no git history available"
-            ---/agentspec
-        """
-        m = dict(m or {})
-        deps = dict(m.get('deps') or {})
-        calls = deps.get('calls') or []
-        if not calls:
-            deps['calls'] = [
-                'No metadata found; Agentspec only allows non-deterministic data for deps.calls.'
-            ]
-        imports = deps.get('imports') or []
-        if not imports:
-            deps['imports'] = [
-                'No metadata found; Agentspec only allows non-deterministic data for deps.imports.'
-            ]
-        m['deps'] = deps
-        cl = m.get('changelog') or []
-        if not cl or cl == ['- no git history available'] or cl == ['- none yet']:
-            m['changelog'] = [
-                '- No metadata found; Agentspec only allows non-deterministic data for changelog.',
-                '- Current implementation: ',
-            ]
-        return m
+    func_name = m.group(1) if m else None
 
     # DON'T pass metadata to LLM - it will be injected after generation
     # Choose prompt based on terse flag
@@ -937,7 +866,7 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5"
         if any(re.search(pattern, text, re.MULTILINE) for pattern in yaml_patterns):
             raise ValueError("LLM generated invalid plain text format - contains YAML sections. Rejecting and requiring regeneration.")
 
-    result = inject_deterministic_metadata(text, meta, as_agentspec_yaml)
+    result = text
 
     # If diff_summary requested, make separate LLM call to summarize function-scoped code diffs (excluding docstrings/comments)
     if diff_summary and func_name:
@@ -1663,18 +1592,31 @@ def process_file(filepath: Path, dry_run: bool = False, force_context: bool = Fa
     
     # Ensure bottom-to-top processing to avoid line shifts
     functions.sort(key=lambda x: x[0], reverse=True)
+    # Two‑phase write: narrative first (LLM), then deterministic metadata via insert_metadata.apply_docstring_with_metadata
     for lineno, name, code in functions:
         print(f"\n  🤖 Generating {'agentspec YAML' if as_agentspec_yaml else 'docstring'} for {name}...")
         try:
-            doc_or_yaml = generate_docstring(code, str(filepath), model=model, as_agentspec_yaml=as_agentspec_yaml, base_url=base_url, provider=provider, terse=terse, diff_summary=diff_summary)
-            ok = insert_docstring_at_line(filepath, lineno, name, doc_or_yaml, force_context=force_context)
+            narrative = generate_docstring(code, str(filepath), model=model, as_agentspec_yaml=as_agentspec_yaml, base_url=base_url, provider=provider, terse=terse, diff_summary=diff_summary)
+            # Collect metadata privately, never passed to LLM
+            try:
+                from agentspec.collect import collect_metadata
+                meta = collect_metadata(filepath, name) or {}
+            except Exception:
+                meta = {}
+            from agentspec.insert_metadata import apply_docstring_with_metadata
+            ok = apply_docstring_with_metadata(
+                filepath,
+                lineno,
+                name,
+                narrative,
+                meta,
+                as_agentspec_yaml=as_agentspec_yaml,
+                force_context=force_context,
+            )
             if ok:
-                if force_context:
-                    print(f"  ✅ Added docstring + context print to {name}")
-                else:
-                    print(f"  ✅ Added docstring to {name}")
+                print(f"  ✅ Added verified docstring with deterministic metadata to {name}")
             else:
-                print(f"  ⚠️ Skipped inserting docstring for {name} (syntax safety)")
+                print(f"  ⚠️ Skipped inserting docstring for {name} (compile safety)")
         except Exception as e:
             print(f"  ❌ Error processing {name}: {e}")
 
