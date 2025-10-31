@@ -65,7 +65,7 @@ agentspec generate src/ --update-existing --dry-run
 # Update with specific model
 agentspec generate src/ --update-existing --model claude-haiku-4-5
 
-# Combine with critical for maximum accuracy on updates
+# Combine with update-existing for maximum coverage on updates
 agentspec generate src/core/ --update-existing
 ```
 
@@ -253,8 +253,8 @@ agentspec lint src/ --strict
 ### Selective Updates
 
 ```bash
-# Update only critical files with high accuracy
-agentspec generate src/core/ --update-existing --critical
+# Update only key files with high accuracy
+agentspec generate src/core/ --update-existing
 
 # Update UI files with standard mode
 agentspec generate src/ui/ --update-existing
@@ -347,14 +347,14 @@ done
 
 ## Model Selection
 
-### For Critical Code
+### For Important Code
 
 ```bash
 # Best accuracy (but slower)
-agentspec generate src/critical.py --critical --model claude-sonnet-4-5-20250929
+agentspec generate src/critical.py --model <your_best_model>
 
 # Good balance
-agentspec generate src/important.py --critical --model claude-haiku-4-5
+agentspec generate src/important.py --model <your_best_model>
 ```
 
 ### For Bulk Documentation
@@ -391,8 +391,8 @@ For LLM consumption - shorter, more concise output:
 # Terse output (better for LLM context windows)
 agentspec generate src/ --terse
 
-# Terse + critical (high quality, concise)
-agentspec generate src/auth/ --critical --terse
+# Terse example
+agentspec generate src/auth/ --terse
 
 # Regular verbose output (better for human learning)
 agentspec generate src/
@@ -413,8 +413,8 @@ Add LLM-generated summaries of git diffs (separate API call):
 # Add diff summaries to understand what changed
 agentspec generate src/ --diff-summary
 
-# Works with all modes
-agentspec generate src/auth.py --critical --diff-summary --terse
+# Works with terse
+agentspec generate src/auth.py --diff-summary --terse
 ```
 
 **What happens:**
@@ -440,16 +440,16 @@ agentspec generate src/auth.py --critical --diff-summary --terse
 agentspec generate src/ --update-existing
 ```
 
-### Critical Mode Takes Too Long
+### Performance Tips
 
 ```bash
 # Process in smaller batches
-agentspec generate src/auth/ --critical
-agentspec generate src/models/ --critical
-agentspec generate src/api/ --critical
+agentspec generate src/auth/
+agentspec generate src/models/
+agentspec generate src/api/
 
-# Or use standard mode for less critical files
-agentspec generate src/utils/  # no --critical flag
+# For less critical files
+agentspec generate src/utils/
 ```
 
 ### Syntax Errors
