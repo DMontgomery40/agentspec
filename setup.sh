@@ -88,11 +88,12 @@ echo -e "${GREEN}✓ pip upgraded${NC}"
 echo
 
 # Install package
-echo -e "${BLUE}[5/6]${NC} Installing agentspec..."
+echo -e "${BLUE}[5/6]${NC} Installing agentspec (including optional JavaScript deps)..."
 if [ -f "pyproject.toml" ]; then
     # Install in development mode with all optional dependencies
     pip install -e ".[all]" --quiet
     echo -e "${GREEN}✓ agentspec installed in development mode with all dependencies${NC}"
+    echo -e "${YELLOW}  Includes tree-sitter bindings for JavaScript adapter${NC}"
 else
     echo -e "${RED}✗ pyproject.toml not found!${NC}"
     echo "  Are you in the agentspec directory?"
@@ -109,7 +110,23 @@ python -c "from agentspec.generate import generate_docstring" 2>/dev/null && ech
 python -c "from agentspec.utils import _find_git_root" 2>/dev/null && echo -e "${GREEN}✓${NC} utils.py imports successfully" || (echo -e "${RED}✗ utils.py import failed${NC}" && exit 1)
 
 # Test CLI
-agentspec --version &>/dev/null || echo -e "${GREEN}✓${NC} CLI available"
+echo -e "${BLUE}  •${NC} Verifying CLI entrypoint"
+if agentspec --help >/dev/null 2>&1; then
+    echo -e "    ${GREEN}✓${NC} CLI available"
+else
+    echo -e "    ${RED}✗ agentspec CLI not available${NC}"
+    exit 1
+fi
+
+echo -e "${BLUE}  •${NC} Checking core subcommands"
+for cmd in "lint --help" "extract --help" "generate --help" "strip --help"; do
+    if agentspec $cmd >/dev/null 2>&1; then
+        echo -e "    ${GREEN}✓${NC} agentspec $cmd"
+    else
+        echo -e "    ${RED}✗ agentspec $cmd failed${NC}"
+        exit 1
+    fi
+done
 
 echo
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -121,7 +138,9 @@ echo
 echo "Quick test commands:"
 echo "  agentspec --help"
 echo "  agentspec lint --help"
+echo "  agentspec extract --help"
 echo "  agentspec generate --help"
+echo "  agentspec strip --help"
 echo
 echo "To activate this environment in the future:"
 echo "  source .venv/bin/activate"

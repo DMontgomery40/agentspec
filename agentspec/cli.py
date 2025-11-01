@@ -10,7 +10,7 @@ import difflib
 import sys
 
 # Import only what's needed at runtime per command to avoid importing optional deps unnecessarily
-from agentspec import lint, extract
+from agentspec import lint, extract, strip
 from agentspec.utils import load_env_from_dotenv
 
 
@@ -352,11 +352,11 @@ def _show_rich_help():
     """
     ---agentspec
     what: |
-      Renders a formatted help screen to stdout using Rich library with three main sections:
+      Renders a formatted help screen to stdout using Rich library with four main sections:
       1. Title panel introducing Agentspec as "Structured, enforceable docstrings for AI agents"
-      2. Commands table listing three primary commands (lint, extract, generate) with descriptions
+      2. Commands table listing primary commands (lint, extract, generate, strip) with descriptions
       3. Quick-start examples panel showing common usage patterns for each command
-      4. Key flags reference table documenting important CLI flags grouped by command (--strict for lint, --format for extract, --terse/--update-existing/--diff-summary for generate)
+      4. Key flags reference table documenting important CLI flags grouped by command (--strict for lint, --format for extract, --terse/--update-existing/--diff-summary for generate, --mode for strip)
 
       The function constructs Rich Table and Panel objects with styled headers, colored text, and box drawing, then prints each section sequentially to console. No return value; output is side-effect only (stdout).
 
@@ -427,6 +427,7 @@ def _show_rich_help():
     commands_table.add_row("lint", "Validate agentspec blocks in Python files")
     commands_table.add_row("extract", "Extract agentspec blocks to markdown or JSON")
     commands_table.add_row("generate", "Auto-generate verbose agentspec docstrings using Claude")
+    commands_table.add_row("strip", "Remove agentspec-generated docstrings from Python files")
 
     console.print(commands_table)
     console.print()
@@ -438,7 +439,8 @@ def _show_rich_help():
             "[green]agentspec lint src/ --strict[/green]\n"
             "[green]agentspec extract src/ --format json > specs.json[/green]\n"
             "[green]agentspec generate src/ --update-existing --terse[/green]\n"
-            "[green]agentspec generate src/core/ --diff-summary[/green]",
+            "[green]agentspec generate src/core/ --diff-summary[/green]\n"
+            "[green]agentspec strip src/ --mode yaml --dry-run[/green]",
             title="[bold]Examples[/bold]",
             border_style="dim",
             padding=(0, 1),
@@ -461,6 +463,7 @@ def _show_rich_help():
     flags_table.add_row("--terse", "Shorter output with max_tokens=500 (generate)")
     flags_table.add_row("--update-existing", "Regenerate existing docstrings (generate)")
     flags_table.add_row("--diff-summary", "Add per-function code diff summaries (generate)")
+    flags_table.add_row("--mode", "Strip mode: all (default), yaml, or docstrings (strip)")
 
     console.print(flags_table)
     console.print()
@@ -509,6 +512,8 @@ def main():
 
       **Generate subcommand**: Auto-generates or refreshes agentspec docstrings using Claude or OpenAI-compatible APIs. Accepts target (file or directory), --dry-run (preview without modifying), --force-context (add print() statements for LLM context), --model (model identifier), --agentspec-yaml (embed YAML block), --provider (auto/anthropic/openai, default auto), --base-url (for OpenAI-compatible endpoints), --update-existing (regenerate existing docstrings), --terse (shorter output), and --diff-summary (add git diff summaries). Lazy-imports generate module to avoid requiring anthropic dependency unless command is used. Calls generate.run() with all parsed arguments.
 
+      **Strip subcommand**: Safely removes agentspec-generated YAML or narrative docstrings from Python files. Accepts target (file or directory), --mode (all/yaml/docstrings; default all), and --dry-run to preview removals. Calls strip.run() which performs per-edit compile verification before writing changes.
+
       **Behavior**: Loads .env file automatically via load_env_from_dotenv(). Displays rich-formatted help if no arguments or --help flag provided. Uses argparse with RichHelpFormatter for improved CLI UX. Routes parsed args to appropriate submodule handler (lint.run(), extract.run(), or generate.run()). Exits with status code 0 on success or 1 on error/missing command. Prints help and exits if no subcommand provided.
 
       **Edge cases**: Missing ANTHROPIC_API_KEY environment variable causes generate.run() to fail with auth error. Invalid Claude model names fail at API call time, not argument parsing time. --strict flag converts linting warnings to hard errors; use with caution in CI/CD pipelines.
@@ -520,6 +525,8 @@ def main():
             - extract_parser.add_argument
             - generate.run
             - generate_parser.add_argument
+            - strip.run
+            - strip_parser.add_argument
             - len
             - lint.run
             - lint_parser.add_argument
@@ -540,12 +547,13 @@ def main():
 
 
     why: |
-      Subcommand pattern isolates lint, extract, and generate logic for independent testing, maintenance, and feature development without tight coupling. Rich-based help formatter improves CLI UX for both end users and agent consumption. Lazy import of generate module avoids requiring anthropic dependency unless generate command is explicitly invoked, reducing installation friction for users who only need lint/extract. Early exit on missing command prevents ambiguous behavior and ensures explicit user feedback via help text. Explicit if/elif dispatch chain is more readable and debuggable than dict-based dispatch at this scale; easier for agents to trace execution flow. Default values (--min-lines=10, --format=markdown, --model=claude-haiku-4-5) provide sensible out-of-the-box behavior for common workflows. sys.exit() calls ensure process terminates cleanly; Python does not auto-exit from main(). Three distinct operations (validate, export, generate) are grouped as CLI commands rather than separate scripts for better UX and unified distribution.
+      Subcommand pattern isolates lint, extract, generate, and strip logic for independent testing, maintenance, and feature development without tight coupling. Rich-based help formatter improves CLI UX for both end users and agent consumption. Lazy import of generate module avoids requiring anthropic dependency unless generate command is explicitly invoked, reducing installation friction for users who only need lint/extract. Early exit on missing command prevents ambiguous behavior and ensures explicit user feedback via help text. Explicit if/elif dispatch chain is more readable and debuggable than dict-based dispatch at this scale; easier for agents to trace execution flow. Default values (--min-lines=10, --format=markdown, --model=claude-haiku-4-5) provide sensible out-of-the-box behavior for common workflows. sys.exit() calls ensure process terminates cleanly; Python does not auto-exit from main(). Strip command centralizes docstring removal tooling that previously required separate scripts, keeping lifecycle operations in a single CLI entry point.
 
     guardrails:
       - DO NOT modify the if/elif dispatch logic without updating corresponding submodule signatures in lint.py, extract.py, and generate.py
       - DO NOT remove sys.exit() calls; they are required for proper CLI exit behavior and process termination
       - DO NOT add new subcommands without documenting them in this docstring's WHAT section and updating help text
+      - DO NOT rename strip --mode choices without updating agentspec.strip guardrails and tests
       - DO NOT change argument parameter names (e.g., target, format, model, provider, base_url) as they are consumed by downstream modules via args object attributes
       - DO NOT remove or rename --dry-run and --force-context flags for generate; these are critical safety mechanisms
       - ALWAYS preserve help text on all CLI flags for end-user clarity and discoverability
@@ -557,6 +565,7 @@ def main():
     changelog:
 
       - "2025-10-31: Clean up docstring formatting"
+      - "2025-10-31: Add strip subcommand wiring and documentation"
         ---/agentspec
     """
     # Check Python version before anything else
@@ -613,6 +622,12 @@ def main():
     )
     lint_parser.add_argument("target", help="File or directory to lint")
     lint_parser.add_argument(
+        "--language",
+        choices=["py", "js", "auto"],
+        default="auto",
+        help="Source language: 'py' (Python), 'js' (JavaScript), or 'auto' to detect from file extensions (default: auto)",
+    )
+    lint_parser.add_argument(
         "--min-lines", type=int, default=10, help="Minimum lines required in agentspec blocks (default: 10)"
     )
     lint_parser.add_argument("--strict", action="store_true", help="Treat warnings as errors")
@@ -641,6 +656,12 @@ def main():
         formatter_class=RawDescriptionRichHelpFormatter,
     )
     extract_parser.add_argument("target", help="File or directory to extract from")
+    extract_parser.add_argument(
+        "--language",
+        choices=["py", "js", "auto"],
+        default="auto",
+        help="Source language: 'py' (Python), 'js' (JavaScript), or 'auto' to detect from file extensions (default: auto)",
+    )
     extract_parser.add_argument(
         "--format",
         choices=["markdown", "json", "agent-context"],
@@ -673,6 +694,12 @@ def main():
         formatter_class=RawDescriptionRichHelpFormatter,
     )
     generate_parser.add_argument("target", help="File or directory to generate docstrings for")
+    generate_parser.add_argument(
+        "--language",
+        choices=["py", "js", "auto"],
+        default="auto",
+        help="Source language: 'py' (Python), 'js' (JavaScript), or 'auto' to detect from file extensions (default: auto)",
+    )
     generate_parser.add_argument(
         "--dry-run", action="store_true", help="Preview what would be generated without modifying files"
     )
@@ -723,6 +750,41 @@ def main():
         help="DIFF SUMMARY: Add LLM-generated summaries of git diffs for each commit (separate API call)",
     )
 
+    strip_parser = subparsers.add_parser(
+        "strip",
+        help="Remove agentspec-generated docstrings from Python files",
+        description=(
+            "Strip agentspec YAML or narrative docstrings from Python files with compile-safety.\n\n"
+            "Common flows:\n"
+            "  • Preview removals before editing: --dry-run\n"
+            "  • Remove only YAML fences: --mode yaml\n"
+            "  • Remove narrative docs while keeping YAML: --mode docstrings\n\n"
+            "Behavior:\n"
+            "  • Walks functions, detects agentspec content, and removes matching docstrings\n"
+            "  • Performs per-edit py_compile checks before writing changes\n"
+            "  • Leaves files untouched when no agentspec content is detected\n"
+        ),
+        epilog=(
+            "Examples:\n"
+            "  agentspec strip src/ --dry-run\n"
+            "  agentspec strip src/service.py --mode yaml\n"
+            "  agentspec strip src/ --mode docstrings\n"
+        ),
+        formatter_class=RawDescriptionRichHelpFormatter,
+    )
+    strip_parser.add_argument("target", help="File or directory to strip")
+    strip_parser.add_argument(
+        "--mode",
+        choices=["all", "yaml", "docstrings"],
+        default="all",
+        help="Content removal mode: all (default), yaml, or docstrings",
+    )
+    strip_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview removals without modifying files",
+    )
+
     # Keep top-level help concise. Detailed flags remain in each subcommand's --help.
 
     # Parse args
@@ -752,6 +814,12 @@ def main():
             update_existing=args.update_existing,
             terse=args.terse,
             diff_summary=args.diff_summary,
+        )
+    elif args.command == "strip":
+        exit_code = strip.run(
+            args.target,
+            mode=args.mode,
+            dry_run=args.dry_run,
         )
     else:
         parser.print_help()
