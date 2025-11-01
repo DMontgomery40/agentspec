@@ -21,7 +21,7 @@ class AgentSpec:
     filepath: str
     raw_block: str
     parsed_data: Dict[str, Any] = field(default_factory=dict)
-    
+
     # Structured fields
     what: str = ""
     deps: Dict[str, Any] = field(default_factory=dict)
@@ -85,13 +85,8 @@ def _extract_block(docstring: str) -> Optional[str]:
       - DO NOT use regex for delimiter matching without performance benchmarking, as string search is simpler and faster for literal patterns
 
         changelog:
-          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
-          - "-    """Extract the agentspec block from a docstring.""""
-          - "- 2025-10-29: Enhanced extract.py with full YAML parsing and agent-context format"
-          - "-        return """
-          - "-        return """
-          - "-    return docstring[start:end].strip() if end != -1 else """
-          - "- 2025-10-29: Add agent spec extraction and export functionality"
+
+          - "2025-10-31: Clean up docstring formatting"
         ---/agentspec
     '''
     if not docstring:
@@ -112,7 +107,7 @@ def _parse_yaml_block(block: str) -> Optional[Dict[str, Any]]:
       Accepts any string input and attempts to parse it using yaml.safe_load(). Returns the parsed result (dict, list, scalar, or None) on success. Returns None silently if the input contains invalid YAML syntax or raises a yaml.YAMLError during parsing.
 
       Handles edge cases: empty strings, whitespace-only strings, and malformed YAML all return None without raising exceptions. Valid YAML that parses to non-dict types (lists, strings, integers, booleans, None) is returned as-is; callers are responsible for type validation before treating results as dictionaries.
-        deps:
+    deps:
           calls:
             - yaml.safe_load
           imports:
@@ -140,12 +135,9 @@ def _parse_yaml_block(block: str) -> Optional[Dict[str, Any]]:
       - ALWAYS use yaml.safe_load() specifically to maintain security posture
       - NOTE: Type hint declares Dict return but yaml.safe_load() can return list, string, int, bool, or None—callers must validate the actual type before accessing dict keys
 
-        changelog:
-          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
-          - "-    """Parse YAML from agentspec block.""""
-          - "- 2025-10-29: Enhanced extract.py with full YAML parsing and agent-context format"
-          - "-    return docstring[start:end].strip() if end != -1 else """
-          - "- 2025-10-29: Add agent spec extraction and export functionality"
+    changelog:
+
+      - "2025-10-31: Clean up docstring formatting"
         ---/agentspec
     '''
     try:
@@ -175,7 +167,7 @@ class AgentSpecExtractor(ast.NodeVisitor):
           Edge cases:
           - No validation of filepath existence or format occurs during __init__; invalid paths are caught later during file I/O operations
           - Empty specs list is intentional and expected; extraction methods populate it incrementally
-            deps:
+        deps:
               imports:
                 - agentspec.utils.collect_python_files
                 - ast
@@ -207,7 +199,7 @@ class AgentSpecExtractor(ast.NodeVisitor):
           - DO NOT initialize self.specs to None or skip initialization; this breaks extraction methods that expect a pre-allocated list and would require null-checking elsewhere
           - DO NOT validate filepath format or existence in __init__; validation belongs in dedicated methods that can provide context-specific error messages
 
-            changelog:
+        changelog:
               - "- no git history available"
             ---/agentspec
         """
@@ -236,7 +228,7 @@ class AgentSpecExtractor(ast.NodeVisitor):
           - Decorated functions have decorators extracted alongside function signature
           - Functions with type hints and docstrings are fully captured
           - Empty or malformed function definitions are handled by _extract() error handling
-            deps:
+        deps:
               calls:
                 - self._extract
                 - self.generic_visit
@@ -266,7 +258,7 @@ class AgentSpecExtractor(ast.NodeVisitor):
           - ALWAYS preserve the method signature as visit_FunctionDef(self, node) for ast.NodeVisitor compatibility; renaming or changing parameters breaks the visitor dispatch mechanism
           - DO NOT modify node in-place before calling generic_visit(); preserve AST integrity for recursive processing
 
-            changelog:
+        changelog:
               - "- no git history available"
             ---/agentspec
         """
@@ -295,7 +287,7 @@ class AgentSpecExtractor(ast.NodeVisitor):
           - Async generators (async def with yield) are processed identically to regular async functions
           - Decorated async functions have decorators extracted as part of node metadata
           - Nested async functions within async functions are discovered via recursive generic_visit()
-            deps:
+        deps:
               calls:
                 - self._extract
                 - self.generic_visit
@@ -326,13 +318,13 @@ class AgentSpecExtractor(ast.NodeVisitor):
           - ALWAYS call _extract() before generic_visit() to ensure metadata extraction completes before descending into child nodes
           - DO NOT assume the node has specific attributes without checking; rely on _extract() to handle attribute validation
 
-            changelog:
+        changelog:
               - "- no git history available"
             ---/agentspec
         """
         self._extract(node)
         self.generic_visit(node)
-    
+
     def visit_ClassDef(self, node):
         """
         ---agentspec
@@ -351,7 +343,7 @@ class AgentSpecExtractor(ast.NodeVisitor):
           - Calls generic_visit(node) to traverse all child nodes in the AST
           - Maintains depth-first, pre-order traversal order (parent processed before children)
           - Integrates with ast.NodeVisitor dispatch mechanism via method naming convention
-            deps:
+        deps:
               calls:
                 - self._extract
                 - self.generic_visit
@@ -380,7 +372,7 @@ class AgentSpecExtractor(ast.NodeVisitor):
           - DO NOT modify the method signature—ast.NodeVisitor expects exactly def visit_ClassDef(self, node):
           - ALWAYS call _extract() before generic_visit() to maintain pre-order traversal semantics
 
-            changelog:
+        changelog:
               - "- no git history available"
             ---/agentspec
         """
@@ -399,7 +391,7 @@ class AgentSpecExtractor(ast.NodeVisitor):
           - Handles edge cases: missing docstrings, malformed YAML, empty blocks, and multi-paragraph fallback text
           - Extracts structured fields (what, deps, why, guardrails, changelog, testing, performance) from parsed YAML when available
           - Converts string fields to stripped strings; preserves dictionaries and lists as-is from YAML parse result
-            deps:
+        deps:
               calls:
                 - AgentSpec
                 - _extract_block
@@ -443,14 +435,9 @@ class AgentSpecExtractor(ast.NodeVisitor):
           - DO NOT reimplement YAML extraction inline; always call _extract_block() and _parse_yaml_block() to maintain separation of concerns
           - DO NOT assume parsed dictionary keys exist; always use .get() with appropriate defaults ('' for strings, {} for dicts, [] for lists)
 
-            changelog:
-              - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
-              - "-    """Extract the agentspec block from a docstring.""""
-              - "- 2025-10-29: Enhanced extract.py with full YAML parsing and agent-context format"
-              - "-        return """
-              - "-        return """
-              - "-    return docstring[start:end].strip() if end != -1 else """
-              - "- 2025-10-29: Add agent spec extraction and export functionality"
+        changelog:
+
+          - "2025-10-31: Clean up docstring formatting"
             ---/agentspec
         '''
         doc = ast.get_docstring(node)
@@ -514,7 +501,7 @@ def extract_from_file(path: Path) -> List[AgentSpec]:
       - Syntax errors in Python source: caught by ast.parse(), returns empty list with warning
       - Files with no AgentSpec definitions: returns empty list (no warning, normal case)
       - Encoding issues: UTF-8 decode errors caught, returns empty list with warning
-        deps:
+    deps:
           calls:
             - AgentSpecExtractor
             - ast.parse
@@ -554,12 +541,9 @@ def extract_from_file(path: Path) -> List[AgentSpec]:
       - ALWAYS maintain the visitor pattern via AgentSpecExtractor.visit() call—do not inline extraction logic to preserve modularity and testability
       - DO NOT suppress the warning print statement—it provides essential debugging visibility when files fail to parse in batch operations
 
-        changelog:
-          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
-          - "-    """Extract all agentspecs from a Python file.""""
-          - "- 2025-10-29: Enhanced extract.py with full YAML parsing and agent-context format"
-          - "-    except Exception:"
-          - "- 2025-10-29: Add agent spec extraction and export functionality"
+    changelog:
+
+      - "2025-10-31: Clean up docstring formatting"
         ---/agentspec
     '''
     try:
@@ -590,7 +574,7 @@ def export_markdown(specs: List[AgentSpec], out: Path):
       Includes auto-generated header ("🤖 Extracted Agent Specifications") and metadata note at document start.
       Conditionally renders only non-empty optional fields to prevent malformed output.
       Uses UTF-8 encoding explicitly via Path.open().
-        deps:
+    deps:
           calls:
             - f.write
             - out.open
@@ -626,28 +610,23 @@ def export_markdown(specs: List[AgentSpec], out: Path):
       - DO NOT render empty dependency, changelog, testing, or performance sections; always check field presence first
       - DO NOT alter the separator line format (---) between specs; parsers may depend on this delimiter
 
-        changelog:
-          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
-          - "-    """Export to verbose markdown format for agent consumption.""""
-          - "- 2025-10-29: Enhanced extract.py with full YAML parsing and agent-context format"
-          - "-        f.write("# Extracted Agent Specs\n\n")"
-          - "-            f.write(f"## {s.name} ({s.filepath}:{s.lineno})\n\n")"
-          - "-            f.write("```yaml\n" + s.block + "\n```\n\n---\n\n")"
-          - "- 2025-10-29: Add agent spec extraction and export functionality"
+    changelog:
+
+      - "2025-10-31: Clean up docstring formatting"
         ---/agentspec
     '''
     with out.open("w", encoding="utf-8") as f:
         f.write("# 🤖 Extracted Agent Specifications\n\n")
         f.write("**This document is auto-generated for AI agent consumption.**\n\n")
         f.write("---\n\n")
-        
+
         for s in specs:
             f.write(f"## {s.name}\n\n")
             f.write(f"**Location:** `{s.filepath}:{s.lineno}`\n\n")
-            
+
             if s.what:
                 f.write(f"### What This Does\n\n{s.what}\n\n")
-            
+
             if s.deps:
                 f.write(f"### Dependencies\n\n")
                 if 'calls' in s.deps:
@@ -655,44 +634,44 @@ def export_markdown(specs: List[AgentSpec], out: Path):
                     for call in s.deps['calls']:
                         f.write(f"- `{call}`\n")
                     f.write("\n")
-                
+
                 if 'called_by' in s.deps:
                     f.write(f"**Called By:**\n")
                     for caller in s.deps['called_by']:
                         f.write(f"- `{caller}`\n")
                     f.write("\n")
-                
+
                 if 'config_files' in s.deps:
                     f.write(f"**Config Files:**\n")
                     for cfg in s.deps['config_files']:
                         f.write(f"- `{cfg}`\n")
                     f.write("\n")
-            
+
             if s.why:
                 f.write(f"### Why This Approach\n\n{s.why}\n\n")
-            
+
             if s.guardrails:
                 f.write(f"### ⚠️ Guardrails (CRITICAL)\n\n")
                 for guard in s.guardrails:
                     f.write(f"- **{guard}**\n")
                 f.write("\n")
-            
+
             if s.changelog:
                 f.write(f"### Changelog\n\n")
                 for entry in s.changelog:
                     f.write(f"- {entry}\n")
                 f.write("\n")
-            
+
             if s.testing:
                 f.write(f"### Testing\n\n")
                 f.write(f"```yaml\n{yaml.dump(s.testing, default_flow_style=False)}```\n\n")
-            
+
             if s.performance:
                 f.write(f"### Performance Characteristics\n\n")
                 for key, value in s.performance.items():
                     f.write(f"- **{key}:** {value}\n")
                 f.write("\n")
-            
+
             f.write(f"### Raw YAML Block\n\n")
             f.write(f"```yaml\n{s.raw_block}\n```\n\n")
             f.write("---\n\n")
@@ -711,7 +690,7 @@ def export_json(specs: List[AgentSpec], out: Path):
       Outputs: None (side effect: writes JSON file to disk).
 
       Edge cases: Empty specs list produces valid empty JSON array; raw_block field may contain multi-line strings that are properly escaped by json.dump.
-        deps:
+    deps:
           calls:
             - data.append
             - json.dump
@@ -740,12 +719,9 @@ def export_json(specs: List[AgentSpec], out: Path):
       - ALWAYS preserve raw_block field for round-trip docstring reconstruction and audit trails.
       - ALWAYS ensure parent directory of out exists before calling; this function does not create intermediate directories (caller responsibility).
 
-        changelog:
-          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
-          - "-    """Export to JSON for programmatic consumption.""""
-          - "- 2025-10-29: Enhanced extract.py with full YAML parsing and agent-context format"
-          - "-        json.dump([asdict(s) for s in specs], f, indent=2)"
-          - "- 2025-10-29: Add agent spec extraction and export functionality"
+    changelog:
+
+      - "2025-10-31: Clean up docstring formatting"
         ---/agentspec
     '''
     data = []
@@ -764,7 +740,7 @@ def export_json(specs: List[AgentSpec], out: Path):
             'raw_block': s.raw_block
         }
         data.append(spec_dict)
-    
+
     with out.open("w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
@@ -774,7 +750,7 @@ def export_agent_context(specs: List[AgentSpec], out: Path):
     ---agentspec
     what: |
       Exports a list of AgentSpec objects to a markdown file optimized for agent consumption. For each spec, writes a formatted section containing: a markdown header with spec name and file location, executable Python print() statements that agents can run to display metadata, guardrail items with one-based enumeration, and the raw YAML or docstring block. The "what" field is truncated to 100 characters; None/empty values for "what" and "guardrails" are handled gracefully with conditional checks. Output is UTF-8 encoded with triple-dash separators between specs. Returns None (side effect: writes file to disk).
-        deps:
+    deps:
           calls:
             - enumerate
             - f.write
@@ -812,70 +788,31 @@ def export_agent_context(specs: List[AgentSpec], out: Path):
       - NOTE: Output file can grow large with many specs; consider pagination or splitting for >5000 specs
       - NOTE: Agents should treat print() statements as metadata instructions, not as code to execute in all contexts
 
-        changelog:
-          - "- 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features"
-          - "- Iterates through a list of AgentSpec objects and writes each specification to a markdown file at the provided Path"
-          - "- For each spec, writes a formatted section containing: the spec name and file location as a markdown header, executable Python print() statements that agents can run to display spec metadata, guardrail items with enumerated numbering, and the raw YAML block of the complete specification"
-          - "- The output file is UTF-8 encoded and is designed to be human-readable markdown while also containing executable Python code blocks that agents can parse and execute to understand function specifications"
-          - "- Returns None (writes side effect only)"
-          - "- Handles edge cases where s.what or s.guardrails may be None/empty by using conditional checks before writing their sections"
-          - "- Truncates the "what" field to 100 characters to keep output concise"
-          - "- Called by: [Likely called from CLI commands or documentation generation scripts in agentspec module, inferred from function name and public API pattern]"
-          - "- Calls: Path.open() (pathlib), str.write() (file I/O), len() (builtin), enumerate() (builtin)"
-          - "- Imports used: List (typing), AgentSpec (assumed from same module), Path (pathlib)"
-          - "- External services: Local filesystem only (writes to disk)"
-          - "- This function uses embedded print() statements within markdown code blocks because agents process both the markdown structure (for readability) and executable Python statements (for programmatic understanding of specifications)"
-          - "- The approach prioritizes agent readability by forcing explicit print calls that must be "read" by agents, rather than relying on implicit spec parsing"
-          - "- Markdown format was chosen for human reviewability while maintaining machine-readable YAML blocks at the end of each section"
-          - "- Truncation of s.what to 100 characters balances verbosity with output file size; alternatives like full text or 50-char limit were rejected"
-          - "- The conditional checks (if s.what, if s.guardrails) handle None/empty values gracefully rather than raising AttributeError or writing empty sections"
-          - "- Enumeration starting at 1 (not 0) for guardrails provides agent-friendly one-based indexing that matches human counting conventions"
-          - "- Performance is O(n*m) where n=number of specs and m=average guardrail count per spec; acceptable for typical use cases with <1000 specs"
-          - "- The triple-dash separator ("---\n\n") between specs allows agents to parse sections independently if needed"
-          - "- Using raw_block preserves the original YAML exactly as written rather than re-serializing, maintaining formatting and comments from source"
-          - "- [2024-12-19]: Initial implementation - exports AgentSpec list to markdown with embedded print statements for agent consumption"
-          - "- DO NOT modify the print() statement format or the "[AGENTSPEC]" prefix, as agents may be pattern-matching on these strings"
-          - "- DO NOT remove the conditional checks for s.what and s.guardrails, as some specs may have None values"
-          - "- DO NOT change the 100-character truncation length without considering downstream agent parsing"
-          - "- DO NOT reorder the sections (header, prints, full spec, separator) as this structure is relied upon for agent parsing"
-          - "- ALWAYS preserve the markdown header hierarchy (## for spec sections)"
-          - "- ALWAYS include the raw_block exactly as-is without modification"
-          - "- ALWAYS encode output as UTF-8"
-          - "- ALWAYS enumerate guardrails starting from 1, not 0"
-          - "- NOTE: This function assumes all AgentSpec objects have valid name, filepath, and lineno attributes; missing attributes will cause AttributeError"
-          - "- NOTE: File write operations are not atomic; if the process crashes mid-write, the output file will be corrupted"
-          - "- NOTE: The output file can grow quite large with many specs; consider pagination or splitting for >5000 specs"
-          - "- NOTE: Agents reading this output should treat print() statements as metadata instructions, not as code to execute in all contexts"
-          - "-            f.write(f"**Full Specification:**\n\n")"
-          - "-            f.write(f"```yaml\n{s.raw_block}\n```\n\n")"
-          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
-          - "-    Export in a format optimized for injecting into agent context."
-          - "-    Extremely verbose, includes print() statements."
-          - "- 2025-10-29: Enhanced extract.py with full YAML parsing and agent-context format"
-          - "-        json.dump([asdict(s) for s in specs], f, indent=2)"
-          - "- 2025-10-29: Add agent spec extraction and export functionality"
+    changelog:
+
+      - "2025-10-31: Clean up docstring formatting"
         ---/agentspec
     """
     with out.open("w", encoding="utf-8") as f:
         f.write("# 🤖 AGENT CONTEXT: Function Specifications\n\n")
         f.write("**AGENTS: You MUST print() and read these specifications before modifying code.**\n\n")
-        
+
         for s in specs:
             f.write(f"## SPEC: {s.name} ({s.filepath}:{s.lineno})\n\n")
             f.write(f"```python\n")
             f.write(f'print("[AGENTSPEC] Reading spec for {s.name}")\n')
             f.write(f'print("[AGENTSPEC] Location: {s.filepath}:{s.lineno}")\n')
-            
+
             if s.what:
                 f.write(f'print("[AGENTSPEC] What: {s.what[:100]}...")\n')
-            
+
             if s.guardrails:
                 f.write(f'print("[AGENTSPEC] GUARDRAILS ({len(s.guardrails)} items):")\n')
                 for i, guard in enumerate(s.guardrails, 1):
                     f.write(f'print("[AGENTSPEC]   {i}. {guard}")\n')
-            
+
             f.write(f"```\n\n")
-            
+
             if s.parsed_data:
                 f.write(f"**Full Specification (YAML):**\n\n")
                 f.write(f"```yaml\n{s.raw_block}\n```\n\n")
@@ -912,7 +849,7 @@ def run(target: str, fmt: str = "markdown") -> int:
       - Empty target directory or no Python files: returns 1 with warning message
       - Invalid format string: defaults to markdown export
       - Non-existent target path: handled by collect_python_files validation
-        deps:
+    deps:
           calls:
             - Path
             - all_specs.extend
@@ -951,16 +888,9 @@ def run(target: str, fmt: str = "markdown") -> int:
       - DO NOT modify or filter specs during aggregation; preserve all extracted specs as-is
       - DO NOT assume format string is valid; default to markdown for unrecognized formats to prevent crashes
 
-        changelog:
-          - "- 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features"
-          - "-        print("⚠️  No agent spec blocks found.")"
-          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
-          - "-    files = [path] if path.is_file() else list(path.rglob("*.py"))"
-          - "- 2025-10-29: Enhanced extract.py with full YAML parsing and agent-context format"
-          - "-        print("⚠️ No agent spec blocks found.")"
-          - "-    out = Path(f"agent_specs.{ 'json' if fmt == 'json' else 'md'}")"
-          - "-    print(f"✅ Exported {len(all_specs)} specs → {out}")"
-          - "- 2025-10-29: Add agent spec extraction and export functionality"
+    changelog:
+
+      - "2025-10-31: Clean up docstring formatting"
         ---/agentspec
     """
     path = Path(target)

@@ -70,18 +70,18 @@ Python syntax features:
 ├──────────────────────────────────────────────────────────────────────────┤
 │                                                                           │
 │ macOS (using Homebrew):                                                  │
-│   brew install python@{RECOMMENDED_MAJOR}.{RECOMMENDED_MINOR}                                                     │
+│   brew install python@{RECOMMENDED_MAJOR}.{RECOMMENDED_MINOR} │
 │                                                                           │
 │ Ubuntu/Debian:                                                           │
 │   sudo apt update                                                        │
-│   sudo apt install python{RECOMMENDED_MAJOR}.{RECOMMENDED_MINOR} python{RECOMMENDED_MAJOR}.{RECOMMENDED_MINOR}-venv                      │
+│   sudo apt install python{RECOMMENDED_MAJOR}.{RECOMMENDED_MINOR} python{RECOMMENDED_MAJOR}.{RECOMMENDED_MINOR}-venv │
 │                                                                           │
 │ Using pyenv (recommended for managing multiple Python versions):        │
-│   pyenv install {RECOMMENDED_MAJOR}.{RECOMMENDED_MINOR}                                                    │
-│   pyenv local {RECOMMENDED_MAJOR}.{RECOMMENDED_MINOR}                                                      │
+│   pyenv install {RECOMMENDED_MAJOR}.{RECOMMENDED_MINOR} │
+│   pyenv local {RECOMMENDED_MAJOR}.{RECOMMENDED_MINOR} │
 │                                                                           │
-│ Create a new virtual environment with Python {recommended_version}:                       │
-│   python{RECOMMENDED_MAJOR}.{RECOMMENDED_MINOR} -m venv .venv                                                 │
+│ Create a new virtual environment with Python {recommended_version}: │
+│   python{RECOMMENDED_MAJOR}.{RECOMMENDED_MINOR} -m venv .venv │
 │   source .venv/bin/activate  # On Windows: .venv\\Scripts\\activate    │
 │   pip install agentspec                                                  │
 │                                                                           │

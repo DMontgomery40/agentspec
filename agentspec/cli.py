@@ -8,7 +8,6 @@ Command-line interface for linting and extracting agent specifications.
 import argparse
 import difflib
 import sys
-from pathlib import Path
 
 # Import only what's needed at runtime per command to avoid importing optional deps unnecessarily
 from agentspec import lint, extract
@@ -17,13 +16,13 @@ from agentspec.utils import load_env_from_dotenv
 
 class FuzzyArgumentParser(argparse.ArgumentParser):
     """Custom ArgumentParser with fuzzy matching for unknown arguments."""
-    
+
     def __init__(self, *args, **kwargs):
         """
         ---agentspec
         what: |
           Initializes a CLI handler instance by invoking the parent class constructor with all provided positional and keyword arguments, then establishes an empty set `_all_valid_args` to track valid argument names. This set serves as a container for accumulating and validating command-line argument specifications throughout the CLI handler's lifecycle. The initialization ensures the parent class is properly set up before introducing CLI-specific state management.
-            deps:
+        deps:
               calls:
                 - __init__
                 - set
@@ -46,13 +45,13 @@ class FuzzyArgumentParser(argparse.ArgumentParser):
           - DO NOT modify the parent class initialization signature or order; the `super().__init__()` call must precede any instance-specific state setup to maintain proper inheritance semantics.
           - DO NOT use `_all_valid_args` for filtering or restricting arguments before it has been populated by the CLI handler's argument registration logic.
 
-            changelog:
+        changelog:
               - "- no git history available"
             ---/agentspec
         """
         super().__init__(*args, **kwargs)
         self._all_valid_args = set()
-    
+
     def _collect_valid_args(self, parser):
         """
         ---agentspec
@@ -76,7 +75,7 @@ class FuzzyArgumentParser(argparse.ArgumentParser):
           - Handles parsers with no subparsers (returns only top-level option strings)
           - Recursion terminates when leaf subparsers are reached (those without further subparsers)
           - Duplicate argument strings across parser levels are automatically deduplicated by set semantics
-            deps:
+        deps:
               calls:
                 - args_set.update
                 - choices.values
@@ -102,25 +101,25 @@ class FuzzyArgumentParser(argparse.ArgumentParser):
           - DO NOT rely on this for runtime argument parsing; it is a metadata collection utility and does not validate or process actual CLI input
           - DO NOT assume subparser choices are always populated; empty subparsers will contribute nothing to the result set
 
-            changelog:
+        changelog:
               - "- no git history available"
             ---/agentspec
         """
         args_set = set()
-        
+
         # Get all option strings from actions
         for action in parser._actions:
             if action.option_strings:
                 args_set.update(action.option_strings)
-        
+
         # Also check subparsers
         for action in parser._actions:
             if isinstance(action, argparse._SubParsersAction):
                 for subparser in action.choices.values():
                     args_set.update(self._collect_valid_args(subparser))
-        
+
         return args_set
-    
+
     def error(self, message):
         """
         ---agentspec
@@ -138,7 +137,7 @@ class FuzzyArgumentParser(argparse.ArgumentParser):
           5. Falls back to parent class error handling for non-argument errors
 
           Outputs formatted error message with usage information and suggestions to stderr, then exits with code 2.
-            deps:
+        deps:
               calls:
                 - arg.startswith
                 - arg_base.split
@@ -182,7 +181,7 @@ class FuzzyArgumentParser(argparse.ArgumentParser):
           - DO NOT suggest more than 3 alternatives per unknown argument to avoid overwhelming the user with options
           - DO NOT apply word-component matching logic to non-flag arguments (those not starting with `--`) to avoid false positives
 
-            changelog:
+        changelog:
               - "- no git history available"
             ---/agentspec
         """
@@ -190,88 +189,78 @@ class FuzzyArgumentParser(argparse.ArgumentParser):
         if "unrecognized arguments:" in message:
             # Extract the unknown argument(s)
             unknown_args = message.split("unrecognized arguments:")[-1].strip().split()
-            
+
             # Collect all valid arguments from this parser and its subparsers
             if not self._all_valid_args:
                 self._all_valid_args = self._collect_valid_args(self)
-            
+
             # Try to find suggestions for each unknown argument
             suggestions = []
             for i, unknown_arg in enumerate(unknown_args):
                 # Check for partial word matches first (these are most reliable)
                 # e.g., --yaml should match --agentspec-yaml before --model
                 partial_word_matches = []
-                if unknown_arg.startswith('--'):
+                if unknown_arg.startswith("--"):
                     unknown_base = unknown_arg[2:]  # Strip '--'
                     for arg in self._all_valid_args:
-                        if not arg.startswith('--'):
+                        if not arg.startswith("--"):
                             continue
                         arg_base = arg[2:]  # Strip '--'
                         # Check if unknown word appears in valid arg (most reliable match)
-                        if unknown_base in arg_base.split('-') or arg_base.split('-')[-1] == unknown_base:
+                        if unknown_base in arg_base.split("-") or arg_base.split("-")[-1] == unknown_base:
                             partial_word_matches.append(arg)
-                
+
                 # If we found word matches, use those (prioritize over similarity)
                 if partial_word_matches:
                     # Sort by similarity within word matches
                     sorted_word_matches = sorted(
                         partial_word_matches,
                         key=lambda x: difflib.SequenceMatcher(None, unknown_arg, x).ratio(),
-                        reverse=True
+                        reverse=True,
                     )[:3]
                     suggestions.append(f"  '{unknown_arg}' → did you mean '{sorted_word_matches[0]}'?")
                     if len(sorted_word_matches) > 1:
                         suggestions[-1] += f" (or {', '.join(sorted_word_matches[1:])})"
                     continue
-                
+
                 # Try direct similarity match
                 matches = difflib.get_close_matches(
-                    unknown_arg,
-                    self._all_valid_args,
-                    n=3,
-                    cutoff=0.6  # Require at least 60% similarity
+                    unknown_arg, self._all_valid_args, n=3, cutoff=0.6  # Require at least 60% similarity
                 )
-                
+
                 # If no good match and it's a non-flag word, try combining with previous arg
-                if not matches and not unknown_arg.startswith('-') and i > 0:
+                if not matches and not unknown_arg.startswith("-") and i > 0:
                     prev_arg = unknown_args[i - 1]
-                    if prev_arg.startswith('--'):
+                    if prev_arg.startswith("--"):
                         # Try combining: --update + existing → --update-existing
-                        combined = prev_arg + '-' + unknown_arg
-                        combined_matches = difflib.get_close_matches(
-                            combined,
-                            self._all_valid_args,
-                            n=3,
-                            cutoff=0.7
-                        )
+                        combined = prev_arg + "-" + unknown_arg
+                        combined_matches = difflib.get_close_matches(combined, self._all_valid_args, n=3, cutoff=0.7)
                         if combined_matches:
-                            suggestions.append(
-                                f"  '{prev_arg} {unknown_arg}' → did you mean '{combined_matches[0]}'?"
-                            )
+                            suggestions.append(f"  '{prev_arg} {unknown_arg}' → did you mean '{combined_matches[0]}'?")
                             continue
-                
+
                 if matches:
                     suggestions.append(f"  '{unknown_arg}' → did you mean '{matches[0]}'?")
                     if len(matches) > 1:
                         suggestions[-1] += f" (or {', '.join(matches[1:])})"
-                elif unknown_arg.startswith('--'):
+                elif unknown_arg.startswith("--"):
                     # For flags starting with --, try partial matches
                     # e.g., --update might match --update-existing, or --yaml might match --agentspec-yaml
                     unknown_base = unknown_arg[2:]  # Strip '--'
                     partial_matches = []
-                    
+
                     for arg in self._all_valid_args:
-                        if not arg.startswith('--'):
+                        if not arg.startswith("--"):
                             continue
                         arg_base = arg[2:]  # Strip '--'
-                        
+
                         # Check if unknown is contained in valid arg or vice versa
                         if unknown_base in arg_base or arg_base in unknown_base:
                             partial_matches.append(arg)
                         # Also check if they share a significant word (e.g., "yaml" in both)
-                        elif unknown_base in arg_base.split('-') or arg_base.split('-')[-1] == unknown_base:
+                        elif unknown_base in arg_base.split("-") or arg_base.split("-")[-1] == unknown_base:
                             partial_matches.append(arg)
-                    
+
                     if partial_matches:
                         # Sort by priority: exact word matches first, then similarity
                         # This ensures --yaml matches --agentspec-yaml before --model
@@ -295,7 +284,7 @@ class FuzzyArgumentParser(argparse.ArgumentParser):
                               Edge cases: Handles hyphenated argument names correctly by splitting on '-' and checking
                               both exact word membership and suffix matching. Unknown arguments without hyphens are
                               treated as single words.
-                                deps:
+                            deps:
                                   calls:
                                     - arg_base.split
                                     - difflib.SequenceMatcher
@@ -328,37 +317,33 @@ class FuzzyArgumentParser(argparse.ArgumentParser):
                               - DO NOT use this function outside a context where unknown_arg and unknown_base are
                                 defined in the enclosing scope; refactor to pass them as parameters if reusing elsewhere
 
-                                changelog:
+                            changelog:
                                   - "- no git history available"
                                 ---/agentspec
                             """
                             arg_base = arg[2:]  # Strip '--'
                             similarity = difflib.SequenceMatcher(None, unknown_arg, arg).ratio()
                             # Boost score if unknown word is actually in the arg (not just similar)
-                            if unknown_base in arg_base.split('-') or arg_base.split('-')[-1] == unknown_base:
+                            if unknown_base in arg_base.split("-") or arg_base.split("-")[-1] == unknown_base:
                                 return (1.0, similarity)  # Word match gets priority
                             return (0.0, similarity)  # Similarity only
-                        
-                        sorted_matches = sorted(
-                            partial_matches,
-                            key=match_priority,
-                            reverse=True
-                        )
+
+                        sorted_matches = sorted(partial_matches, key=match_priority, reverse=True)
                         # Filter to matches with at least 50% similarity (lower threshold for partial)
-                        filtered_matches = [m for m in sorted_matches if difflib.SequenceMatcher(None, unknown_arg, m).ratio() >= 0.5][:3]
+                        filtered_matches = [
+                            m for m in sorted_matches if difflib.SequenceMatcher(None, unknown_arg, m).ratio() >= 0.5
+                        ][:3]
                         if filtered_matches:
-                            suggestions.append(
-                                f"  '{unknown_arg}' → did you mean '{filtered_matches[0]}'?"
-                            )
+                            suggestions.append(f"  '{unknown_arg}' → did you mean '{filtered_matches[0]}'?")
                             if len(filtered_matches) > 1:
                                 suggestions[-1] += f" (or {', '.join(filtered_matches[1:])})"
-            
+
             if suggestions:
                 error_msg = f"agentspec: error: {message}\n"
                 error_msg += "\nDid you mean:\n" + "\n".join(suggestions)
                 self.print_usage(sys.stderr)
                 self.exit(2, error_msg)
-        
+
         # Fall back to default error handling
         super().error(message)
 
@@ -376,7 +361,7 @@ def _show_rich_help():
       The function constructs Rich Table and Panel objects with styled headers, colored text, and box drawing, then prints each section sequentially to console. No return value; output is side-effect only (stdout).
 
       Edge cases: Function assumes Rich library is available at runtime; will raise ImportError if Rich is not installed. Function produces no output if console.print() fails silently (e.g., in non-TTY environments, Rich may suppress formatting).
-        deps:
+    deps:
           calls:
             - Console
             - Panel
@@ -406,45 +391,28 @@ def _show_rich_help():
       - ALWAYS output directly to stdout via Rich Console; do not attempt to capture or redirect return value (function returns None).
       - DO NOT modify console output after printing; Rich Console.print() is not idempotent and subsequent calls will append rather than replace.
 
-        changelog:
-          - "- 2025-10-30: chore(lint): ignore E501 to allow long AGENTSPEC context prints"
-          - "-    # Emphasize the three most useful generation flags first"
-          - "-    Prefer thorough output for ambiguous or uncommon code (avoid --terse)"
-          - "-    flags_table.add_row("--terse", "Concise sections for LLM context windows (generate)")"
-          - "-    flags_table.add_row("--diff-summary", "Add per-function code diff summaries (generate)")"
-          - "-    # Still documented, less emphasized"
-          - "-    flags_table.add_row("--update-existing", "Regenerate existing docstrings (generate)")"
-          - "-    flags_table.add_row("--agentspec-yaml", "Embed YAML agentspec blocks (generate)")"
-          - "-    flags_table.add_row("--force-context", "Add print() statements to force context (generate)")"
-          - "-    # Lint/Extract"
-          - "-    flags_table.add_row("--min-lines", "Minimum spec size (lint)")"
-          - "- 2025-10-30: feat: update CLI help with new generation flags and improved descriptions"
-          - "-        "[green]agentspec generate src/ --dry-run[/green]\n""
-          - "-        "[green]agentspec generate src/auth.py --diff-summary[/green]","
-          - "-    Critical mode removed; see README guidance for important code"
-          - "-    flags_table.add_row("--update-existing", "Regenerate existing docstrings (generate)")"
-          - "-    flags_table.add_row("--dry-run", "Preview without modifying files (generate)")"
-          - "-    flags_table.add_row("--diff-summary", "Add per-function code diff summaries (generate)")"
-          - "- 2025-10-30: feat: enhance CLI help and add rich formatting support"
+    changelog:
+
+      - "2025-10-31: Clean up docstring formatting"
         ---/agentspec
     """
     from rich.console import Console
     from rich.panel import Panel
     from rich.table import Table
-    from rich.text import Text
     from rich import box
-    
+
     console = Console()
-    
+
     # Title
-    console.print(Panel.fit(
-        "[bold magenta]Agentspec[/bold magenta]\n"
-        "[dim]Structured, enforceable docstrings for AI agents[/dim]",
-        border_style="cyan",
-        padding=(1, 2),
-    ))
+    console.print(
+        Panel.fit(
+            "[bold magenta]Agentspec[/bold magenta]\n" "[dim]Structured, enforceable docstrings for AI agents[/dim]",
+            border_style="cyan",
+            padding=(1, 2),
+        )
+    )
     console.print()
-    
+
     # Commands table
     commands_table = Table(
         title="[bold]Commands[/bold]",
@@ -455,36 +423,29 @@ def _show_rich_help():
     )
     commands_table.add_column("Command", style="green", no_wrap=True)
     commands_table.add_column("Description")
-    
-    commands_table.add_row(
-        "lint",
-        "Validate agentspec blocks in Python files"
-    )
-    commands_table.add_row(
-        "extract", 
-        "Extract agentspec blocks to markdown or JSON"
-    )
-    commands_table.add_row(
-        "generate",
-        "Auto-generate verbose agentspec docstrings using Claude"
-    )
-    
+
+    commands_table.add_row("lint", "Validate agentspec blocks in Python files")
+    commands_table.add_row("extract", "Extract agentspec blocks to markdown or JSON")
+    commands_table.add_row("generate", "Auto-generate verbose agentspec docstrings using Claude")
+
     console.print(commands_table)
     console.print()
-    
+
     # Quick examples
     console.print("[bold]Quick Start:[/bold]")
-    console.print(Panel(
-        "[green]agentspec lint src/ --strict[/green]\n"
-        "[green]agentspec extract src/ --format json > specs.json[/green]\n"
-        "[green]agentspec generate src/ --update-existing --terse[/green]\n"
-        "[green]agentspec generate src/core/ --diff-summary[/green]",
-        title="[bold]Examples[/bold]",
-        border_style="dim",
-        padding=(0, 1),
-    ))
+    console.print(
+        Panel(
+            "[green]agentspec lint src/ --strict[/green]\n"
+            "[green]agentspec extract src/ --format json > specs.json[/green]\n"
+            "[green]agentspec generate src/ --update-existing --terse[/green]\n"
+            "[green]agentspec generate src/core/ --diff-summary[/green]",
+            title="[bold]Examples[/bold]",
+            border_style="dim",
+            padding=(0, 1),
+        )
+    )
     console.print()
-    
+
     # Key flags table
     flags_table = Table(
         title="[bold]Key Flags[/bold]",
@@ -494,32 +455,32 @@ def _show_rich_help():
     )
     flags_table.add_column("Flag", style="yellow")
     flags_table.add_column("Description")
-    
+
     flags_table.add_row("--strict", "Treat warnings as errors (lint)")
     flags_table.add_row("--format", "Output format: markdown/json/agent-context (extract)")
     flags_table.add_row("--terse", "Shorter output with max_tokens=500 (generate)")
     flags_table.add_row("--update-existing", "Regenerate existing docstrings (generate)")
     flags_table.add_row("--diff-summary", "Add per-function code diff summaries (generate)")
-    
+
     console.print(flags_table)
     console.print()
-    
+
     console.print(
-        "[dim]For detailed help on a specific command:[/dim] "
-        "[bold cyan]agentspec <command> --help[/bold cyan]"
+        "[dim]For detailed help on a specific command:[/dim] " "[bold cyan]agentspec <command> --help[/bold cyan]"
     )
 
 
 def _check_python_version():
     """Check Python version meets minimum requirements."""
     import sys
-    
+
     REQUIRED_MAJOR = 3
     REQUIRED_MINOR = 10
-    
+
     current = sys.version_info[:2]
     if current[0] < REQUIRED_MAJOR or (current[0] == REQUIRED_MAJOR and current[1] < REQUIRED_MINOR):
-        print(f"""
+        print(
+            f"""
 ╔══════════════════════════════════════════════════════════════════════════╗
 ║                     ❌ PYTHON VERSION TOO OLD                            ║
 ╚══════════════════════════════════════════════════════════════════════════╝
@@ -530,7 +491,9 @@ Required minimum: {REQUIRED_MAJOR}.{REQUIRED_MINOR}+
 agentspec requires Python {REQUIRED_MAJOR}.{REQUIRED_MINOR}+ because it uses modern syntax (PEP 604 union types).
 
 To upgrade, see: https://github.com/DMontgomery40/agentspec/blob/main/COMPATIBILITY.md
-""", file=sys.stderr)
+""",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
 
@@ -549,7 +512,7 @@ def main():
       **Behavior**: Loads .env file automatically via load_env_from_dotenv(). Displays rich-formatted help if no arguments or --help flag provided. Uses argparse with RichHelpFormatter for improved CLI UX. Routes parsed args to appropriate submodule handler (lint.run(), extract.run(), or generate.run()). Exits with status code 0 on success or 1 on error/missing command. Prints help and exits if no subcommand provided.
 
       **Edge cases**: Missing ANTHROPIC_API_KEY environment variable causes generate.run() to fail with auth error. Invalid Claude model names fail at API call time, not argument parsing time. --strict flag converts linting warnings to hard errors; use with caution in CI/CD pipelines.
-        deps:
+    deps:
           calls:
             - FuzzyArgumentParser
             - _show_rich_help
@@ -591,130 +554,25 @@ def main():
       - ALWAYS lazy-import optional dependencies (like generate module) to avoid requiring them unless explicitly needed
       - ALWAYS call load_env_from_dotenv() at entry point to allow users to configure via .env without manual export
 
-        changelog:
-          - "- 2025-10-30: feat: enhance CLI help and add rich formatting support"
-          - "- Parses command-line arguments using argparse to determine which subcommand to execute (lint, extract, or generate)"
-          - "- For "lint": validates agentspec docstring blocks in Python files against format requirements, with configurable minimum line counts and strict mode for treating warnings as errors"
-          - "- For "extract": reads Python files and exports agentspec docstring blocks in multiple formats (markdown, JSON, or agent-context optimized)"
-          - "- For "generate": uses Claude API to auto-generate verbose agentspec docstrings for functions lacking them, with optional dry-run preview and context-forcing via print statements"
-          - "- Routes the parsed arguments to the appropriate submodule handler (lint.run(), extract.run(), generate.run())"
-          - "- Exits with status code 0 on success or 1 on error/missing command"
-          - "- Prints help text and exits if no subcommand is provided"
-          - "- Called by: Entry point script (typically invoked as `python -m agentspec` or via setuptools console_scripts entry point)"
-          - "- Calls: lint.run(), extract.run(), generate.run() [defined in agentspec/lint.py, agentspec/extract.py, agentspec/generate.py respectively]"
-          - "- Imports used: argparse (stdlib), sys (stdlib)"
-          - "- External services: Claude API (only when generate command is used)"
-          - "- argparse is the standard Python CLI library and handles complex subcommand hierarchies with minimal boilerplate"
-          - "- Subcommand pattern allows independent command modules (lint, extract, generate) to be developed and tested separately without tight coupling"
-          - "- Three distinct operations (validate, export, generate) are logically grouped as CLI commands rather than separate scripts for better UX and distribution"
-          - "- Default values for --min-lines (10), --format ("markdown"), and --model ("claude-haiku-4-5") provide sensible out-of-the-box behavior"
-          - "- Explicit command dispatcher (if/elif chain) is more readable and debuggable than dict-based dispatch at this scale; easier for agents to trace execution flow"
-          - "- sys.exit() is called twice (for missing command and final status) to ensure process terminates cleanly; Python doesn't auto-exit from main()"
-          - "- Early exit on missing command prevents ambiguous behavior and ensures explicit user feedback via help text"
-          - "- Current: Initial implementation with three core subcommands (lint, extract, generate) and full CLI argument specification"
-          - "- DO NOT modify the if/elif dispatch logic without updating corresponding submodule signatures in lint.py, extract.py, generate.py"
-          - "- DO NOT remove sys.exit() calls; they are required for proper CLI exit behavior"
-          - "- DO NOT add new subcommands without documenting them in this docstring's WHAT THIS DOES section"
-          - "- DO NOT change argument parameter names (e.g., "target", "format", "model") as they are consumed by downstream modules via args object attributes"
-          - "- ALWAYS preserve the --dry-run and --force-context flags for generate command; these are critical safety mechanisms"
-          - "- ALWAYS ensure all subcommand argument definitions include help text for end-user clarity"
-          - "- ALWAYS validate that new CLI flags have sensible defaults to avoid breaking existing automation scripts"
-          - "- NOTE: The generate command requires ANTHROPIC_API_KEY environment variable; missing this will cause generate.run() to fail with auth error"
-          - "- NOTE: model parameter accepts specific Claude model identifiers; using an invalid model name will fail at API call time, not argument parsing time"
-          - "- NOTE: The --strict flag converts linting warnings to hard errors; use with caution in CI/CD pipelines"
-          - "-    print(f"[AGENTSPEC_CONTEXT] main: Parses command-line arguments using argparse to determine which subcommand to execute (lint, extract, or generate) | For \"lint\": validates agentspec docstring blocks in Python files against format requirements, with configurable minimum line counts and strict mode for treating warnings as errors | For \"extract\": reads Python files and exports agentspec docstring blocks in multiple formats (markdown, JSON, or agent-context optimized)")"
-          - "-        description="Agentspec: Structured, enforceable docstrings for AI agents""
-          - "-        help="Validate agentspec blocks in Python files""
-          - "-        help="Extract agentspec blocks to markdown or JSON""
-          - "-        help="Auto-generate verbose agentspec docstrings using Claude""
-          - "- 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features"
-          - "- Parses command-line arguments using argparse to determine which subcommand to execute (lint, extract, or generate)"
-          - "- For "lint": validates agentspec docstring blocks in Python files against format requirements, with configurable minimum line counts and strict mode for treating warnings as errors"
-          - "- For "extract": reads Python files and exports agentspec docstring blocks in multiple formats (markdown, JSON, or agent-context optimized)"
-          - "- For "generate": uses Claude API to auto-generate verbose agentspec docstrings for functions lacking them, with optional dry-run preview and context-forcing via print statements"
-          - "- Routes the parsed arguments to the appropriate submodule handler (lint.run(), extract.run(), generate.run())"
-          - "- Exits with status code 0 on success or 1 on error/missing command"
-          - "- Prints help text and exits if no subcommand is provided"
-          - "- Called by: Entry point script (typically invoked as `python -m agentspec` or via setuptools console_scripts entry point)"
-          - "- Calls: lint.run(), extract.run(), generate.run() [defined in agentspec/lint.py, agentspec/extract.py, agentspec/generate.py respectively]"
-          - "- Imports used: argparse (stdlib), sys (stdlib)"
-          - "- External services: Claude API (only when generate command is used)"
-          - "- argparse is the standard Python CLI library and handles complex subcommand hierarchies with minimal boilerplate"
-          - "- Subcommand pattern allows independent command modules (lint, extract, generate) to be developed and tested separately without tight coupling"
-          - "- Three distinct operations (validate, export, generate) are logically grouped as CLI commands rather than separate scripts for better UX and distribution"
-          - "- Default values for --min-lines (10), --format ("markdown"), and --model ("claude-haiku-4-5") provide sensible out-of-the-box behavior"
-          - "- Explicit command dispatcher (if/elif chain) is more readable and debuggable than dict-based dispatch at this scale; easier for agents to trace execution flow"
-          - "- sys.exit() is called twice (for missing command and final status) to ensure process terminates cleanly; Python doesn't auto-exit from main()"
-          - "- Early exit on missing command prevents ambiguous behavior and ensures explicit user feedback via help text"
-          - "- Current: Initial implementation with three core subcommands (lint, extract, generate) and full CLI argument specification"
-          - "- DO NOT modify the if/elif dispatch logic without updating corresponding submodule signatures in lint.py, extract.py, generate.py"
-          - "- DO NOT remove sys.exit() calls; they are required for proper CLI exit behavior"
-          - "- DO NOT add new subcommands without documenting them in this docstring's WHAT THIS DOES section"
-          - "- DO NOT change argument parameter names (e.g., "target", "format", "model") as they are consumed by downstream modules via args object attributes"
-          - "- ALWAYS preserve the --dry-run and --force-context flags for generate command; these are critical safety mechanisms"
-          - "- ALWAYS ensure all subcommand argument definitions include help text for end-user clarity"
-          - "- ALWAYS validate that new CLI flags have sensible defaults to avoid breaking existing automation scripts"
-          - "- NOTE: The generate command requires ANTHROPIC_API_KEY environment variable; missing this will cause generate.run() to fail with auth error"
-          - "- NOTE: model parameter accepts specific Claude model identifiers; using an invalid model name will fail at API call time, not argument parsing time"
-          - "- NOTE: The --strict flag converts linting warnings to hard errors; use with caution in CI/CD pipelines"
-          - "-            as_agentspec_yaml=args.agentspec_yaml"
-          - "- 2025-10-30: feat: robust docstring generation and Haiku defaults"
-          - "- Parses command-line arguments using argparse to determine which subcommand to execute (lint, extract, or generate)"
-          - "- For "lint": validates agentspec docstring blocks in Python files against format requirements, with configurable minimum line counts and strict mode for treating warnings as errors"
-          - "- For "extract": reads Python files and exports agentspec docstring blocks in multiple formats (markdown, JSON, or agent-context optimized)"
-          - "- For "generate": uses Claude API to auto-generate verbose agentspec docstrings for functions lacking them, with optional dry-run preview and context-forcing via print statements"
-          - "- Routes the parsed arguments to the appropriate submodule handler (lint.run(), extract.run(), generate.run())"
-          - "- Exits with status code 0 on success or 1 on error/missing command"
-          - "- Prints help text and exits if no subcommand is provided"
-          - "- Called by: Entry point script (typically invoked as `python -m agentspec` or via setuptools console_scripts entry point)"
-          - "- Calls: lint.run(), extract.run(), generate.run() [defined in agentspec/lint.py, agentspec/extract.py, agentspec/generate.py respectively]"
-          - "- Imports used: argparse (stdlib), sys (stdlib)"
-          - "- External services: Claude API (only when generate command is used)"
-          - "- argparse is the standard Python CLI library and handles complex subcommand hierarchies with minimal boilerplate"
-          - "- Subcommand pattern allows independent command modules (lint, extract, generate) to be developed and tested separately without tight coupling"
-          - "- Three distinct operations (validate, export, generate) are logically grouped as CLI commands rather than separate scripts for better UX and distribution"
-          - "-    - Default values for --min-lines (10), --format ("markdown"), and --model ("claude-sonnet-4-20250514") provide sensible out-of-the-box behavior"
-          - "- Explicit command dispatcher (if/elif chain) is more readable and debuggable than dict-based dispatch at this scale; easier for agents to trace execution flow"
-          - "- sys.exit() is called twice (for missing command and final status) to ensure process terminates cleanly; Python doesn't auto-exit from main()"
-          - "- Early exit on missing command prevents ambiguous behavior and ensures explicit user feedback via help text"
-          - "- Current: Initial implementation with three core subcommands (lint, extract, generate) and full CLI argument specification"
-          - "- DO NOT modify the if/elif dispatch logic without updating corresponding submodule signatures in lint.py, extract.py, generate.py"
-          - "- DO NOT remove sys.exit() calls; they are required for proper CLI exit behavior"
-          - "- DO NOT add new subcommands without documenting them in this docstring's WHAT THIS DOES section"
-          - "- DO NOT change argument parameter names (e.g., "target", "format", "model") as they are consumed by downstream modules via args object attributes"
-          - "- ALWAYS preserve the --dry-run and --force-context flags for generate command; these are critical safety mechanisms"
-          - "- ALWAYS ensure all subcommand argument definitions include help text for end-user clarity"
-          - "- ALWAYS validate that new CLI flags have sensible defaults to avoid breaking existing automation scripts"
-          - "- NOTE: The generate command requires ANTHROPIC_API_KEY environment variable; missing this will cause generate.run() to fail with auth error"
-          - "- NOTE: model parameter accepts specific Claude model identifiers; using an invalid model name will fail at API call time, not argument parsing time"
-          - "- NOTE: The --strict flag converts linting warnings to hard errors; use with caution in CI/CD pipelines"
-          - "-        default="claude-sonnet-4-20250514","
-          - "-        help="Claude model to use. Options: claude-sonnet-4-20250514 (default), ""
-          - "-             "claude-haiku-4-5, claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022""
-          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
-          - "-            model=args.model"
-          - "- 2025-10-29: Fix model name AGAIN - claude-haiku-4-5 is the correct name (not claude-haiku-4-5-20250929)"
-          - "-        choices=["
-          - "-            "claude-sonnet-4-20250514","
-          - "-            "claude-3-5-sonnet-20241022","
-          - "-            "claude-3-5-haiku-20241022""
-          - "-        ],"
-          - "-        help="Claude model to use (default: claude-sonnet-4-20250514)""
+    changelog:
+
+      - "2025-10-31: Clean up docstring formatting"
         ---/agentspec
     """
     # Check Python version before anything else
     _check_python_version()
-    
+
     # Load .env automatically (nearest) so users don't have to export manually
     load_env_from_dotenv()
-    
+
     # Override help completely for main command
-    if len(sys.argv) == 1 or (len(sys.argv) == 2 and sys.argv[1] in ('--help', '-h')):
+    if len(sys.argv) == 1 or (len(sys.argv) == 2 and sys.argv[1] in ("--help", "-h")):
         _show_rich_help()
         sys.exit(0)
-    
-    # Use Rich-based help formatter (required dependency)
+
+    # Use Rich-based help formatters (required dependency)
     from rich_argparse import RichHelpFormatter as _HelpFmt  # type: ignore
+    from rich_argparse import RawDescriptionRichHelpFormatter
 
     parser = FuzzyArgumentParser(
         description="Agentspec: Structured, enforceable docstrings for AI agents",
@@ -728,12 +586,10 @@ def main():
             "Tip: run 'agentspec <command> --help' for detailed flags."
         ),
     )
-    
+
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
-    
+
     # Lint command
-    from rich_argparse import RawDescriptionRichHelpFormatter
-    
     lint_parser = subparsers.add_parser(
         "lint",
         help="Validate agentspec blocks in Python files",
@@ -755,22 +611,12 @@ def main():
         ),
         formatter_class=RawDescriptionRichHelpFormatter,
     )
+    lint_parser.add_argument("target", help="File or directory to lint")
     lint_parser.add_argument(
-        "target",
-        help="File or directory to lint"
+        "--min-lines", type=int, default=10, help="Minimum lines required in agentspec blocks (default: 10)"
     )
-    lint_parser.add_argument(
-        "--min-lines",
-        type=int,
-        default=10,
-        help="Minimum lines required in agentspec blocks (default: 10)"
-    )
-    lint_parser.add_argument(
-        "--strict",
-        action="store_true",
-        help="Treat warnings as errors"
-    )
-    
+    lint_parser.add_argument("--strict", action="store_true", help="Treat warnings as errors")
+
     # Extract command
     extract_parser = subparsers.add_parser(
         "extract",
@@ -794,20 +640,15 @@ def main():
         ),
         formatter_class=RawDescriptionRichHelpFormatter,
     )
-    extract_parser.add_argument(
-        "target",
-        help="File or directory to extract from"
-    )
+    extract_parser.add_argument("target", help="File or directory to extract from")
     extract_parser.add_argument(
         "--format",
         choices=["markdown", "json", "agent-context"],
         default="markdown",
-        help="Output format (default: markdown)"
+        help="Output format (default: markdown)",
     )
-    
+
     # Generate command
-    from rich_argparse import RawDescriptionRichHelpFormatter
-    
     generate_parser = subparsers.add_parser(
         "generate",
         help="Auto-generate verbose agentspec docstrings",
@@ -831,19 +672,14 @@ def main():
         ),
         formatter_class=RawDescriptionRichHelpFormatter,
     )
+    generate_parser.add_argument("target", help="File or directory to generate docstrings for")
     generate_parser.add_argument(
-        "target",
-        help="File or directory to generate docstrings for"
-    )
-    generate_parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Preview what would be generated without modifying files"
+        "--dry-run", action="store_true", help="Preview what would be generated without modifying files"
     )
     generate_parser.add_argument(
         "--force-context",
         action="store_true",
-        help="Add print() statements to force LLMs to load docstrings into context"
+        help="Add print() statements to force LLMs to load docstrings into context",
     )
     generate_parser.add_argument(
         "--model",
@@ -857,60 +693,54 @@ def main():
     generate_parser.add_argument(
         "--agentspec-yaml",
         action="store_true",
-        help="Generate docstrings that contain an embedded ---agentspec YAML block"
+        help="Generate docstrings that contain an embedded ---agentspec YAML block",
     )
     generate_parser.add_argument(
         "--provider",
         choices=["auto", "anthropic", "openai"],
         default="auto",
-        help="LLM provider to use: 'anthropic' (Claude), 'openai' (OpenAI-compatible, including Ollama), or 'auto' (infer from model)"
+        help="LLM provider to use: 'anthropic' (Claude), 'openai' (OpenAI-compatible, including Ollama), or 'auto' (infer from model)",
     )
     generate_parser.add_argument(
         "--base-url",
         type=str,
         default=None,
-        help="Base URL for OpenAI-compatible providers (e.g., http://localhost:11434/v1 for Ollama). Overrides env if set."
+        help="Base URL for OpenAI-compatible providers (e.g., http://localhost:11434/v1 for Ollama). Overrides env if set.",
     )
     generate_parser.add_argument(
         "--update-existing",
         action="store_true",
-        help="Regenerate docstrings even for functions that already have them (useful when code changes)"
+        help="Regenerate docstrings even for functions that already have them (useful when code changes)",
     )
     generate_parser.add_argument(
         "--terse",
         action="store_true",
-        help="TERSE MODE: Shorter output with max_tokens=500 and temperature=0.0 (more concise, deterministic)"
+        help="TERSE MODE: Shorter output with max_tokens=500 and temperature=0.0 (more concise, deterministic)",
     )
     generate_parser.add_argument(
         "--diff-summary",
         action="store_true",
-        help="DIFF SUMMARY: Add LLM-generated summaries of git diffs for each commit (separate API call)"
+        help="DIFF SUMMARY: Add LLM-generated summaries of git diffs for each commit (separate API call)",
     )
 
     # Keep top-level help concise. Detailed flags remain in each subcommand's --help.
 
     # Parse args
     args = parser.parse_args()
-    
+
     if not args.command:
         parser.print_help()
         sys.exit(1)
-    
+
     # Execute command
     if args.command == "lint":
-        exit_code = lint.run(
-            args.target,
-            min_lines=args.min_lines,
-            strict=args.strict
-        )
+        exit_code = lint.run(args.target, min_lines=args.min_lines, strict=args.strict)
     elif args.command == "extract":
-        exit_code = extract.run(
-            args.target,
-            fmt=args.format
-        )
+        exit_code = extract.run(args.target, fmt=args.format)
     elif args.command == "generate":
         # Lazy import to avoid requiring anthropic unless generate is used
         from agentspec import generate
+
         exit_code = generate.run(
             args.target,
             dry_run=args.dry_run,
@@ -926,7 +756,7 @@ def main():
     else:
         parser.print_help()
         exit_code = 1
-    
+
     sys.exit(exit_code)
 
 

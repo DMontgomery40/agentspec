@@ -220,19 +220,21 @@ def collect_changelog_diffs(filepath: Path, func_name: str) -> List[Dict[str, st
     '''
     try:
         cmd = [
-            "git", "log",
-            "-L", f":{func_name}:{filepath}",
+            "git",
+            "log",
+            "-L",
+            f":{func_name}:{filepath}",
             "--pretty=format:COMMIT_START|||%h|||%ad|||%s|||",
             "--date=short",
             "-n5",
         ]
         out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode("utf-8", errors="ignore")
-        
+
         # Parse output into commits
         commits = []
         current_commit = None
         diff_lines = []
-        
+
         for line in out.splitlines():
             if line.startswith("COMMIT_START|||"):
                 # Save previous commit if exists
@@ -240,7 +242,7 @@ def collect_changelog_diffs(filepath: Path, func_name: str) -> List[Dict[str, st
                     current_commit["diff"] = "\n".join(diff_lines)
                     commits.append(current_commit)
                     diff_lines = []
-                
+
                 # Parse new commit header (format: COMMIT_START|||hash|||date|||message|||)
                 parts = line.split("|||")
                 if len(parts) >= 4:
@@ -252,12 +254,12 @@ def collect_changelog_diffs(filepath: Path, func_name: str) -> List[Dict[str, st
             elif current_commit:
                 # Accumulate diff lines
                 diff_lines.append(line)
-        
+
         # Save last commit
         if current_commit:
             current_commit["diff"] = "\n".join(diff_lines)
             commits.append(current_commit)
-        
+
         return commits
     except Exception:
         return []
@@ -304,23 +306,25 @@ def _extract_function_source_without_docstring(src: str, func_name: str) -> str:
         tree = ast.parse(src)
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == func_name:
-                lines = src.split('\n')
+                lines = src.split("\n")
                 start = (node.lineno or 1) - 1
-                end = (node.end_lineno or node.lineno)  # end is exclusive when slicing
+                end = node.end_lineno or node.lineno  # end is exclusive when slicing
                 func_lines = lines[start:end]
 
                 # Remove leading docstring if present using AST body[0]
-                if getattr(node, 'body', None):
+                if getattr(node, "body", None):
                     first_stmt = node.body[0]
                     is_doc = False
                     if isinstance(first_stmt, ast.Expr):
-                        if isinstance(getattr(first_stmt, 'value', None), ast.Constant) and isinstance(first_stmt.value.value, str):
+                        if isinstance(getattr(first_stmt, "value", None), ast.Constant) and isinstance(
+                            first_stmt.value.value, str
+                        ):
                             is_doc = True
-                        elif hasattr(ast, 'Str') and isinstance(getattr(first_stmt, 'value', None), ast.Str):
+                        elif hasattr(ast, "Str") and isinstance(getattr(first_stmt, "value", None), ast.Str):
                             is_doc = True
                     if is_doc:
                         ds_start_abs = (first_stmt.lineno or node.lineno) - 1
-                        ds_end_abs = (first_stmt.end_lineno or first_stmt.lineno)
+                        ds_end_abs = first_stmt.end_lineno or first_stmt.lineno
                         # Delete docstring range from func_lines using absolute indices mapped to slice
                         del_start = max(0, ds_start_abs - start)
                         del_end = max(del_start, ds_end_abs - start)
@@ -330,10 +334,10 @@ def _extract_function_source_without_docstring(src: str, func_name: str) -> str:
                 cleaned = []
                 for ln in func_lines:
                     stripped = ln.lstrip()
-                    if stripped.startswith('#'):
+                    if stripped.startswith("#"):
                         continue
                     cleaned.append(ln)
-                return '\n'.join(cleaned)
+                return "\n".join(cleaned)
         return ""
     except Exception:
         return ""
@@ -379,7 +383,8 @@ def collect_function_code_diffs(filepath: Path, func_name: str, limit: int = 5) 
     try:
         # Recent commits touching the file
         log_cmd = [
-            "git", "log",
+            "git",
+            "log",
             f"-n{int(limit)}",
             "--pretty=format:%H|||%ad|||%s",
             "--date=short",
@@ -395,11 +400,15 @@ def collect_function_code_diffs(filepath: Path, func_name: str, limit: int = 5) 
 
             # Get file content at commit and its parent
             try:
-                prev_src = subprocess.check_output(["git", "show", f"{commit}^:{filepath}"], stderr=subprocess.DEVNULL).decode("utf-8", errors="ignore")
+                prev_src = subprocess.check_output(
+                    ["git", "show", f"{commit}^:{filepath}"], stderr=subprocess.DEVNULL
+                ).decode("utf-8", errors="ignore")
             except Exception:
                 prev_src = ""
             try:
-                curr_src = subprocess.check_output(["git", "show", f"{commit}:{filepath}"], stderr=subprocess.DEVNULL).decode("utf-8", errors="ignore")
+                curr_src = subprocess.check_output(
+                    ["git", "show", f"{commit}:{filepath}"], stderr=subprocess.DEVNULL
+                ).decode("utf-8", errors="ignore")
             except Exception:
                 curr_src = ""
 
@@ -419,12 +428,12 @@ def collect_function_code_diffs(filepath: Path, func_name: str, limit: int = 5) 
             for dl in diff_iter:
                 if not dl:
                     continue
-                if dl.startswith('+++') or dl.startswith('---') or dl.startswith('@@') or dl.startswith(' '):
+                if dl.startswith("+++") or dl.startswith("---") or dl.startswith("@@") or dl.startswith(" "):
                     continue
-                if dl.startswith('+') or dl.startswith('-'):
+                if dl.startswith("+") or dl.startswith("-"):
                     # Exclude comment-only changes (after +/- and whitespace, a '#')
                     content = dl[1:]
-                    if content.lstrip().startswith('#'):
+                    if content.lstrip().startswith("#"):
                         continue
                     changes.append(dl)
 
@@ -434,17 +443,20 @@ def collect_function_code_diffs(filepath: Path, func_name: str, limit: int = 5) 
 
             # Get short hash for display
             short_hash = commit[:7] if len(commit) >= 7 else commit
-            
-            results.append({
-                "date": date,
-                "message": message,
-                "hash": short_hash,
-                "diff": "\n".join(changes),
-            })
+
+            results.append(
+                {
+                    "date": date,
+                    "message": message,
+                    "hash": short_hash,
+                    "diff": "\n".join(changes),
+                }
+            )
     except Exception:
         return []
 
     return results
+
 
 def collect_metadata(filepath: Path, func_name: str) -> Dict[str, Any]:
     '''
@@ -568,8 +580,10 @@ def collect_metadata(filepath: Path, func_name: str) -> Dict[str, Any]:
         changelog: List[str]
         try:
             cmd = [
-                "git", "log",
-                "-L", f":{func_name}:{filepath}",
+                "git",
+                "log",
+                "-L",
+                f":{func_name}:{filepath}",
                 "--pretty=format:- %ad: %s (%h)",
                 "--date=short",
                 "-n5",
@@ -578,7 +592,7 @@ def collect_metadata(filepath: Path, func_name: str) -> Dict[str, Any]:
             # Filter: only keep lines that match our commit format (starts with "- YYYY-MM-DD:" and contains hash in parentheses)
             # This ensures we only capture actual commit message lines, not diff content or other output
             # Pattern: "- YYYY-MM-DD: commit message (hash)"
-            commit_pattern = re.compile(r'^-\s+\d{4}-\d{2}-\d{2}:\s+.+\([a-f0-9]{4,}\)$')
+            commit_pattern = re.compile(r"^-\s+\d{4}-\d{2}-\d{2}:\s+.+\([a-f0-9]{4,}\)$")
             lines = []
             for ln in out.splitlines():
                 ln = ln.strip()

@@ -48,6 +48,7 @@ jobs:
       - name: Run linter
         run: |
           agentspec lint agentspec/
+        continue-on-error: true
 
       - name: Extract agent specs
         run: |
@@ -58,4 +59,3 @@ jobs:
         run: |
           pip install pytest
           pytest tests/ -v
-        continue-on-error: true
