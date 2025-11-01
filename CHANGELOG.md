@@ -43,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 📦 Dependencies
 
 #### Added
-- `tree-sitter==0.21.1` - Fast incremental parser runtime
+- `tree-sitter==0.20.1` - Fast incremental parser runtime
 - `tree-sitter-languages==1.10.2` - Precompiled language grammars (JavaScript, Python, etc.)
 
 #### Updated
@@ -85,6 +85,7 @@ All existing functions in `collect.py`, `extract.py`, `lint.py`, `generate.py`, 
 
 - Fixed YAML indentation in agentspec blocks (previous build artifacts)
 - Improved docstring extraction robustness
+- Resolved tree-sitter version mismatch causing silent JavaScript adapter failures and added logging guidance when optional dependencies are missing
 
 ### ⚠️ Known Limitations
 

@@ -36,7 +36,7 @@ deps:
   calls:
     - tree_sitter (Parser, Language)
     - tree_sitter_languages.get_parser
-    - pathlib, re
+    - pathlib, re, logging.getLogger
   called_by:
     - agentspec.langs.__init__ (registration)
     - agentspec.collect
@@ -65,6 +65,7 @@ guardrails:
   - ALWAYS preserve JSDoc formatting with proper indentation and * prefix
 
 changelog:
+  - "2025-10-31: Add explicit logging and version guidance for tree-sitter initialization"
   - "2025-10-31: Initial tree-sitter based JavaScript adapter implementation"
 ---/agentspec
 """
@@ -72,7 +73,11 @@ changelog:
 from __future__ import annotations
 from typing import Set, Dict, Optional, List, Any
 from pathlib import Path
+import logging
 import re
+
+
+logger = logging.getLogger(__name__)
 
 
 class JavaScriptAdapter:
@@ -85,13 +90,31 @@ class JavaScriptAdapter:
 
     def __init__(self):
         """Initialize the JavaScript adapter with tree-sitter parser."""
+        self.parser = None
+        self._tree_sitter_available = False
+
         try:
-            import tree_sitter_languages
+            import tree_sitter_languages  # type: ignore
+        except ImportError as exc:
+            logger.error(
+                "JavaScript support requires the optional 'tree-sitter-languages' dependency. "
+                "Install with `pip install agentspec[javascript]`."
+            )
+            logger.debug("Missing tree-sitter dependency", exc_info=True)
+            return
+
+        try:
             self.parser = tree_sitter_languages.get_parser('javascript')
+        except Exception as exc:  # pragma: no cover - defensive logging path
+            logger.exception("Failed to initialize tree-sitter parser for JavaScript")
+            if "takes exactly" in str(exc) and "argument" in str(exc):
+                logger.error(
+                    "Detected a tree-sitter version mismatch. "
+                    "Agentspec pins tree-sitter==0.20.1; run `pip install 'tree-sitter==0.20.1'`."
+                )
+            raise
+        else:
             self._tree_sitter_available = True
-        except (ImportError, Exception):
-            self.parser = None
-            self._tree_sitter_available = False
 
     @property
     def file_extensions(self) -> Set[str]:

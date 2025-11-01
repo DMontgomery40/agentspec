@@ -30,8 +30,8 @@ classifiers = [
 [project.optional-dependencies]
 anthropic = ["anthropic"]
 openai = ["openai"]
-javascript = ["tree-sitter==0.21.1", "tree-sitter-languages==1.10.2"]
-all = ["anthropic", "openai", "tree-sitter==0.21.1", "tree-sitter-languages==1.10.2"]
+javascript = ["tree-sitter==0.20.1", "tree-sitter-languages==1.10.2"]
+all = ["anthropic", "openai", "tree-sitter==0.20.1", "tree-sitter-languages==1.10.2"]
 
 [project.scripts]
 agentspec = "agentspec.cli:main"
