@@ -1,8 +1,36 @@
 # AI Agent Instructions: DO NOT CREATE STUBS, DO NOT CREATE PLACEHOLDERS, DO NOT CREATE/EDIT WITHOUT VERIFIED SMOKE TESTS
 
 ***NEVER return to the user with a "success!" or "complete" or "done" message WITHOUT A VERIFIED AND DOCUMENTED SMOKE TEST PROVING FUNCTIONALITY*** Tests should be saved in `agentspec/tests/`
-MANDATORY: USE `agentspec/TOOLS.md` for your commands 
+MANDATORY: USE `agentspec/TOOLS.md` for your commands
 
+---
+
+## 🎯 Testing Agentspec Functionality (PERMANENT TEST FILES)
+
+### ⚠️ NEVER CREATE TEMPORARY TEST FILES
+
+**DO NOT** create files like `tmp_test.tsx`, `tmp_simple.js`, `test_example.py`, etc.
+
+**ALWAYS** use these permanent production files for testing:
+
+- **TypeScript/TSX:** `/Users/davidmontgomery/faxbot_folder/faxbot/api/admin_ui/src/components/Dashboard.tsx`
+- **Python:** `/Users/davidmontgomery/faxbot_folder/faxbot/api/app/phaxio_service.py`
+- **JavaScript:** `/Users/davidmontgomery/agro/gui/js/indexing.js`
+
+Symlinks: `test_reference_Dashboard.tsx`, `test_reference_phaxio_service.py`, `test_reference_indexing.js`
+
+### LLM Configuration (MANDATORY for agentspec generate tests)
+
+**ALWAYS use these parameters:**
+```bash
+--provider openai --base-url http://localhost:11434/v1 --model qwen3-coder:30b --terse --force-context --agentspec-yaml --update-existing
+```
+
+**Only add `--strip` when explicitly told to start fresh.**
+
+See `.serena/memories/permanent_test_files.md` and `tests/README_REFERENCE_FILES.md` for details.
+
+---
 
 # This codebase uses **agentspec** — structured YAML and JS Doc blocks in docstrings that provide context, dependencies, guardrails, and historical information for every function and class.
 
