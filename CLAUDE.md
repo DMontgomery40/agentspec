@@ -32,9 +32,9 @@ When you edit code, you MUST:
 - **JavaScript:** `/Users/davidmontgomery/agro/gui/js/indexing.js`
 
 Symlinks exist in `/tests/`:
-- `test_reference_Dashboard.tsx`
-- `test_reference_phaxio_service.py`
-- `test_reference_indexing.js`
+- `ref_Dashboard.tsx`
+- `ref_phaxio_service.py`
+- `ref_indexing.js`
 
 ### LLM Configuration (MANDATORY for agentspec generate tests)
 

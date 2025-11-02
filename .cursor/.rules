@@ -17,7 +17,7 @@ MANDATORY: USE `agentspec/TOOLS.md` for your commands
 - **Python:** `/Users/davidmontgomery/faxbot_folder/faxbot/api/app/phaxio_service.py`
 - **JavaScript:** `/Users/davidmontgomery/agro/gui/js/indexing.js`
 
-Symlinks: `test_reference_Dashboard.tsx`, `test_reference_phaxio_service.py`, `test_reference_indexing.js`
+Symlinks: `ref_Dashboard.tsx`, `ref_phaxio_service.py`, `ref_indexing.js`
 
 ### LLM Configuration (MANDATORY for agentspec generate tests)
 

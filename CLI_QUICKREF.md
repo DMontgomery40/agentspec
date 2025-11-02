@@ -2,21 +2,30 @@
 
 A practical guide to agentspec commands, including update-existing and diff summaries.
 
+At a glance (new essentials)
+- `--language {auto|py|js}` to select Python vs JS/TS
+- `--strip` to pre‑clean stale agentspec blocks (Python + JS/TS)
+- JSDoc replacement (not append) with syntax validation
+- Two‑phase write (narrative + deterministic metadata) under the hood
+- Export everything: `agentspec extract <path> --format markdown`
+
 ---
 
 ## 📚 Table of Contents
 
-- [Essential New Features](#essential-new-features)
+- [Highlights](#highlights)
 - [Basic Commands](#basic-commands)
+- [JavaScript/TypeScript Support](#javascripttypescript-support)
 - [Single File Operations](#single-file-operations)
 - [Update Existing Docstrings](#update-existing-docstrings)
 - [Creative Workflows](#creative-workflows)
 - [Model Selection](#model-selection)
+- [Output Control Flags](#output-control-flags)
 - [Troubleshooting](#troubleshooting)
 
 ---
 
-## Essential New Features
+## Highlights
 
 ### 🔍 High‑Accuracy Guidance (for important code)
 
@@ -59,7 +68,7 @@ agentspec generate src/ --update-existing
 # Update single file after code changes
 agentspec generate src/api.py --update-existing
 
-# Preview what would be updated
+# Preview pending changes
 agentspec generate src/ --update-existing --dry-run
 
 # Update with specific model
@@ -83,27 +92,37 @@ agentspec generate src/core/ --update-existing
 ### Generate Docstrings
 
 ```bash
-# Generate for entire codebase
+# Generate for entire codebase (auto-detects Python/JS/TS)
 agentspec generate src/
 
 # Preview without changes (ALWAYS START WITH THIS)
 agentspec generate src/ --dry-run
+
+# Force language (when auto-detection isn't enough)
+agentspec generate src/ --language js     # JavaScript/TypeScript
+agentspec generate src/ --language py     # Python
 
 # Generate with context-forcing print statements
 agentspec generate src/ --force-context
 
 # Generate agentspec YAML blocks
 agentspec generate src/ --agentspec-yaml
+
+# Strip old agentspecs before generating fresh ones
+agentspec generate src/ --strip --update-existing
 ```
 
 ### Lint & Validate
 
 ```bash
-# Lint entire codebase
+# Lint entire codebase (auto-detects language)
 agentspec lint src/
 
 # Strict mode (warnings become errors)
 agentspec lint src/ --strict
+
+# Force language for lint
+agentspec lint src/ --language js --strict
 
 # Custom minimum line requirement
 agentspec lint src/ --min-lines 20
@@ -112,7 +131,7 @@ agentspec lint src/ --min-lines 20
 ### Extract Documentation
 
 ```bash
-# Extract to markdown (default)
+# Extract to markdown (default, auto-detects language)
 agentspec extract src/
 
 # Extract to JSON
@@ -120,7 +139,52 @@ agentspec extract src/ --format json
 
 # Extract with agent context
 agentspec extract src/ --format agent-context
+
+# Force language for extraction
+agentspec extract src/ --language js --format json
 ```
+
+---
+
+## JavaScript/TypeScript Support
+
+### Language Detection
+
+```bash
+# Auto-detect (default) - uses file extension
+agentspec generate src/              # Processes .py, .js, .mjs, .jsx, .ts, .tsx
+
+# Force JavaScript/TypeScript for mixed codebases
+agentspec generate src/ --language js
+
+# Force Python only
+agentspec generate src/ --language py
+```
+
+### JavaScript/TypeScript Examples
+
+```bash
+# Generate JSDoc for React components
+agentspec generate src/components/ --language js --agentspec-yaml
+
+# Lint TypeScript files
+agentspec lint src/ --language js --strict
+
+# Extract from Node.js project
+agentspec extract src/ --language js --format json
+
+# Strip JSDoc from JavaScript
+agentspec strip src/ --dry-run        # Preview first
+agentspec strip src/                  # Remove JSDoc
+```
+
+### Supported Extensions
+
+- **.js** - JavaScript
+- **.mjs** - ECMAScript modules
+- **.jsx** - React JSX
+- **.ts** - TypeScript
+- **.tsx** - TypeScript + JSX
 
 ---
 
@@ -420,7 +484,7 @@ agentspec generate src/auth.py --diff-summary --terse
 **What happens:**
 1. CHANGELOG section shows commit messages only (no diffs)
 2. Separate API call analyzes the actual git diffs
-3. New section added: `CHANGELOG DIFF SUMMARY (LLM-generated):`
+3. Section added: `CHANGELOG DIFF SUMMARY (LLM-generated):`
 4. One-line summaries of what changed in each commit
 5. Still limited to last 5 commits
 
@@ -503,15 +567,22 @@ echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 | **Generate** | `agentspec generate src/` |
 | **Generate (terse)** | `agentspec generate src/ --terse` |
 | **Update existing** | `agentspec generate src/ --update-existing` |
-| **Thorough update** | `agentspec generate src/ --update-existing` |
+| **Strip then generate** | `agentspec generate src/ --strip --update-existing` |
 | **With diff summaries** | `agentspec generate src/ --diff-summary` |
 | **Preview changes** | `agentspec generate src/ --dry-run` |
 | **Single file** | `agentspec generate src/file.py` |
+| **Force JS/TS** | `agentspec generate src/ --language js` |
+| **Force Python** | `agentspec generate src/ --language py` |
+| **YAML format** | `agentspec generate src/ --agentspec-yaml` |
+| **Force context prints** | `agentspec generate src/ --force-context` |
 | **Lint strict** | `agentspec lint src/ --strict` |
+| **Lint JS/TS** | `agentspec lint src/ --language js` |
 | **Extract markdown** | `agentspec extract src/` |
 | **Extract JSON** | `agentspec extract src/ --format json` |
-| **Force context prints** | `agentspec generate src/ --force-context` |
-| **Use Ollama** | `agentspec generate src/ --model llama3.2 --provider openai` |
+| **Extract JS/TS** | `agentspec extract src/ --language js` |
+| **Use Ollama** | `agentspec generate src/ --model llama3.2 --provider openai --base-url http://localhost:11434/v1` |
+| **Strip all** | `agentspec strip src/` |
+| **Strip preview** | `agentspec strip src/ --dry-run` |
 
 ---
 
