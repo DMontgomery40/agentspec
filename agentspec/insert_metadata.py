@@ -16,6 +16,61 @@ import py_compile
 
 
 def _compile_ok(path: Path) -> bool:
+    """
+    ---agentspec
+    what: |
+      Validates whether a Python file at the given path compiles successfully without syntax errors.
+
+      Takes a Path object pointing to a Python source file and attempts to compile it using py_compile.compile()
+      with the doraise=True flag, which causes compilation errors to be raised as exceptions rather than logged.
+
+      Returns True if compilation succeeds (file is syntactically valid Python), False if any exception occurs
+      during compilation (syntax errors, file not found, permission denied, encoding issues, etc.).
+
+      Inputs:
+        - path: Path object or path-like pointing to a .py file
+
+      Outputs:
+        - bool: True if file compiles cleanly, False otherwise
+
+      Edge cases:
+        - Non-existent files: Returns False (FileNotFoundError caught)
+        - Unreadable files: Returns False (PermissionError caught)
+        - Invalid encoding: Returns False (UnicodeDecodeError caught)
+        - Syntax errors: Returns False (SyntaxError caught)
+        - All exceptions are silently suppressed and treated as compilation failure
+        deps:
+          calls:
+            - py_compile.compile
+            - str
+          imports:
+            - __future__.annotations
+            - os
+            - pathlib.Path
+            - py_compile
+            - tempfile
+            - typing.Any
+            - typing.Dict
+            - typing.Optional
+
+
+    why: |
+      This utility provides a safe, non-throwing way to validate Python syntax before processing files.
+      Using a broad Exception catch ensures robustness across all failure modes without requiring
+      caller to handle multiple exception types. The boolean return value is simpler for conditional
+      logic than exception handling. This is useful in metadata insertion workflows where you need to
+      skip or flag files with syntax issues without halting the entire process.
+
+    guardrails:
+      - DO NOT rely on this for security validation—it only checks syntax, not code safety or intent
+      - DO NOT use this as a substitute for actual linting or type checking tools
+      - DO NOT assume False means the file is unreadable vs. syntactically invalid; both are treated identically
+      - DO NOT call this on non-Python files; behavior is undefined for non-.py content
+
+        changelog:
+          - "- 2025-10-30: refactor(injection): move deps/changelog injection out of LLM path via safe two‑phase writer (219a717)"
+        ---/agentspec
+    """
     try:
         py_compile.compile(str(path), doraise=True)
         return True

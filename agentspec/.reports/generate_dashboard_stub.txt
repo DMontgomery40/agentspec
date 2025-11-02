@@ -1,0 +1,45 @@
+🔄 UPDATE MODE - Regenerating existing docstrings
+
+Found 1 file(s)
+Processing tests/ref_Dashboard.tsx
+  Found 6 candidate(s) in tests/ref_Dashboard.tsx
+[AGENTSPEC_METADATA] getStatusIcon in tests/ref_Dashboard.tsx
+[AGENTSPEC_METADATA] Calls: Navigate?., client.getConfig, client.getHealthStatus, client.listPlugins, client.startPolling, fetchConfig, fetchHealth, getStatusColor, getStatusIcon, navigator.clipboard.writeText, onNavigate, sessionStorage.getItem, sessionStorage.removeItem, setCfg, setError, setHealth, setJustApplied, setLoading, setPlugins, setTimeout, useEffect, useState, w Date(health.timestamp).toLocaleString()
+[AGENTSPEC_METADATA] Imports: 12 module(s)
+[AGENTSPEC_METADATA] Changelog: 5 commit(s)
+[AGENTSPEC_METADATA]   - 2025-09-22: feat(ui): enhance Admin Console with new features and deep linking (b750b40c)
+[AGENTSPEC_METADATA]   - 2025-09-21: fix: Update Sinch integration and documentation for improved security and functionality (0a33f67c)
+[AGENTSPEC_METADATA]   - 2025-09-15: v3 plugins prep: manifest get_status + admin refresh endpoint; Diagnostics plugin readiness; Plugins tester UI; Jobs detail refresh; Dashboard plugin note (e499215b)
+    ✅ Added verified JSDoc with deterministic metadata to getStatusIcon
+[AGENTSPEC_METADATA] getStatusColor in tests/ref_Dashboard.tsx
+[AGENTSPEC_METADATA] Calls: Date(health.timestamp).toLocaleString()}, Navigate?., client.getConfig, client.getHealthStatus, client.listPlugins, client.startPolling, fetchConfig, fetchHealth, sessionStorage.getItem, sessionStorage.removeItem, setCfg, setError, setHealth, setJustApplied, setLoading, setPlugins, setTimeout, tStatusColor(h, tStatusIcon(h, useEffect, useState, vigate?.(', vigator.clipboard.writeText(`
+[AGENTSPEC_METADATA] Imports: 12 module(s)
+[AGENTSPEC_METADATA] Changelog: 1 commit(s)
+[AGENTSPEC_METADATA]   - 2025-11-01: docs: update CLI_QUICKREF.md with JavaScript/TypeScript support and all flags (f90f540)
+    ✅ Added verified JSDoc with deterministic metadata to getStatusColor
+[AGENTSPEC_METADATA] cleanup in tests/ref_Dashboard.tsx
+[AGENTSPEC_METADATA] Calls: Date(health.timestamp).toLocaleString()}, Navigate?., client.getConfig, client.getHealthStatus, client.listPlugins, client.startPolling, fetchConfig, fetchHealth, sessionStorage.getItem, sessionStorage.removeItem, setCfg, setError, setHealth, setJustApplied, setLoading, setPlugins, setTimeout, tStatusColor(h, tStatusIcon(h, useEffect, useState, vigate?.(', vigator.clipboard.writeText(`
+[AGENTSPEC_METADATA] Imports: 12 module(s)
+[AGENTSPEC_METADATA] Changelog: 1 commit(s)
+[AGENTSPEC_METADATA]   - 2025-11-01: docs: update CLI_QUICKREF.md with JavaScript/TypeScript support and all flags (f90f540)
+    ✅ Added verified JSDoc with deterministic metadata to cleanup
+[AGENTSPEC_METADATA] fetchConfig in tests/ref_Dashboard.tsx
+[AGENTSPEC_METADATA] Calls: Date(health.timestamp).toLocaleString()}, Navigate?., client.getConfig, client.getHealthStatus, client.listPlugins, client.startPolling, fetchConfig, fetchHealth, sessionStorage.getItem, sessionStorage.removeItem, setCfg, setError, setHealth, setJustApplied, setLoading, setPlugins, setTimeout, tStatusColor(h, tStatusIcon(h, useEffect, useState, vigate?.(', vigator.clipboard.writeText(`
+[AGENTSPEC_METADATA] Imports: 12 module(s)
+[AGENTSPEC_METADATA] Changelog: 1 commit(s)
+[AGENTSPEC_METADATA]   - 2025-11-01: docs: update CLI_QUICKREF.md with JavaScript/TypeScript support and all flags (f90f540)
+    ✅ Added verified JSDoc with deterministic metadata to fetchConfig
+[AGENTSPEC_METADATA] fetchHealth in tests/ref_Dashboard.tsx
+[AGENTSPEC_METADATA] Calls: Date(health.timestamp).toLocaleString()}, Navigate?., client.getConfig, client.getHealthStatus, client.listPlugins, client.startPolling, fetchConfig, fetchHealth, sessionStorage.getItem, sessionStorage.removeItem, setCfg, setError, setHealth, setJustApplied, setLoading, setPlugins, setTimeout, tStatusColor(h, tStatusIcon(h, useEffect, useState, vigate?.(', vigator.clipboard.writeText(`
+[AGENTSPEC_METADATA] Imports: 12 module(s)
+[AGENTSPEC_METADATA] Changelog: 1 commit(s)
+[AGENTSPEC_METADATA]   - 2025-11-01: docs: update CLI_QUICKREF.md with JavaScript/TypeScript support and all flags (f90f540)
+    ✅ Added verified JSDoc with deterministic metadata to fetchHealth
+[AGENTSPEC_METADATA] Dashboard in tests/ref_Dashboard.tsx
+[AGENTSPEC_METADATA] Calls: Date(health.timestamp).toLocaleString()}, Navigate?., client.getConfig, client.getHealthStatus, client.listPlugins, client.startPolling, fetchConfig, fetchHealth, sessionStorage.getItem, sessionStorage.removeItem, setCfg, setError, setHealth, setJustApplied, setLoading, setPlugins, setTimeout, tStatusColor(h, tStatusIcon(h, useEffect, useState, vigate?.(', vigator.clipboard.writeText(`
+[AGENTSPEC_METADATA] Imports: 12 module(s)
+[AGENTSPEC_METADATA] Changelog: 1 commit(s)
+[AGENTSPEC_METADATA]   - 2025-11-01: docs: update CLI_QUICKREF.md with JavaScript/TypeScript support and all flags (f90f540)
+    ✅ Added verified JSDoc with deterministic metadata to Dashboard
+
+✅ Done!

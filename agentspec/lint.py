@@ -45,11 +45,13 @@ class AgentSpecLinter(ast.NodeVisitor):
           Edge cases:
           - No validation of filepath existence or readability occurs; invalid paths are accepted and will fail only when actual linting methods attempt file access
           - min_lines can be set to zero or negative values; validation of this parameter is deferred to downstream comparison logic
-        deps:
+            deps:
               imports:
                 - agentspec.utils.collect_python_files
+                - agentspec.utils.collect_source_files
                 - ast
                 - pathlib.Path
+                - re
                 - sys
                 - typing.Any
                 - typing.Dict
@@ -74,8 +76,12 @@ class AgentSpecLinter(ast.NodeVisitor):
           - ALWAYS maintain (line_number, message) tuple ordering in errors and warnings lists; downstream code and external consumers depend on this consistent structure
           - DO NOT perform file existence checks or I/O operations in __init__; keep initialization pure and defer validation to linting methods
 
-        changelog:
-              - "- no git history available"
+            changelog:
+              - "- 2025-11-02: feat: Enhance multi-language support and improve agentspec handling (2ffec35)"
+              - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
+              - "- 2025-10-30: fix(critical): preserve commit hashes in injected CHANGELOG by relaxing section boundary regex (9c524b4)"
+              - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate (172e0a7)"
+              - "- 2025-10-29: Enhanced lint.py with YAML validation and verbose checks (7a34cb3)"
             ---/agentspec
         """
         self.filepath = filepath
@@ -102,14 +108,18 @@ class AgentSpecLinter(ast.NodeVisitor):
           - Functions with no docstring will trigger validation failure via _check_docstring()
           - Decorated functions are processed identically to undecorated ones
           - Lambda functions are not visited by this method (they use visit_Lambda if implemented)
-        deps:
+          - Functions with empty bodies or only pass statements are still validated for docstrings
+          - Async function definitions (async def) are handled by visit_AsyncFunctionDef, not this method
+            deps:
               calls:
                 - self._check_docstring
                 - self.generic_visit
               imports:
                 - agentspec.utils.collect_python_files
+                - agentspec.utils.collect_source_files
                 - ast
                 - pathlib.Path
+                - re
                 - sys
                 - typing.Any
                 - typing.Dict
@@ -131,9 +141,14 @@ class AgentSpecLinter(ast.NodeVisitor):
           - DO NOT skip _check_docstring(node); this is the enforcement point for documentation requirements and omitting it defeats the linting purpose
           - DO NOT assume all child nodes are functions; generic_visit handles all node types, including nested classes and other definitions
           - DO NOT catch or suppress exceptions from _check_docstring() unless explicitly designed to collect multiple errors; premature exception handling may hide validation failures
+          - DO NOT process async functions here; they require a separate visit_AsyncFunctionDef implementation to maintain correct dispatch
 
-        changelog:
-              - "- no git history available"
+            changelog:
+              - "- 2025-11-02: feat: Enhance multi-language support and improve agentspec handling (2ffec35)"
+              - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
+              - "- 2025-10-30: fix(critical): preserve commit hashes in injected CHANGELOG by relaxing section boundary regex (9c524b4)"
+              - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate (172e0a7)"
+              - "- 2025-10-29: Enhanced lint.py with YAML validation and verbose checks (7a34cb3)"
             ---/agentspec
         """
         self._check_docstring(node)
@@ -161,14 +176,16 @@ class AgentSpecLinter(ast.NodeVisitor):
           - Async functions without docstrings trigger validation errors
           - Nested async functions or inner definitions are validated recursively
           - Decorated async functions are still subject to docstring requirements
-        deps:
+            deps:
               calls:
                 - self._check_docstring
                 - self.generic_visit
               imports:
                 - agentspec.utils.collect_python_files
+                - agentspec.utils.collect_source_files
                 - ast
                 - pathlib.Path
+                - re
                 - sys
                 - typing.Any
                 - typing.Dict
@@ -188,8 +205,12 @@ class AgentSpecLinter(ast.NodeVisitor):
           - DO NOT call generic_visit() before _check_docstring(); parent validation must occur before child traversal to maintain logical ordering
           - DO NOT assume async functions are exempt from docstring requirements; they must meet the same standards as sync functions
 
-        changelog:
-              - "- no git history available"
+            changelog:
+              - "- 2025-11-02: feat: Enhance multi-language support and improve agentspec handling (2ffec35)"
+              - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
+              - "- 2025-10-30: fix(critical): preserve commit hashes in injected CHANGELOG by relaxing section boundary regex (9c524b4)"
+              - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate (172e0a7)"
+              - "- 2025-10-29: Enhanced lint.py with YAML validation and verbose checks (7a34cb3)"
             ---/agentspec
         """
         self._check_docstring(node)
@@ -216,16 +237,17 @@ class AgentSpecLinter(ast.NodeVisitor):
           - Classes with no docstring will be flagged by _check_docstring()
           - Nested classes are recursively validated with the same rules
           - Child methods within the class are visited and validated by their own visit_FunctionDef handler
-        what_else: |
-          This method is part of an AST visitor pattern implementation that enforces documentation standards across a Python codebase. It integrates into a larger linting workflow that traverses entire module ASTs to validate docstring presence and format compliance.
-        deps:
+          - Empty classes or classes with only pass statements are still subject to docstring validation
+            deps:
               calls:
                 - self._check_docstring
                 - self.generic_visit
               imports:
                 - agentspec.utils.collect_python_files
+                - agentspec.utils.collect_source_files
                 - ast
                 - pathlib.Path
+                - re
                 - sys
                 - typing.Any
                 - typing.Dict
@@ -235,16 +257,21 @@ class AgentSpecLinter(ast.NodeVisitor):
 
 
         why: |
-          The visitor pattern (ast.NodeVisitor) provides a standard, maintainable mechanism for AST traversal with automatic node-type dispatch via method naming convention (visit_[NodeType]). By validating the parent class docstring before recursing into children, the validator establishes clear error context and ensures that documentation requirements are checked top-down through the class hierarchy. This ordering also allows parent-level validation errors to be reported before child-level errors, improving readability of lint output.
+          The visitor pattern (ast.NodeVisitor) provides a standard, maintainable mechanism for AST traversal with automatic node-type dispatch via method naming convention (visit_[NodeType]). By validating the parent class docstring before recursing into children, the validator establishes clear error context and ensures that documentation requirements are checked top-down through the class hierarchy. This ordering also allows parent-level validation errors to be reported before child-level errors, improving readability of lint output. The approach balances comprehensive validation coverage with predictable error reporting semantics.
 
         guardrails:
           - DO NOT remove the generic_visit() call; it is essential for recursive traversal of all child nodes (methods, nested classes, attributes) and omitting it will cause child nodes to be silently skipped during validation
           - DO NOT rename this method; ast.NodeVisitor uses reflection to dispatch to visit_[NodeType] methods by name, and renaming breaks the automatic dispatch mechanism
           - DO NOT call _check_docstring() after generic_visit(); always validate the parent node before recursing into children to maintain proper error reporting order and context
           - DO NOT modify the method signature; it must accept exactly one parameter (node) to conform to the ast.NodeVisitor interface contract
+          - DO NOT assume node has a docstring attribute without defensive checks in _check_docstring(); some class definitions may lack docstrings entirely
 
-        changelog:
-              - "- no git history available"
+            changelog:
+              - "- 2025-11-02: feat: Enhance multi-language support and improve agentspec handling (2ffec35)"
+              - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
+              - "- 2025-10-30: fix(critical): preserve commit hashes in injected CHANGELOG by relaxing section boundary regex (9c524b4)"
+              - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate (172e0a7)"
+              - "- 2025-10-29: Enhanced lint.py with YAML validation and verbose checks (7a34cb3)"
             ---/agentspec
         """
         self._check_docstring(node)
@@ -254,7 +281,7 @@ class AgentSpecLinter(ast.NodeVisitor):
         """
         ---agentspec
         what: |
-          Validates that function and class nodes contain properly formatted agentspec YAML docstring blocks with required and recommended metadata fields. The method extracts the docstring, locates the "---agentspec"/"---/agentspec" fenced block, parses its YAML content, and enforces structural constraints: REQUIRED_KEYS presence, RECOMMENDED_KEYS presence (warnings), 'what' field minimum character length (50+), 'deps' as dict structure, and 'guardrails' as non-empty list. Returns early on critical failures (missing docstring, missing fenced block, invalid YAML, non-dict YAML root) to prevent cascading validation errors. Appends validation results as (lineno, message) tuples to self.errors (critical issues prefixed with ❌) or self.warnings (advisory issues prefixed with ⚠️).
+          Validates that function and class nodes contain properly formatted agentspec YAML docstring blocks with required and recommended metadata fields. The method extracts the docstring, locates the "---agentspec"/"---/agentspec" fenced block, parses its YAML content, and enforces structural constraints: REQUIRED_KEYS presence (errors), RECOMMENDED_KEYS presence (warnings), 'what' field minimum character length (50+ chars), 'deps' as dict structure, and 'guardrails' as non-empty list. Returns early on critical failures (missing docstring, missing fenced block, invalid YAML, non-dict YAML root) to prevent cascading validation errors and AttributeErrors. Appends validation results as (lineno, message) tuples to self.errors (critical issues prefixed with ❌) or self.warnings (advisory issues prefixed with ⚠️). Processes both function and class definitions via AST node inspection.
             deps:
               calls:
                 - ast.get_docstring
@@ -271,8 +298,10 @@ class AgentSpecLinter(ast.NodeVisitor):
                 - yaml.safe_load
               imports:
                 - agentspec.utils.collect_python_files
+                - agentspec.utils.collect_source_files
                 - ast
                 - pathlib.Path
+                - re
                 - sys
                 - typing.Any
                 - typing.Dict
@@ -282,19 +311,24 @@ class AgentSpecLinter(ast.NodeVisitor):
 
 
         why: |
-          Fenced YAML blocks balance human-readable docstring formatting with machine-parseable structured metadata for AI agent consumption. Using yaml.safe_load() prevents code injection vulnerabilities and handles YAML edge cases more robustly than manual string parsing. Early returns on critical failures prevent AttributeErrors when accessing dict keys and eliminate nonsensical cascading error messages that confuse developers. Separating errors from warnings enables configurable strictness policies across different CI/CD environments (e.g., fail on errors, warn on missing recommendations). Numeric thresholds (character counts, line counts) provide objective, configurable validation criteria rather than subjective heuristics.
+          Fenced YAML blocks balance human-readable docstring formatting with machine-parseable structured metadata for AI agent consumption. Using yaml.safe_load() prevents code injection vulnerabilities and handles YAML edge cases more robustly than manual string parsing. Early returns on critical failures prevent AttributeErrors when accessing dict keys and eliminate nonsensical cascading error messages that confuse developers. Separating errors from warnings enables configurable strictness policies across different CI/CD environments (e.g., fail on errors, warn on missing recommendations). Numeric thresholds (character counts, line counts) provide objective, configurable validation criteria rather than subjective heuristics. The (lineno, message) tuple format enables downstream sorting and reporting by line number for developer workflow integration.
 
         guardrails:
-          - DO NOT modify the "---agentspec" and "---/agentspec" fenced block delimiters without coordinating updates across all code that generates or parses agentspec docstrings, as this will break round-trip consistency.
-          - DO NOT remove early returns on critical failures (missing docstring, missing block, invalid YAML, non-dict root); they prevent AttributeErrors and cascading error messages that obscure root causes.
-          - DO NOT use yaml.load() instead of yaml.safe_load(); arbitrary code execution vulnerability when parsing untrusted docstrings.
-          - DO NOT access spec_data dict attributes without isinstance() type checks first; YAML parsing may produce unexpected types (None, list, scalar) if input is malformed.
-          - ALWAYS preserve the (lineno, message) tuple format when appending to self.errors and self.warnings; downstream code depends on this structure for sorting and reporting.
-          - ALWAYS include the emoji prefix (❌ for errors, ⚠️ for warnings) in error/warning messages for visual distinction in linter output.
-          - DO NOT treat missing recommended keys as errors; they should only generate warnings to allow gradual adoption of new metadata fields.
+          - DO NOT modify the "---agentspec" and "---/agentspec" fenced block delimiters without coordinating updates across all code that generates or parses agentspec docstrings, as this will break round-trip consistency and cause validation failures across the codebase.
+          - DO NOT remove early returns on critical failures (missing docstring, missing block, invalid YAML, non-dict root); they prevent AttributeErrors when accessing spec_data dict keys and eliminate cascading error messages that obscure root causes.
+          - DO NOT use yaml.load() instead of yaml.safe_load(); arbitrary code execution vulnerability when parsing untrusted docstrings from user-contributed code.
+          - DO NOT access spec_data dict attributes without isinstance() type checks first; YAML parsing may produce unexpected types (None, list, scalar) if input is malformed, causing silent failures or type errors.
+          - ALWAYS preserve the (lineno, message) tuple format when appending to self.errors and self.warnings; downstream code depends on this structure for sorting and reporting by line number.
+          - ALWAYS include the emoji prefix (❌ for errors, ⚠️ for warnings) in error/warning messages for visual distinction in linter output and terminal readability.
+          - DO NOT treat missing recommended keys as errors; they should only generate warnings to allow gradual adoption of new metadata fields without breaking existing codebases.
+          - DO NOT skip validation of 'guardrails' structure even if 'guardrails' key is missing; empty lists should trigger warnings to encourage developers to document constraints.
 
             changelog:
-              - "- no git history available"
+              - "- 2025-11-02: feat: Enhance multi-language support and improve agentspec handling (2ffec35)"
+              - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
+              - "- 2025-10-30: fix(critical): preserve commit hashes in injected CHANGELOG by relaxing section boundary regex (9c524b4)"
+              - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate (172e0a7)"
+              - "- 2025-10-29: Enhanced lint.py with YAML validation and verbose checks (7a34cb3)"
             ---/agentspec
         """
         doc = ast.get_docstring(node)
@@ -378,7 +412,7 @@ class AgentSpecLinter(ast.NodeVisitor):
                 )
 
     def check(self) -> Tuple[List[Tuple[int, str]], List[Tuple[int, str]]]:
-        '''
+        """
         ---agentspec
         what: |
           Returns a tuple containing two lists of accumulated linting results from the checker instance.
@@ -387,11 +421,16 @@ class AgentSpecLinter(ast.NodeVisitor):
           This method provides direct access to internal state without filtering, sorting, or transformation.
           Line numbers are integers (0 if unavailable), and messages are string descriptions of the linting issue.
           The method returns references to the internal lists, not copies, making it a lightweight accessor.
-        deps:
+          Callers receive the authoritative state of the linter at the moment of invocation.
+          Edge case: if no linting has been performed, both lists may be empty.
+          Edge case: line numbers may be 0 or None if source location information is unavailable.
+            deps:
               imports:
                 - agentspec.utils.collect_python_files
+                - agentspec.utils.collect_source_files
                 - ast
                 - pathlib.Path
+                - re
                 - sys
                 - typing.Any
                 - typing.Dict
@@ -405,24 +444,29 @@ class AgentSpecLinter(ast.NodeVisitor):
           Returning a tuple with fixed (errors, warnings) order provides type safety and semantic clarity about which list contains which category of issues.
           Direct reference returns are appropriate here since the caller receives the authoritative state of the linter at the moment of the call.
           This design supports efficient batch retrieval of all linting diagnostics without intermediate transformations.
+          Maintaining internal list references allows the checker to continue accumulating results across multiple check cycles if needed.
 
         guardrails:
-          - DO NOT add filtering, sorting, or transformation logic to the returned lists
+          - DO NOT add filtering, sorting, or transformation logic to the returned lists; preserve raw accumulation order
           - DO NOT change the return type from Tuple[List[Tuple[int, str]], List[Tuple[int, str]]]
-          - ALWAYS preserve the (errors, warnings) order in the returned tuple
-          - ALWAYS return direct references to self.errors and self.warnings without copying
-          - DO NOT modify the structure or content of error/warning tuples before returning
+          - ALWAYS preserve the (errors, warnings) order in the returned tuple for consistent caller expectations
+          - ALWAYS return direct references to self.errors and self.warnings without copying to maintain performance
+          - DO NOT modify the structure or content of error/warning tuples before returning; return them as-is
+          - DO NOT add validation or sanitization of line numbers or messages; return accumulated state faithfully
 
-        changelog:
-
-          - "2025-10-31: Clean up docstring formatting"
+            changelog:
+              - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
+              - "- 2025-10-30: fix(critical): preserve commit hashes in injected CHANGELOG by relaxing section boundary regex (9c524b4)"
+              - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate (172e0a7)"
+              - "- 2025-10-29: Enhanced lint.py with YAML validation and verbose checks (7a34cb3)"
+              - "- 2025-10-29: Add agent spec linter for Python files (4421824)"
             ---/agentspec
-        '''
+        """
         return self.errors, self.warnings
 
 
 def check_file(filepath: Path, min_lines: int = 10) -> Tuple[List[Tuple[int, str]], List[Tuple[int, str]]]:
-    '''
+    """
     ---agentspec
     what: |
       Validates a single Python file for AgentSpec compliance by parsing its AST and running a linter visitor.
@@ -447,7 +491,7 @@ def check_file(filepath: Path, min_lines: int = 10) -> Tuple[List[Tuple[int, str
       - SyntaxError: caught separately, preserves line number (or 0 if unavailable), returns as violation with "Syntax error:" prefix
       - All other exceptions: caught broadly, reported as line 0 error with "Error parsing {filepath}:" prefix, returns empty warnings list
       - Ensures function never raises; always returns valid tuple structure
-    deps:
+        deps:
           calls:
             - AgentSpecLinter
             - ast.parse
@@ -457,8 +501,10 @@ def check_file(filepath: Path, min_lines: int = 10) -> Tuple[List[Tuple[int, str
             - str
           imports:
             - agentspec.utils.collect_python_files
+            - agentspec.utils.collect_source_files
             - ast
             - pathlib.Path
+            - re
             - sys
             - typing.Any
             - typing.Dict
@@ -486,11 +532,14 @@ def check_file(filepath: Path, min_lines: int = 10) -> Tuple[List[Tuple[int, str
       - ALWAYS preserve str(filepath) conversion for Path object compatibility with AgentSpecLinter and error messages
       - DO NOT catch SyntaxError in the broad Exception handler; must preserve line number context from SyntaxError.lineno
 
-    changelog:
-
-      - "2025-10-31: Clean up docstring formatting"
+        changelog:
+          - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
+          - "- 2025-10-30: fix(critical): preserve commit hashes in injected CHANGELOG by relaxing section boundary regex (9c524b4)"
+          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate (172e0a7)"
+          - "- 2025-10-29: Enhanced lint.py with YAML validation and verbose checks (7a34cb3)"
+          - "- 2025-10-29: Add agent spec linter for Python files (4421824)"
         ---/agentspec
-    '''
+    """
     try:
         src = filepath.read_text(encoding="utf-8")
         tree = ast.parse(src, filename=str(filepath))
@@ -505,7 +554,70 @@ def check_file(filepath: Path, min_lines: int = 10) -> Tuple[List[Tuple[int, str
 
 def _extract_agentspec_from_text(doc: str) -> str | None:
     """
-    Return YAML block between ---agentspec and ---/agentspec in a given text, or None.
+    ---agentspec
+    what: |
+      Extracts a YAML agentspec block from a docstring or text document.
+
+      Takes a string input and searches for content bounded by the delimiters "---agentspec" and "---/agentspec".
+      Returns the stripped YAML content between these markers, or None if:
+      - Input is empty or falsy
+      - "---agentspec" delimiter is not found in the text
+      - "---/agentspec" closing delimiter is missing (malformed block)
+
+      The extraction is performed via string slicing: finds the start position after the opening delimiter,
+      locates the closing delimiter, and returns the substring with leading/trailing whitespace removed.
+
+      Edge cases handled:
+      - Empty or None input: returns None immediately
+      - Missing opening delimiter: returns None (short-circuit on "---agentspec" not in doc)
+      - Missing closing delimiter: returns None (end == -1 check prevents invalid slicing)
+      - Whitespace normalization: .strip() removes leading/trailing whitespace from extracted content
+      - Multiple blocks: only the first block is extracted (first occurrence of delimiters)
+        deps:
+          calls:
+            - doc.find
+            - len
+            - strip
+          imports:
+            - agentspec.utils.collect_python_files
+            - agentspec.utils.collect_source_files
+            - ast
+            - pathlib.Path
+            - re
+            - sys
+            - typing.Any
+            - typing.Dict
+            - typing.List
+            - typing.Tuple
+            - yaml
+
+
+    why: |
+      This function enables programmatic extraction of structured metadata from Python docstrings
+      without requiring full YAML parsing or regex complexity. The simple string-based approach
+      is performant and predictable for the common case of a single well-formed block.
+
+      Returning None for malformed input allows callers to distinguish between "no block found"
+      and "block found but invalid", enabling graceful degradation in linting workflows.
+
+      Early returns (falsy check, delimiter presence check) optimize for the common case where
+      agentspec blocks are not present, avoiding unnecessary string operations.
+
+    guardrails:
+      - DO NOT assume the closing delimiter exists without checking (end != -1); this prevents
+        returning invalid slices that would include content beyond the intended block boundary
+      - DO NOT parse or validate the YAML content in this function; extraction and validation
+        are separate concerns and should remain decoupled for testability and reusability
+      - DO NOT use regex for delimiter matching; simple string operations are more maintainable
+        and sufficient for fixed, unambiguous delimiters
+      - DO NOT modify the extracted content beyond .strip(); preserve internal formatting and
+        structure for downstream YAML parsers to handle
+      - DO NOT handle multiple blocks; if multiple agentspec blocks exist, only the first is
+        extracted, which is the expected behavior for single-block-per-docstring convention
+
+        changelog:
+          - "- 2025-11-02: feat: Enhance multi-language support and improve agentspec handling (2ffec35)"
+        ---/agentspec
     """
     if not doc or "---agentspec" not in doc:
         return None
@@ -519,29 +631,80 @@ def check_js_file(filepath: Path, min_lines: int = 10) -> Tuple[List[Tuple[int, 
     ---agentspec
     what: |
       Lints a JavaScript/TypeScript file for agentspec compliance by scanning JSDoc blocks for
-      YAML sections delimited by '---agentspec' and '---/agentspec'. Validates presence of required
-      keys and minimum line count.
+      YAML sections delimited by '---agentspec' and '---/agentspec'. For each JSDoc comment block
+      found, extracts and normalizes the agentspec YAML, validates it parses as a valid YAML mapping,
+      checks for presence of all required keys (what, why, guardrails, deps, changelog), and enforces
+      a minimum line count threshold.
 
-    deps:
-      calls:
-        - filepath.read_text
-        - re.finditer
-        - yaml.safe_load
-      imports:
-        - re
-        - yaml
-        - pathlib.Path
+      Inputs:
+        - filepath: Path object pointing to a .js or .ts file
+        - min_lines: integer threshold for agentspec block size (default 10)
+
+      Outputs:
+        - Tuple of (errors, warnings) where each is a list of (line_number, message) tuples
+        - Errors indicate compliance failures (missing keys, invalid YAML, wrong type)
+        - Warnings indicate style issues (undersized blocks)
+
+      Edge cases:
+        - File read failures are caught and returned as a single error at line 0
+        - Malformed YAML blocks are logged as errors with their line number
+        - Non-dict YAML parses are rejected as errors
+        - JSDoc blocks without agentspec sections are silently skipped
+        - Line numbers are computed by counting newlines in the file up to block start
+        deps:
+          calls:
+            - _extract_agentspec_from_text
+            - block.splitlines
+            - count
+            - endswith
+            - errors.append
+            - filepath.read_text
+            - isinstance
+            - join
+            - len
+            - lines.append
+            - m.group
+            - m.start
+            - raw.rstrip
+            - re.finditer
+            - re.sub
+            - s.strip
+            - startswith
+            - warnings.append
+            - yaml.safe_load
+            - yml.splitlines
+          imports:
+            - agentspec.utils.collect_python_files
+            - agentspec.utils.collect_source_files
+            - ast
+            - pathlib.Path
+            - re
+            - sys
+            - typing.Any
+            - typing.Dict
+            - typing.List
+            - typing.Tuple
+            - yaml
+
 
     why: |
-      A lightweight text-based scan provides immediate parity with Python linting without requiring
-      a full JS AST. The explicit delimiters make this approach reliable in practice.
+      A lightweight regex-based text scan provides immediate parity with Python linting without
+      requiring a full JavaScript AST parser. Explicit delimiters make this approach reliable and
+      maintainable. Normalizing JSDoc stars (/** and */) before YAML extraction ensures consistent
+      parsing across different formatting styles. Returning both errors and warnings allows callers
+      to distinguish blocking issues from advisory ones. Read-only semantics ensure the linter is
+      safe to run in CI/CD pipelines without side effects.
 
     guardrails:
-      - DO NOT modify the file; this function must be read-only
-      - ALWAYS ignore malformed YAML blocks instead of raising exceptions
-    changelog:
-      - "2025-11-01: Initial JS/TS linter"
-    ---/agentspec
+      - DO NOT modify the file; this function must be read-only to avoid accidental mutations
+      - DO NOT raise exceptions on malformed YAML; instead log as errors and continue scanning
+      - DO NOT assume YAML blocks are well-formed; always validate parse result is a dict
+      - DO NOT skip line number calculation; accurate line reporting is critical for developer workflow
+      - DO NOT require external JS/TS parsing libraries; keep dependencies minimal
+
+        changelog:
+          - "- 2025-11-02: feat: Enhance multi-language support and improve agentspec handling (2ffec35)"
+        ---/agentspec
     """
     errors: List[Tuple[int, str]] = []
     warnings: List[Tuple[int, str]] = []
@@ -588,16 +751,15 @@ def check_js_file(filepath: Path, min_lines: int = 10) -> Tuple[List[Tuple[int, 
 
 
 def run(target: str, min_lines: int = 10, strict: bool = False) -> int:
-    '''
+    """
     ---agentspec
     what: |
-      Executes batch linting validation on Python and JavaScript/TypeScript files within a target directory to verify agentspec block compliance. Collects all source files from the target path (file or directory), invokes language-specific checkers (`check_file` for Python, `check_js_file` for JS/TS) to validate agentspec requirements, and aggregates error and warning counts. Returns exit code 0 on success (no errors, and either no warnings or strict mode disabled), or exit code 1 on failure (errors present, or warnings present in strict mode). Prints per-file diagnostics with line numbers and messages, followed by a summary line showing total files checked and issue counts. Edge case: empty directory returns 0 with zero files checked and no output per file.
-    deps:
+      Executes batch linting validation on Python and JavaScript/TypeScript files within a target directory to verify agentspec block compliance. Collects all source files from the target path (file or directory), invokes language-specific checkers (`check_file` for Python, `check_js_file` for JS/TS) to validate agentspec requirements, and aggregates error and warning counts. Returns exit code 0 on success (no errors, and either no warnings or strict mode disabled), or exit code 1 on failure (errors present, or warnings present in strict mode). Prints per-file diagnostics with line numbers and messages, followed by a summary line showing total files checked and issue counts. Edge case: empty directory returns 0 with zero files checked and no per-file output.
+        deps:
           calls:
             - Path
             - check_file
             - check_js_file
-            - collect_python_files
             - collect_source_files
             - len
             - print
@@ -606,6 +768,7 @@ def run(target: str, min_lines: int = 10, strict: bool = False) -> int:
             - agentspec.utils.collect_source_files
             - ast
             - pathlib.Path
+            - re
             - sys
             - typing.Any
             - typing.Dict
@@ -615,20 +778,23 @@ def run(target: str, min_lines: int = 10, strict: bool = False) -> int:
 
 
     why: |
-      Provides a CLI-friendly batch validation entry point for enforcing agentspec compliance across entire codebases. Separates errors (blocking issues) from warnings (advisory issues) to allow flexible enforcement policies. Strict mode enables CI/CD pipelines to enforce zero-warning policies by treating warnings as failures, while permissive mode allows warnings to pass. Summary statistics printed before exit code ensure visibility into validation scope and results.
+      Provides a CLI-friendly batch validation entry point for enforcing agentspec compliance across entire codebases. Separates errors (blocking issues) from warnings (advisory issues) to allow flexible enforcement policies. Strict mode enables CI/CD pipelines to enforce zero-warning policies by treating warnings as failures, while permissive mode allows warnings to pass. Summary statistics printed before exit code ensure visibility into validation scope and results. Language-agnostic file collection and dispatch pattern supports future linting extensions without modifying core logic.
 
     guardrails:
-      - DO NOT return 0 when strict=True and total_warnings > 0; strict mode must treat warnings as blocking failures to enforce zero-warning policies in CI/CD
-      - DO NOT skip summary statistics output; always print the separator line and final status message to ensure visibility of validation results
+      - DO NOT return 0 when strict=True and total_warnings > 0; strict mode must treat warnings as blocking failures to enforce zero-warning policies in CI/CD pipelines
+      - DO NOT skip summary statistics output; always print the separator line and final status message to ensure visibility of validation results and file counts
       - DO NOT modify or filter files during linting; only validate and report, preserving immutability of the target codebase
-      - DO NOT assume target path exists; rely on Path and collect_python_files to handle missing paths gracefully
+      - DO NOT assume target path exists; rely on Path and collect_source_files to handle missing paths gracefully without raising uncaught exceptions
+      - DO NOT mix error and warning counts in per-file output; maintain separate line-by-line reporting to enable downstream filtering and severity-based handling
 
-    changelog:
-
-      - "2025-10-31: Clean up docstring formatting"
-      - "2025-11-01: Add JS/TS linting via collect_source_files and check_js_file"
+        changelog:
+          - "- 2025-11-02: feat: Enhance multi-language support and improve agentspec handling (2ffec35)"
+          - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
+          - "- 2025-10-30: fix(critical): preserve commit hashes in injected CHANGELOG by relaxing section boundary regex (9c524b4)"
+          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate (172e0a7)"
+          - "- 2025-10-29: Enhanced lint.py with YAML validation and verbose checks (7a34cb3)"
         ---/agentspec
-    '''
+    """
     path = Path(target)
     files = collect_source_files(path)
 

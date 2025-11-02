@@ -486,12 +486,177 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5"
     import re, os
 
     def _estimate_tokens(s: str) -> int:
+        """
+        ---agentspec
+        what: |
+          Estimates the token count of a string using a simple character-based heuristic.
+
+          Takes a string input and returns an integer representing an approximate token count.
+          The estimation divides the string length by 4, based on the assumption that an average
+          token represents approximately 4 characters of text. This is a rough approximation
+          commonly used for quick token budgeting without invoking a full tokenizer.
+
+          Returns a minimum of 1 token even for empty or very short strings, ensuring that
+          any non-null input is counted as at least one token. This prevents zero-token
+          estimates which could cause issues in downstream token accounting or budget checks.
+
+          Edge cases:
+          - Empty string returns 1 (minimum floor)
+          - Single character returns 1 (1 // 4 = 0, then max(1, 0) = 1)
+          - Strings under 4 characters return 1
+          - Strings of exactly 4 characters return 1
+          - Strings of 5+ characters return proportional estimates (5 chars → 1, 8 chars → 2, etc.)
+            deps:
+              calls:
+                - len
+                - max
+              imports:
+                - agentspec.collect.collect_metadata
+                - agentspec.prompts.get_agentspec_yaml_prompt
+                - agentspec.prompts.get_terse_docstring_prompt
+                - agentspec.prompts.get_verbose_docstring_prompt
+                - agentspec.utils.collect_source_files
+                - agentspec.utils.load_env_from_dotenv
+                - ast
+                - json
+                - os
+                - pathlib.Path
+                - re
+                - sys
+                - typing.Any
+                - typing.Dict
+
+
+        why: |
+          This lightweight heuristic provides fast token estimation without external dependencies
+          or model-specific tokenizer overhead. The 4-character-per-token ratio is a widely-used
+          approximation in LLM contexts (e.g., OpenAI's rough guidance). This approach trades
+          accuracy for speed and simplicity, making it suitable for preliminary token budgeting,
+          logging, or quick validation checks where exact tokenization is not critical.
+
+          The max(1, ...) floor ensures graceful handling of edge cases and prevents downstream
+          logic errors from zero-token estimates, which could cause division-by-zero or
+          underflow issues in token accounting systems.
+
+        guardrails:
+          - DO NOT use this for precise token counting in production token-limit enforcement;
+            actual tokenizer behavior varies significantly by model and encoding scheme
+          - DO NOT assume the 4-char heuristic applies uniformly across all languages or
+            special characters; Unicode and non-ASCII text may have different token densities
+          - DO NOT rely on this estimate for billing or quota systems; use official tokenizer
+            libraries (e.g., tiktoken) for accuracy-critical scenarios
+
+            changelog:
+              - "- 2025-11-01: refactor: Extract system prompts to separate .md files for easier editing (136cb30)"
+              - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
+              - "- 2025-10-30: docs: remove critical mode; update CLI + README/Quickref with high-accuracy guidance (avoid --terse, pick stronger model) (f5bb2a3)"
+              - "- 2025-10-30: refactor(injection): move deps/changelog injection out of LLM path via safe two‑phase writer (219a717)"
+              - "- 2025-10-30: fix(changelog): aggressively strip any LLM-emitted CHANGELOG/DEPENDENCIES sections and append deterministic ones with hashes (646ff28)"
+            ---/agentspec
+        """
         return max(1, len(s) // 4)  # ~4 chars per token heuristic
 
     def _yaml_complete(s: str) -> bool:
+        """
+        ---agentspec
+        what: |
+          Validates whether a string contains a complete agentspec YAML block by checking for both opening and closing delimiters.
+
+          Takes a single string parameter `s` and returns a boolean True if and only if both the opening delimiter "---agentspec" and closing delimiter "---/agentspec" are present in the string.
+
+          This function is used during documentation generation to determine if a docstring already contains a properly formed agentspec block before attempting to parse or inject YAML content. Returns False if either delimiter is missing, even if one is present.
+
+          Edge cases: Empty strings return False. Strings with delimiters in wrong order (closing before opening) still return True. Partial or malformed delimiters (e.g., "---agentspec " with trailing space) will not match.
+            deps:
+              imports:
+                - agentspec.collect.collect_metadata
+                - agentspec.prompts.get_agentspec_yaml_prompt
+                - agentspec.prompts.get_terse_docstring_prompt
+                - agentspec.prompts.get_verbose_docstring_prompt
+                - agentspec.utils.collect_source_files
+                - agentspec.utils.load_env_from_dotenv
+                - ast
+                - json
+                - os
+                - pathlib.Path
+                - re
+                - sys
+                - typing.Any
+                - typing.Dict
+
+
+        why: |
+          This simple delimiter check provides a fast boolean gate for downstream processing logic. Rather than attempting full YAML parsing which could fail or be expensive, a substring presence check is sufficient to determine completeness. The function enables conditional logic to decide whether to parse existing specs, inject new ones, or skip processing. Both delimiters must be present to guarantee a well-formed block structure that can be safely extracted and manipulated.
+
+        guardrails:
+          - DO NOT rely on this function to validate YAML syntax or structure—it only confirms delimiter presence, not validity
+          - DO NOT assume delimiter order matters—this function returns True even if delimiters appear in reverse order
+          - DO NOT use this for security validation—malicious content between delimiters will pass this check
+          - DO NOT expect this to handle escaped or quoted delimiters—it performs literal substring matching only
+
+            changelog:
+              - "- 2025-11-01: refactor: Extract system prompts to separate .md files for easier editing (136cb30)"
+              - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
+              - "- 2025-10-30: docs: remove critical mode; update CLI + README/Quickref with high-accuracy guidance (avoid --terse, pick stronger model) (f5bb2a3)"
+              - "- 2025-10-30: refactor(injection): move deps/changelog injection out of LLM path via safe two‑phase writer (219a717)"
+              - "- 2025-10-30: fix(changelog): aggressively strip any LLM-emitted CHANGELOG/DEPENDENCIES sections and append deterministic ones with hashes (646ff28)"
+            ---/agentspec
+        """
         return ("---agentspec" in s) and ("---/agentspec" in s)
 
     def _yaml_has_core_sections(s: str) -> bool:
+        """
+        ---agentspec
+        what: |
+          Validates that a YAML string contains all three required core sections of an agentspec block.
+
+          Takes a string `s` as input and returns a boolean indicating whether the strings "what:", "why:", and "guardrails:" all appear as substrings within it.
+
+          This is a lightweight structural validation check used during agentspec parsing and generation to ensure that candidate YAML blocks contain the mandatory narrative sections before further processing or acceptance.
+
+          Returns True only if all three section markers are present; returns False if any section is missing or misspelled.
+
+          Edge cases: Does not validate YAML syntax, nesting depth, or content quality—only presence of section headers. A string with duplicate or out-of-order sections will still return True.
+            deps:
+              calls:
+                - all
+              imports:
+                - agentspec.collect.collect_metadata
+                - agentspec.prompts.get_agentspec_yaml_prompt
+                - agentspec.prompts.get_terse_docstring_prompt
+                - agentspec.prompts.get_verbose_docstring_prompt
+                - agentspec.utils.collect_source_files
+                - agentspec.utils.load_env_from_dotenv
+                - ast
+                - json
+                - os
+                - pathlib.Path
+                - re
+                - sys
+                - typing.Any
+                - typing.Dict
+
+
+        why: |
+          This check provides a fast, early-stage gate to filter incomplete or malformed agentspec blocks before expensive parsing or validation occurs.
+
+          The three sections (what, why, guardrails) form the semantic contract of agentspec documentation. Requiring all three ensures consistency and completeness across the codebase.
+
+          Using simple substring matching rather than full YAML parsing keeps this check lightweight and resilient to formatting variations (whitespace, indentation, comments) that might break a strict parser.
+
+        guardrails:
+          - DO NOT rely on this function for full YAML validation—it only checks for section header presence, not syntax correctness or proper nesting
+          - DO NOT assume section order or multiplicity from this check; use a full parser if order or uniqueness matters
+          - DO NOT use this as a substitute for semantic validation of section content; empty or placeholder sections will pass this check
+
+            changelog:
+              - "- 2025-11-01: refactor: Extract system prompts to separate .md files for easier editing (136cb30)"
+              - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
+              - "- 2025-10-30: docs: remove critical mode; update CLI + README/Quickref with high-accuracy guidance (avoid --terse, pick stronger model) (f5bb2a3)"
+              - "- 2025-10-30: refactor(injection): move deps/changelog injection out of LLM path via safe two‑phase writer (219a717)"
+              - "- 2025-10-30: fix(changelog): aggressively strip any LLM-emitted CHANGELOG/DEPENDENCIES sections and append deterministic ones with hashes (646ff28)"
+            ---/agentspec
+        """
         return all(k in s for k in ("what:", "why:", "guardrails:"))
 
     # Infer function name (best-effort)
@@ -552,6 +717,74 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5"
     # Provider call
     from agentspec.llm import generate_chat
     def _call_llm(user_content: str, max_tokens: int) -> str:
+        """
+        ---agentspec
+        what: |
+          Calls an LLM API to generate documentation content via a chat-based interface.
+
+          Inputs:
+          - user_content (str): The prompt or request sent to the LLM
+          - max_tokens (int): Maximum number of tokens the LLM should generate in its response
+
+          Outputs:
+          - str: The LLM's generated text response
+
+          Behavior:
+          - Constructs a two-message conversation: a system message instructing the LLM to generate only narrative sections (what/why/guardrails) without deps or changelog, and a user message containing the actual request
+          - Uses temperature 0.0 (deterministic) when terse mode is enabled, otherwise 0.2 (slightly creative)
+          - Delegates to generate_chat() with specified model, base_url, and provider configuration
+          - Returns the raw string response from the LLM without post-processing
+
+          Edge cases:
+          - If max_tokens is too low, the LLM may truncate output mid-sentence
+          - If user_content is empty or malformed, the LLM may generate unhelpful or error-like responses
+          - Network or API failures in generate_chat() will propagate as exceptions
+            deps:
+              calls:
+                - generate_chat
+              imports:
+                - agentspec.collect.collect_metadata
+                - agentspec.prompts.get_agentspec_yaml_prompt
+                - agentspec.prompts.get_terse_docstring_prompt
+                - agentspec.prompts.get_verbose_docstring_prompt
+                - agentspec.utils.collect_source_files
+                - agentspec.utils.load_env_from_dotenv
+                - ast
+                - json
+                - os
+                - pathlib.Path
+                - re
+                - sys
+                - typing.Any
+                - typing.Dict
+
+
+        why: |
+          This wrapper abstracts LLM invocation details and enforces consistent system prompting across documentation generation. By centralizing the call, we ensure all generated content adheres to the specification (narrative sections only, no deps/changelog). Temperature control allows balancing between reproducible output (terse mode) and natural variation (normal mode). The max_tokens parameter prevents runaway generation and controls cost/latency.
+
+        guardrails:
+          - DO NOT modify the system prompt without updating all callers and documentation, as it defines the contract for what the LLM should generate
+          - DO NOT pass untrusted user_content directly without validation, as it could cause prompt injection or unexpected LLM behavior
+          - DO NOT set max_tokens to 0 or negative values, as this will cause API errors
+          - DO NOT assume the LLM always respects the system prompt; validate output contains only narrative sections before using
+          - DO NOT use this function for non-documentation generation tasks, as the system prompt is specifically tuned for agentspec YAML documentation
+
+            changelog:
+              - "- 2025-11-01: refactor: Extract system prompts to separate .md files for easier editing (136cb30)"
+              - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
+              - "- 2025-10-30: docs: remove critical mode; update CLI + README/Quickref with high-accuracy guidance (avoid --terse, pick stronger model) (f5bb2a3)"
+              - "- 2025-10-30: refactor(injection): move deps/changelog injection out of LLM path via safe two‑phase writer (219a717)"
+              - "- 2025-10-30: fix(changelog): aggressively strip any LLM-emitted CHANGELOG/DEPENDENCIES sections and append deterministic ones with hashes (646ff28)"
+            ---/agentspec
+        """
+        # Choose GPT-5 controls when available
+        try:
+            code_lines = len(code.splitlines())
+        except Exception:
+            code_lines = 0
+        effort = 'minimal' if terse or code_lines <= 12 else None
+        verbosity = 'low' if terse else 'medium'
+
         return generate_chat(
             model=model,
             messages=[
@@ -562,6 +795,8 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5"
             max_tokens=max_tokens,
             base_url=base_url,
             provider=provider,
+            reasoning_effort=effort,
+            verbosity=verbosity,
         )
 
     # Emit proof log (pre-call)
@@ -1482,6 +1717,71 @@ def run(target: str, language: str = "auto", dry_run: bool = False, force_contex
             cont = sum(m.get('continuations', 0) for m in GEN_METRICS)
             import statistics as _stats
             def _fmt_stats(vals):
+                """
+                ---agentspec
+                what: |
+                  Formats a sequence of numeric values into a human-readable statistics string.
+
+                  Takes a list or iterable of numeric values and returns a formatted string containing
+                  three aggregate statistics: minimum value, mean (average) value rounded to nearest integer,
+                  and maximum value. The output format is "min=X avg=Y max=Z" where X and Z are the raw
+                  min/max values and Y is the integer-truncated mean.
+
+                  Inputs:
+                    - vals: iterable of numeric values (list, tuple, generator, etc.)
+
+                  Outputs:
+                    - str: formatted statistics string in pattern "min={min} avg={int_mean} max={max}"
+
+                  Edge cases:
+                    - Empty sequence: will raise ValueError from min()/max() built-ins
+                    - Single value: min, max, and avg will all be identical
+                    - Non-numeric values: will raise TypeError during min/max/mean operations
+                    - Mean truncation: uses int() which floors toward zero (not round-to-nearest)
+                    deps:
+                      calls:
+                        - _stats.mean
+                        - int
+                        - max
+                        - min
+                      imports:
+                        - agentspec.collect.collect_metadata
+                        - agentspec.prompts.get_agentspec_yaml_prompt
+                        - agentspec.prompts.get_terse_docstring_prompt
+                        - agentspec.prompts.get_verbose_docstring_prompt
+                        - agentspec.utils.collect_source_files
+                        - agentspec.utils.load_env_from_dotenv
+                        - ast
+                        - json
+                        - os
+                        - pathlib.Path
+                        - re
+                        - sys
+                        - typing.Any
+                        - typing.Dict
+
+
+                why: |
+                  This utility function provides a compact, human-readable summary of numeric distributions
+                  for logging and debugging purposes. The choice to use int() for mean truncation rather than
+                  rounding reduces visual noise in logs while remaining deterministic. Delegating to built-in
+                  min/max and stats.mean() ensures correctness and leverages optimized implementations rather
+                  than custom aggregation logic.
+
+                guardrails:
+                  - DO NOT pass empty sequences without pre-validation, as min()/max() will raise ValueError
+                  - DO NOT rely on this for statistical precision; int() truncates rather than rounds, suitable only for display
+                  - DO NOT use with non-numeric iterables; type errors will propagate without graceful handling
+                  - DO NOT assume vals is consumed only once; if vals is a generator, subsequent calls will be empty
+
+                    changelog:
+                      - "- 2025-11-01: refactor: Extract system prompts to separate .md files for easier editing (136cb30)"
+                      - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
+                      - "- 2025-10-30: docs: remove critical mode; update CLI + README/Quickref with high-accuracy guidance (avoid --terse, pick stronger model) (f5bb2a3)"
+                      - "- 2025-10-30: refactor(injection): move deps/changelog injection out of LLM path via safe two‑phase writer (219a717)"
+                      - "- 2025-10-30: fix(changelog): aggressively strip any LLM-emitted CHANGELOG/DEPENDENCIES sections and append deterministic ones with hashes (646ff28)"
+                    ---/agentspec
+                """
                 return f"min={min(vals)} avg={int(_stats.mean(vals))} max={max(vals)}"
             print("\n[SUMMARY]")
             print(f" items={len(GEN_METRICS)}")

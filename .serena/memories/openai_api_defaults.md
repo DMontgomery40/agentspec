@@ -1,0 +1,1 @@
+Use the OpenAI Responses API for GPT-5 series models with explicit base_url set to https://api.openai.com/v1 unless a different endpoint is explicitly required. Do NOT use localhost:11434 for GPT-5; that endpoint is for local OpenAI-compatible services (e.g., Ollama) and not official OpenAI GPT-5.

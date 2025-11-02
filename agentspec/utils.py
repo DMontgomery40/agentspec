@@ -222,10 +222,58 @@ def _git_check_ignore(repo_root: Path, paths: List[Path]) -> Set[Path]:
 
 def _find_agentspecignore(repo_root: Path) -> Path | None:
     """
-    Find .agentspecignore file. 
-    
-    Returns agentspec's built-in .agentspecignore from the package installation.
-    User's project-specific .agentspecignore is checked in addition (via _parse_agentspecignore).
+    ---agentspec
+    what: |
+      Locates the .agentspecignore configuration file used to exclude paths from agent processing.
+
+      Search strategy (in order):
+      1. Attempts to import the agentspec package and locate its built-in .agentspecignore file from the package installation directory (parent of agentspec module root)
+      2. Falls back to checking repo_root parameter for a project-specific .agentspecignore file
+      3. Returns None if neither location contains the file
+
+      Inputs:
+      - repo_root: Path object representing the repository root directory (may be None)
+
+      Outputs:
+      - Path object pointing to the .agentspecignore file if found
+      - None if no .agentspecignore file exists in either location
+
+      Edge cases:
+      - Import of agentspec package fails silently (catches all exceptions during import/path resolution)
+      - repo_root is None or invalid: skips fallback check
+      - Built-in .agentspecignore exists but is inaccessible: falls back to repo_root check
+      - Both locations lack .agentspecignore: returns None (no default behavior)
+        deps:
+          calls:
+            - Path
+            - builtin_ignore.exists
+            - exists
+          imports:
+            - __future__.annotations
+            - agentspec.langs.LanguageRegistry
+            - fnmatch
+            - os
+            - pathlib.Path
+            - subprocess
+            - typing.Iterable
+            - typing.List
+            - typing.Optional
+            - typing.Set
+
+
+    why: |
+      Dual-source approach balances framework defaults with user customization. Built-in .agentspecignore provides sensible exclusions for common patterns (node_modules, .git, etc.) across all projects. Project-specific .agentspecignore allows teams to override or extend defaults for their repository. Silent exception handling during package import prevents initialization failures when agentspec is in an unusual installation state. Fallback to repo_root ensures functionality even if package metadata is unavailable.
+
+    guardrails:
+      - DO NOT assume repo_root is always valid—it may be None or point to a non-existent directory, so existence checks are required before use
+      - DO NOT raise exceptions during package import—silent fallback is intentional to prevent cascading failures in agent initialization
+      - DO NOT modify or create .agentspecignore files—this function is read-only discovery only
+      - DO NOT cache the result indefinitely—.agentspecignore files may be created/modified during runtime, so callers should re-invoke as needed
+
+        changelog:
+          - "- 2025-11-02: feat: Enhance multi-language support and improve agentspec handling (2ffec35)"
+          - "- 2025-10-30: fix(critical): preserve commit hashes in injected CHANGELOG by relaxing section boundary regex (9c524b4)"
+        ---/agentspec
     """
     # Use agentspec's built-in .agentspecignore from package installation
     try:
@@ -245,7 +293,69 @@ def _find_agentspecignore(repo_root: Path) -> Path | None:
 
 
 def _parse_agentspecignore(ignore_path: Path, repo_root: Path) -> List[str]:
-    """Parse .agentspecignore file and return list of patterns (filtered for comments and empty lines)."""
+    """
+    ---agentspec
+    what: |
+      Parses a .agentspecignore file and extracts a list of ignore patterns.
+
+      Inputs:
+        - ignore_path (Path): File system path to the .agentspecignore file
+        - repo_root (Path): Root directory of the repository (currently unused but available for context)
+
+      Outputs:
+        - List[str]: Ordered list of non-empty, non-comment pattern strings
+
+      Behavior:
+        - Reads the file with UTF-8 encoding, ignoring decode errors via errors="ignore"
+        - Splits content by lines and strips whitespace from each line
+        - Filters out empty lines and lines starting with '#' (comments)
+        - Returns remaining lines as patterns
+        - Returns empty list [] on any exception (file not found, permission denied, etc.)
+
+      Edge cases:
+        - Missing or inaccessible file: silently returns []
+        - Malformed UTF-8 bytes: ignored via errors="ignore" parameter
+        - Blank lines and whitespace-only lines: filtered out
+        - Comment-only files: returns []
+        - Mixed comment and pattern content: correctly separates them
+        deps:
+          calls:
+            - ignore_path.read_text
+            - line.startswith
+            - line.strip
+            - patterns.append
+            - splitlines
+          imports:
+            - __future__.annotations
+            - agentspec.langs.LanguageRegistry
+            - fnmatch
+            - os
+            - pathlib.Path
+            - subprocess
+            - typing.Iterable
+            - typing.List
+            - typing.Optional
+            - typing.Set
+
+
+    why: |
+      This utility enables flexible ignore pattern configuration without raising exceptions that would halt processing.
+      The lenient error handling (returning [] on failure) allows graceful degradation when .agentspecignore is absent or unreadable.
+      Stripping whitespace normalizes patterns and prevents leading/trailing space issues.
+      Comment filtering via '#' prefix follows standard convention (matching .gitignore behavior) for user-friendly configuration files.
+      The repo_root parameter is included for potential future use (e.g., relative path resolution or validation).
+
+    guardrails:
+      - DO NOT raise exceptions on file read failures; return [] instead to allow processing to continue without .agentspecignore
+      - DO NOT preserve leading/trailing whitespace in patterns; strip() ensures consistent pattern matching
+      - DO NOT include comment lines in output; '#' prefix filtering prevents malformed patterns from being used
+      - DO NOT assume UTF-8 validity; use errors="ignore" to handle binary corruption or mixed encodings gracefully
+      - DO NOT modify or validate pattern syntax; this function only extracts raw strings; validation belongs in the consumer
+
+        changelog:
+          - "- 2025-10-30: fix(critical): preserve commit hashes in injected CHANGELOG by relaxing section boundary regex (9c524b4)"
+        ---/agentspec
+    """
     try:
         patterns = []
         for line in ignore_path.read_text(encoding="utf-8", errors="ignore").splitlines():
@@ -260,13 +370,81 @@ def _parse_agentspecignore(ignore_path: Path, repo_root: Path) -> List[str]:
 
 def _matches_pattern(path: Path, pattern: str, repo_root: Path) -> bool:
     """
-    Check if a path matches a gitignore-style pattern.
+    ---agentspec
+    what: |
+      Determines whether a filesystem path matches a gitignore-style pattern string.
 
-    Supports:
-    - * wildcards (via fnmatch)
-    - **/ for any directory depth
-    - Leading / for absolute match from repo root
-    - Trailing / for directories only
+      Inputs:
+        - path: Path object to test against the pattern
+        - pattern: gitignore-style pattern string (e.g., "*.log", "/build/", "**/node_modules/")
+        - repo_root: Path object representing the repository root for relative path calculation
+
+      Outputs:
+        - Boolean: True if path matches pattern, False otherwise
+
+      Behavior:
+        1. Converts the input path to a relative path from repo_root and normalizes path separators to forward slashes for consistent matching
+        2. Strips whitespace from pattern and processes special gitignore syntax:
+           - Leading /: anchors pattern to repo root (must match from beginning)
+           - Trailing /: restricts match to directories only (verifies with is_dir())
+           - **/: matches any directory depth; converted to * for fnmatch compatibility
+        3. Attempts two matching strategies:
+           a) Component-wise matching: splits relative path into parts and tests each component name against the pattern
+           b) Full-path matching: tests the entire relative path string against the pattern
+        4. For directory-only patterns (trailing /), reconstructs the full path and validates it is actually a directory before returning True
+        5. Returns False on any exception (invalid paths, permission errors, etc.)
+
+      Edge cases:
+        - Paths with backslashes on Windows are normalized to forward slashes
+        - Patterns with **/ in the middle are converted to * (partial support for gitignore semantics)
+        - Leading / patterns also match subdirectories via "pattern/*" fallback
+        - Directory-only patterns require filesystem verification; non-existent paths return False
+        - Exceptions during path resolution or directory checks are silently caught and return False
+        deps:
+          calls:
+            - Path
+            - component_path.is_dir
+            - enumerate
+            - fnmatch.fnmatch
+            - path.resolve
+            - pattern.endswith
+            - pattern.replace
+            - pattern.startswith
+            - pattern.strip
+            - rel_str.split
+            - relative_to
+            - replace
+            - repo_root.resolve
+            - str
+            - test_full.is_dir
+          imports:
+            - __future__.annotations
+            - agentspec.langs.LanguageRegistry
+            - fnmatch
+            - os
+            - pathlib.Path
+            - subprocess
+            - typing.Iterable
+            - typing.List
+            - typing.Optional
+            - typing.Set
+
+
+    why: |
+      This function provides gitignore-compatible pattern matching for filtering repository contents. The approach uses fnmatch for glob-style wildcard support while layering gitignore-specific semantics (anchoring, directory-only flags, recursive wildcards). Component-wise matching enables patterns like "*.log" to match "dir/file.log" without explicit path separators. The dual matching strategy (component + full-path) accommodates both simple filename patterns and explicit path patterns like "foo/bar/baz". Exception handling ensures robustness when paths don't exist or are inaccessible, defaulting to non-match rather than crashing. Path normalization ensures cross-platform consistency.
+
+    guardrails:
+      - DO NOT rely on this function for security filtering; it performs pattern matching only and does not validate path traversal attacks or symlink loops
+      - DO NOT assume ** semantics are fully gitignore-compliant; the implementation converts **/ to * which is a simplification and may not match complex nested patterns correctly
+      - DO NOT use this for real-time filesystem monitoring without caching; repeated is_dir() calls on non-existent paths incur filesystem overhead
+      - DO NOT pass non-absolute or non-resolvable paths without ensuring repo_root is also resolvable; relative path calculation will fail silently and return False
+      - DO NOT assume exception suppression is safe for all use cases; silent failures on permission errors or invalid paths may mask configuration issues
+
+        changelog:
+          - "- 2025-11-02: feat: Enhance multi-language support and improve agentspec handling (2ffec35)"
+          - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
+          - "- 2025-10-30: fix(critical): preserve commit hashes in injected CHANGELOG by relaxing section boundary regex (9c524b4)"
+        ---/agentspec
     """
     try:
         # Convert path to relative path from repo root
@@ -320,13 +498,71 @@ def _matches_pattern(path: Path, pattern: str, repo_root: Path) -> bool:
 
 def _check_agentspecignore(path: Path, repo_root: Path | None) -> bool:
     """
-    Check if a path is ignored by .agentspecignore. Returns True if ignored.
-    
-    Loads patterns from:
-    1. Agentspec's built-in .agentspecignore (stock patterns)
-    2. User's project .agentspecignore (if it exists - for project-specific overrides)
-    
-    Both sets of patterns are merged and applied.
+    ---agentspec
+    what: |
+      Determines whether a given file path should be ignored based on .agentspecignore patterns.
+
+      Returns True if the path matches any ignore pattern, False otherwise.
+
+      Pattern loading strategy (two-tier):
+      1. Built-in patterns: Loads agentspec's stock .agentspecignore from the package root directory. These patterns are always applied and provide sensible defaults (e.g., __pycache__, .git, node_modules, etc.).
+      2. User patterns: Loads project-specific .agentspecignore from repo_root if it exists. User patterns are merged with built-in patterns, allowing projects to extend or override defaults.
+
+      Matching behavior:
+      - Patterns are checked sequentially against the input path
+      - First match returns True (path is ignored)
+      - If no patterns exist or no matches found, returns False (path is not ignored)
+      - Pattern matching is delegated to _matches_pattern() helper
+
+      Edge cases:
+      - If repo_root is None, returns False immediately (no context to check patterns)
+      - If built-in .agentspecignore cannot be located or loaded, silently continues (exception caught)
+      - If user .agentspecignore does not exist, only built-in patterns are used
+      - If both ignore files are missing, returns False (nothing to ignore)
+      - Empty pattern lists result in False (no matches possible)
+
+      Inputs: path (Path object to check), repo_root (Path to repository root or None)
+      Outputs: bool indicating ignore status
+        deps:
+          calls:
+            - Path
+            - _matches_pattern
+            - _parse_agentspecignore
+            - builtin_ignore.exists
+            - patterns.extend
+            - user_ignore.exists
+          imports:
+            - __future__.annotations
+            - agentspec.langs.LanguageRegistry
+            - fnmatch
+            - os
+            - pathlib.Path
+            - subprocess
+            - typing.Iterable
+            - typing.List
+            - typing.Optional
+            - typing.Set
+
+    why: |
+      Two-tier pattern loading provides both sensible defaults and project customization. Built-in patterns protect against common unintended inclusions (compiled artifacts, dependencies, VCS metadata) without requiring every project to maintain identical ignore rules. User patterns enable project-specific filtering (e.g., build directories, generated code, vendor folders) without modifying the package itself.
+
+      Silent exception handling on built-in pattern loading ensures robustness: if the package structure is unusual or agentspec cannot be imported, the function degrades gracefully rather than failing the entire ignore check.
+
+      Early return when repo_root is None prevents unnecessary processing and clarifies intent: ignore checking is meaningless without repository context.
+
+      Sequential pattern matching with early exit (first match wins) is efficient and predictable for users reasoning about which rule caused a path to be ignored.
+    guardrails:
+      - DO NOT apply only user patterns and skip built-in patterns; built-in patterns are mandatory defaults that protect against common mistakes
+      - DO NOT raise exceptions if built-in .agentspecignore is missing or unreadable; this would break the function for non-standard installations or edge cases
+      - DO NOT return True when repo_root is None; without repository context, ignore status cannot be reliably determined
+      - DO NOT modify or cache patterns across multiple calls without invalidation; patterns may change between calls if files are edited
+      - DO NOT assume pattern file encoding; delegate encoding handling to _parse_agentspecignore() to ensure consistent UTF-8 or fallback behavior
+
+        changelog:
+          - "- 2025-11-02: feat: Enhance multi-language support and improve agentspec handling (2ffec35)"
+          - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
+          - "- 2025-10-30: fix(critical): preserve commit hashes in injected CHANGELOG by relaxing section boundary regex (9c524b4)"
+        ---/agentspec
     """
     if not repo_root:
         return False

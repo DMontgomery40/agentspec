@@ -1,0 +1,334 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.7, pytest-8.4.2, pluggy-1.6.0
+rootdir: /Users/davidmontgomery/agentspec
+configfile: setup.cfg
+testpaths: tests
+plugins: anyio-4.11.0
+collected 100 items
+
+tests/test_agentspecignore_stock_patterns.py ....                        [  4%]
+tests/test_basic.py ..                                                   [  6%]
+tests/test_builtin_agentspecignore.py ....                               [ 10%]
+tests/test_collect_javascript.py .                                       [ 11%]
+tests/test_every_flag_combination.py ................F                   [ 28%]
+tests/test_extract_javascript_agentspec.py .                             [ 29%]
+tests/test_generate_javascript.py ..                                     [ 31%]
+tests/test_hallucination_detection.py .....                              [ 36%]
+tests/test_javascript_adapter.py ..................                      [ 54%]
+tests/test_javascript_exclusions.py .......                              [ 61%]
+tests/test_lint_javascript.py .                                          [ 62%]
+tests/test_metadata_accuracy.py .....                                    [ 67%]
+tests/test_strip_generate_combinations.py .F.FFF....FFF..F               [ 83%]
+tests/test_validation_comprehensive.py ...........ss....                 [100%]
+
+=================================== FAILURES ===================================
+_______________ TestExtractCombinations.test_extract_all_formats _______________
+
+self = <test_every_flag_combination.TestExtractCombinations object at 0x10796f450>
+
+    def test_extract_all_formats(self):
+        """Extract in all formats after generate."""
+        if not self.py.exists():
+            pytest.skip("Python file not available")
+    
+        # Generate first
+        gen_result = run_cmd([
+            "agentspec", "generate", str(self.py),
+            "--strip", "--terse", "--force-context"
+        ] + LLM_ARGS, timeout=120)
+    
+        if gen_result.returncode != 0:
+            pytest.skip(f"Generate failed: {gen_result.stderr}")
+    
+        # Extract markdown
+        result = run_cmd([
+            "agentspec", "extract", str(self.py),
+            "--format", "markdown"
+        ])
+        print(f"Markdown extract exit: {result.returncode}")
+        assert result.returncode == 0
+    
+        # Extract YAML
+        result = run_cmd([
+            "agentspec", "extract", str(self.py),
+            "--format", "yaml"
+        ])
+        print(f"YAML extract exit: {result.returncode}")
+>       assert result.returncode == 0
+E       assert 2 == 0
+E        +  where 2 = CompletedProcess(args=['agentspec', 'extract', '/var/folders/fh/tnbpt3jd26l_4b09q54m033c0000gn/T/tmpgup0cj1b/test.py',...entspec extract: error: argument --format: invalid choice: 'yaml' (choose from 'markdown', 'json', 'agent-context')\n").returncode
+
+tests/test_every_flag_combination.py:390: AssertionError
+----------------------------- Captured stdout call -----------------------------
+Markdown extract exit: 0
+YAML extract exit: 2
+________ TestStripGenerateCombinations.test_generate_creates_agentspecs ________
+
+self = <test_strip_generate_combinations.TestStripGenerateCombinations object at 0x1079b7950>
+
+    def test_generate_creates_agentspecs(self):
+        """Generate should create agentspec markers."""
+        if not self.temp_tsx.exists():
+            pytest.skip("TSX reference file not available")
+    
+        # Strip first
+        self.run_agentspec("strip", self.temp_tsx)
+        assert self.verify_no_agentspec(self.temp_tsx)
+    
+        # Generate
+        result = self.run_agentspec(
+            "generate",
+            self.temp_tsx,
+            extra_args=LLM_ARGS + ["--terse", "--force-context"]
+        )
+    
+        if result.returncode != 0:
+            pytest.skip(f"Generate failed (likely LLM not running): {result.stderr}")
+    
+        # Verify created using rg
+>       assert self.verify_has_agentspec(self.temp_tsx), "Generate failed - no agentspec markers"
+E       AssertionError: Generate failed - no agentspec markers
+E       assert False
+E        +  where False = verify_has_agentspec(PosixPath('/var/folders/fh/tnbpt3jd26l_4b09q54m033c0000gn/T/tmpdg4sptc0/Dashboard.tsx'))
+E        +    where verify_has_agentspec = <test_strip_generate_combinations.TestStripGenerateCombinations object at 0x1079b7950>.verify_has_agentspec
+E        +    and   PosixPath('/var/folders/fh/tnbpt3jd26l_4b09q54m033c0000gn/T/tmpdg4sptc0/Dashboard.tsx') = <test_strip_generate_combinations.TestStripGenerateCombinations object at 0x1079b7950>.temp_tsx
+
+tests/test_strip_generate_combinations.py:121: AssertionError
+____________ TestStripGenerateCombinations.test_agentspec_yaml_flag ____________
+
+self = <test_strip_generate_combinations.TestStripGenerateCombinations object at 0x1079c45d0>
+
+    def test_agentspec_yaml_flag(self):
+        """Test --agentspec-yaml creates YAML format agentspecs."""
+        if not self.temp_py.exists():
+            pytest.skip("Python reference file not available")
+    
+        # Strip and generate with YAML format
+        self.run_agentspec("strip", self.temp_py)
+        result = self.run_agentspec(
+            "generate",
+            self.temp_py,
+            extra_args=LLM_ARGS + ["--terse", "--force-context", "--agentspec-yaml"]
+        )
+    
+        if result.returncode != 0:
+            pytest.skip(f"Generate failed (likely LLM not running): {result.stderr}")
+    
+        # Verify YAML markers exist using rg
+        yaml_result = subprocess.run(
+            ["rg", "what:", str(self.temp_py)],
+            capture_output=True
+        )
+>       assert yaml_result.returncode == 0, "--agentspec-yaml didn't create YAML 'what:' field"
+E       AssertionError: --agentspec-yaml didn't create YAML 'what:' field
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['rg', 'what:', '/var/folders/fh/tnbpt3jd26l_4b09q54m033c0000gn/T/tmpany0dgx3/phaxio_service.py'], returncode=1, stdout=b'', stderr=b'').returncode
+
+tests/test_strip_generate_combinations.py:163: AssertionError
+___________ TestStripGenerateCombinations.test_update_existing_flag ____________
+
+self = <test_strip_generate_combinations.TestStripGenerateCombinations object at 0x1079c4bd0>
+
+    def test_update_existing_flag(self):
+        """Test --update-existing preserves and updates agentspecs."""
+        if not self.temp_py.exists():
+            pytest.skip("Python reference file not available")
+    
+        # Generate initial
+        result1 = self.run_agentspec(
+            "generate",
+            self.temp_py,
+            extra_args=LLM_ARGS + ["--terse", "--force-context", "--strip"]
+        )
+    
+        if result1.returncode != 0:
+            pytest.skip(f"Initial generate failed: {result1.stderr}")
+    
+        # Update existing (default mode)
+        result2 = self.run_agentspec(
+            "generate",
+            self.temp_py,
+            extra_args=LLM_ARGS + ["--terse", "--force-context", "--update-existing"]
+        )
+    
+        if result2.returncode != 0:
+            pytest.skip(f"Update existing failed: {result2.stderr}")
+    
+        # Should still have agentspecs
+>       assert self.verify_has_agentspec(self.temp_py), "--update-existing removed agentspecs"
+E       AssertionError: --update-existing removed agentspecs
+E       assert False
+E        +  where False = verify_has_agentspec(PosixPath('/var/folders/fh/tnbpt3jd26l_4b09q54m033c0000gn/T/tmp2mrgzc95/phaxio_service.py'))
+E        +    where verify_has_agentspec = <test_strip_generate_combinations.TestStripGenerateCombinations object at 0x1079c4bd0>.verify_has_agentspec
+E        +    and   PosixPath('/var/folders/fh/tnbpt3jd26l_4b09q54m033c0000gn/T/tmp2mrgzc95/phaxio_service.py') = <test_strip_generate_combinations.TestStripGenerateCombinations object at 0x1079c4bd0>.temp_py
+
+tests/test_strip_generate_combinations.py:191: AssertionError
+__________ TestStripGenerateCombinations.test_extract_after_generate ___________
+
+self = <test_strip_generate_combinations.TestStripGenerateCombinations object at 0x1079c51d0>
+
+    def test_extract_after_generate(self):
+        """Test extract works on generated agentspecs."""
+        if not self.temp_tsx.exists():
+            pytest.skip("TSX reference file not available")
+    
+        # Strip and generate
+        self.run_agentspec("strip", self.temp_tsx)
+        gen_result = self.run_agentspec(
+            "generate",
+            self.temp_tsx,
+            extra_args=LLM_ARGS + ["--terse", "--force-context"]
+        )
+    
+        if gen_result.returncode != 0:
+            pytest.skip(f"Generate failed: {gen_result.stderr}")
+    
+        # Extract
+        extract_result = self.run_agentspec(
+            "extract",
+            self.temp_tsx,
+            extra_args=["--language", "js"]
+        )
+    
+>       assert extract_result.returncode == 0, f"Extract failed: {extract_result.stderr}"
+E       AssertionError: Extract failed: 
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['agentspec', 'extract', '/var/folders/fh/tnbpt3jd26l_4b09q54m033c0000gn/T/tmpb8c3nkw4/Dashboard.tsx', '--language', 'js'], returncode=1, stdout='⚠️  No agent spec blocks or docstrings found.\n', stderr='').returncode
+
+tests/test_strip_generate_combinations.py:216: AssertionError
+_______________ TestFlagCombinations.test_combination_terse_yaml _______________
+
+self = <test_strip_generate_combinations.TestFlagCombinations object at 0x1079c7190>
+
+    def test_combination_terse_yaml(self):
+        """Test --terse --agentspec-yaml combination."""
+        if not self.temp_file.exists():
+            pytest.skip("Test file not available")
+    
+        result = self.run_generate(self.temp_file, [
+            "--strip",
+            "--terse",
+            "--agentspec-yaml",
+            "--force-context"
+        ])
+    
+        if result.returncode != 0:
+            pytest.skip(f"Generate failed: {result.stderr}")
+    
+        # Should have YAML format
+        yaml_check = subprocess.run(
+            ["rg", "what:", str(self.temp_file)],
+            capture_output=True
+        )
+>       assert yaml_check.returncode == 0, "YAML format not created"
+E       AssertionError: YAML format not created
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['rg', 'what:', '/var/folders/fh/tnbpt3jd26l_4b09q54m033c0000gn/T/tmptr5eicd9/test.py'], returncode=1, stdout=b'', stderr=b'').returncode
+
+tests/test_strip_generate_combinations.py:364: AssertionError
+_________ TestFlagCombinations.test_combination_strip_update_existing __________
+
+self = <test_strip_generate_combinations.TestFlagCombinations object at 0x1079c7790>
+
+    def test_combination_strip_update_existing(self):
+        """Test --strip with --update-existing (strip takes precedence)."""
+        if not self.temp_file.exists():
+            pytest.skip("Test file not available")
+    
+        result = self.run_generate(self.temp_file, [
+            "--strip",
+            "--update-existing",
+            "--terse",
+            "--force-context"
+        ])
+    
+        if result.returncode != 0:
+            pytest.skip(f"Generate failed: {result.stderr}")
+    
+        # Should have agentspecs (strip removes, then generates new)
+        check = subprocess.run(
+            ["rg", "---agentspec", str(self.temp_file)],
+            capture_output=True
+        )
+>       assert check.returncode == 0, "Agentspecs not created"
+E       AssertionError: Agentspecs not created
+E       assert 2 == 0
+E        +  where 2 = CompletedProcess(args=['rg', '---agentspec', '/var/folders/fh/tnbpt3jd26l_4b09q54m033c0000gn/T/tmph4a6p6b5/test.py'], returncode=2, stdout=b'', stderr=b'rg: unrecognized flag ---agentspec\n').returncode
+
+tests/test_strip_generate_combinations.py:386: AssertionError
+__________ TestFlagCombinations.test_combination_force_context_terse ___________
+
+self = <test_strip_generate_combinations.TestFlagCombinations object at 0x1079c7d90>
+
+    def test_combination_force_context_terse(self):
+        """Test --force-context --terse combination (common usage)."""
+        if not self.temp_file.exists():
+            pytest.skip("Test file not available")
+    
+        result = self.run_generate(self.temp_file, [
+            "--strip",
+            "--force-context",
+            "--terse"
+        ])
+    
+        if result.returncode != 0:
+            pytest.skip(f"Generate failed: {result.stderr}")
+    
+        # Should produce output and create agentspecs
+        assert len(result.stdout) > 0 or len(result.stderr) > 0
+    
+        check = subprocess.run(
+            ["rg", "---agentspec", str(self.temp_file)],
+            capture_output=True
+        )
+>       assert check.returncode == 0, "Agentspecs not created"
+E       AssertionError: Agentspecs not created
+E       assert 2 == 0
+E        +  where 2 = CompletedProcess(args=['rg', '---agentspec', '/var/folders/fh/tnbpt3jd26l_4b09q54m033c0000gn/T/tmp9h8u6gom/test.py'], returncode=2, stdout=b'', stderr=b'rg: unrecognized flag ---agentspec\n').returncode
+
+tests/test_strip_generate_combinations.py:409: AssertionError
+_______________ TestFlagCombinations.test_all_flags_combination ________________
+
+self = <test_strip_generate_combinations.TestFlagCombinations object at 0x1079b74d0>
+
+    def test_all_flags_combination(self):
+        """Test all flags together (stress test)."""
+        if not self.temp_file.exists():
+            pytest.skip("Test file not available")
+    
+        result = self.run_generate(self.temp_file, [
+            "--strip",
+            "--update-existing",
+            "--terse",
+            "--force-context",
+            "--agentspec-yaml",
+            "--language", "py"
+        ])
+    
+        if result.returncode != 0:
+            pytest.skip(f"Generate failed: {result.stderr}")
+    
+        # Should create agentspecs
+        check = subprocess.run(
+            ["rg", "---agentspec", str(self.temp_file)],
+            capture_output=True
+        )
+>       assert check.returncode == 0, "All flags combination didn't create agentspecs"
+E       AssertionError: All flags combination didn't create agentspecs
+E       assert 2 == 0
+E        +  where 2 = CompletedProcess(args=['rg', '---agentspec', '/var/folders/fh/tnbpt3jd26l_4b09q54m033c0000gn/T/tmpyorvf1qq/test.py'], returncode=2, stdout=b'', stderr=b'rg: unrecognized flag ---agentspec\n').returncode
+
+tests/test_strip_generate_combinations.py:467: AssertionError
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_validation_comprehensive.py:267: TypeScript fixture not available
+SKIPPED [1] tests/test_validation_comprehensive.py:278: JSX fixture not available
+FAILED tests/test_every_flag_combination.py::TestExtractCombinations::test_extract_all_formats
+FAILED tests/test_strip_generate_combinations.py::TestStripGenerateCombinations::test_generate_creates_agentspecs
+FAILED tests/test_strip_generate_combinations.py::TestStripGenerateCombinations::test_agentspec_yaml_flag
+FAILED tests/test_strip_generate_combinations.py::TestStripGenerateCombinations::test_update_existing_flag
+FAILED tests/test_strip_generate_combinations.py::TestStripGenerateCombinations::test_extract_after_generate
+FAILED tests/test_strip_generate_combinations.py::TestFlagCombinations::test_combination_terse_yaml
+FAILED tests/test_strip_generate_combinations.py::TestFlagCombinations::test_combination_strip_update_existing
+FAILED tests/test_strip_generate_combinations.py::TestFlagCombinations::test_combination_force_context_terse
+FAILED tests/test_strip_generate_combinations.py::TestFlagCombinations::test_all_flags_combination
+============= 9 failed, 89 passed, 2 skipped, 4 warnings in 17.56s =============

@@ -474,7 +474,60 @@ def _show_rich_help():
 
 
 def _check_python_version():
-    """Check Python version meets minimum requirements."""
+    """
+    ---agentspec
+    what: |
+      Validates that the Python runtime meets minimum version requirements (3.10+) before allowing agentspec to execute.
+
+      Behavior:
+      - Extracts major and minor version numbers from sys.version_info
+      - Compares against hardcoded constants: REQUIRED_MAJOR=3, REQUIRED_MINOR=10
+      - If current version is less than 3.10, prints a formatted error message to stderr with:
+        * Visual box formatting for prominence
+        * Current Python version detected
+        * Required minimum version
+        * Rationale (PEP 604 union type syntax dependency)
+        * Link to compatibility documentation
+      - Calls sys.exit(1) on version mismatch, terminating the process with error code
+      - Returns silently (None) if version check passes
+
+      Inputs: None (reads from sys.version_info)
+      Outputs: None on success; prints to stderr and exits with code 1 on failure
+
+      Edge cases:
+      - Handles pre-release versions (e.g., 3.10.0a1) correctly via tuple comparison
+      - Works across all platforms where Python runs
+      - Executes early in CLI initialization before any feature-dependent imports
+        deps:
+          calls:
+            - print
+            - sys.exit
+          imports:
+            - agentspec.extract
+            - agentspec.lint
+            - agentspec.strip
+            - agentspec.utils.load_env_from_dotenv
+            - argparse
+            - difflib
+            - sys
+
+
+    why: |
+      Python 3.10+ is required because agentspec uses PEP 604 union type syntax (e.g., `str | int`) which is not available in earlier versions. This check prevents cryptic SyntaxError failures later in the import chain by failing fast with a user-friendly message.
+
+      Placing this check in cli.py ensures it runs before any module imports that depend on modern syntax. The formatted stderr output with documentation link helps users quickly understand and resolve the issue without needing to debug Python syntax errors.
+
+    guardrails:
+      - DO NOT rely on f-string formatting or other Python 3.10+ syntax within this function itself, as it must execute on older Python versions to deliver the error message
+      - DO NOT use sys.exit(0) on success; only exit(1) on failure to preserve standard Unix exit code semantics
+      - DO NOT import agentspec modules before this check completes, as they may contain PEP 604 syntax
+      - DO NOT make the version requirement configurable at runtime; it must be a hard constraint to ensure codebase assumptions hold
+
+        changelog:
+          - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
+          - "- 2025-10-31: feat: Python 3.10+ compatibility & CLI formatting improvements (be845fa)"
+        ---/agentspec
+    """
     import sys
 
     REQUIRED_MAJOR = 3

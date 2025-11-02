@@ -1,0 +1,13 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.7, pytest-8.4.2, pluggy-1.6.0
+rootdir: /Users/davidmontgomery/agentspec
+configfile: setup.cfg
+plugins: anyio-4.11.0
+collected 8 items
+
+agentspec/tests/test_generate_responses_controls.py ..                   [ 25%]
+agentspec/tests/test_add_example_parser.py ...                           [ 62%]
+agentspec/tests/test_prompts_phase1.py ...                               [100%]
+
+- generated xml file: /Users/davidmontgomery/agentspec/agentspec/.reports/targeted-tests.xml -
+============================== 8 passed in 0.07s ===============================

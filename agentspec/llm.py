@@ -99,6 +99,9 @@ def generate_chat(
     max_tokens: int = 2000,
     base_url: Optional[str] = None,
     provider: Optional[str] = 'auto',
+    *,
+    reasoning_effort: Optional[str] = None,
+    verbosity: Optional[str] = None,
 ) -> str:
     """
     ---agentspec
@@ -113,30 +116,23 @@ def generate_chat(
       - Calls client.messages.create() with model, max_tokens, temperature, and reconstructed single-message format
       - Returns resp.content[0].text directly
 
-      **OpenAI-Compatible Path (default):**
+      **OpenAI-Compatible Path (default, Responses API only):**
       - Triggered for all non-Anthropic models or when provider='openai' is explicit
       - Resolves API key from environment: OPENAI_API_KEY → AGENTSPEC_OPENAI_API_KEY → 'not-needed' (permissive fallback for local services)
-      - Resolves base_url from parameter → OPENAI_BASE_URL → AGENTSPEC_OPENAI_BASE_URL → OLLAMA_BASE_URL → 'https://api.openai.com/v1' (default OpenAI)
+      - Resolves base_url from parameter → OPENAI_BASE_URL → AGENTSPEC_OPENAI_BASE_URL → 'https://api.openai.com/v1' (default OpenAI)
       - Creates OpenAI client with resolved base_url and api_key
-      - **Primary attempt: Responses API** (newer OpenAI interface)
-        - Concatenates system + user/assistant messages with "\n\n" separator into input_text
-        - Calls client.responses.create() with model, input, temperature, max_output_tokens
+      - Uses Responses API exclusively:
+        - Concatenates system + user/assistant messages into a single string input
+        - Supports optional parameters: reasoning_effort ("minimal"|"low"|"medium"|"high") and verbosity ("low"|"medium"|"high")
+        - Calls client.responses.create(model, input, temperature, max_output_tokens, reasoning={effort}, text={verbosity})
         - Extracts text via defensive attribute chain: output_text → output[].content.text → text
-        - Returns first non-empty text found; silently catches all exceptions and falls through
-      - **Fallback: Chat Completions API** (OpenAI-compatible standard)
-        - Normalizes message roles: unknown roles default to 'user'
-        - Preserves original message structure (system/user/assistant roles intact)
-        - Calls client.chat.completions.create() with model, messages, temperature, max_tokens
-        - Returns comp.choices[0].message.content or empty string if response malformed
 
       **Edge Cases Handled:**
       - Missing dependencies: Raises RuntimeError with installation instructions (lazy import pattern)
       - Empty/None content fields: Defaults to empty string
       - Malformed response objects: Defensive hasattr/getattr chain with fallbacks
-      - Responses API unavailable: Silent exception catch, automatic fallback to Chat Completions
-      - Invalid message roles: Coerced to 'user' role
-      - Missing API key for local services: Accepts 'not-needed' placeholder
-      - Empty response choices: Returns empty string instead of crashing
+      - Missing API key for local services: Accepts 'not-needed' placeholder (for self-hosted OpenAI-compatible gateways)
+      - Empty response objects: Returns empty string instead of crashing
     deps:
           calls:
             - Anthropic
@@ -219,7 +215,7 @@ def generate_chat(
         )
         return resp.content[0].text
 
-    # OpenAI-compatible path
+    # OpenAI-compatible path (Responses API only)
     # Determine base_url and api key
     try:
         from openai import OpenAI
@@ -233,61 +229,44 @@ def generate_chat(
         base_url
         or os.getenv('OPENAI_BASE_URL')
         or os.getenv('AGENTSPEC_OPENAI_BASE_URL')
-        or os.getenv('OLLAMA_BASE_URL')
         or 'https://api.openai.com/v1'
     )
 
     client = OpenAI(base_url=resolved_base, api_key=api_key)
 
-    # Prefer Responses API. If provider doesn't support it, fall back to
-    # Chat Completions for compatibility (e.g., Ollama).
-    try:
-        # Build a single string input that includes both system and user parts
-        sys_parts = [m['content'] for m in messages if m.get('role') == 'system']
-        usr_parts = [m['content'] for m in messages if m.get('role') in ('user', 'assistant')]
-        input_text = "\n\n".join(sys_parts + usr_parts)
+    # Build a single string input that includes both system and user parts
+    sys_parts = [m['content'] for m in messages if m.get('role') == 'system']
+    usr_parts = [m['content'] for m in messages if m.get('role') in ('user', 'assistant')]
+    input_text = "\n\n".join(sys_parts + usr_parts)
 
-        resp = client.responses.create(
-            model=model,
-            input=input_text,
-            temperature=temperature,
-            max_output_tokens=max_tokens,
-        )
-        # Extract text robustly
-        if hasattr(resp, 'output_text') and resp.output_text:
-            return str(resp.output_text)
-        if hasattr(resp, 'output') and resp.output:
-            # Attempt to find any text content blocks
-            for item in resp.output:
-                content = getattr(item, 'content', None)
-                if isinstance(content, list):
-                    for sub in content:
-                        t = getattr(sub, 'text', None)
-                        if t:
-                            return str(t)
-                t = getattr(content, 'text', None)
-                if t:
-                    return str(t)
-        # Fallback
-        t = getattr(resp, 'text', None)
-        if t:
-            return str(t)
-    except Exception:
-        # Fall back to Chat Completions for providers without Responses API
-        pass
+    kwargs: Dict[str, Any] = {}
+    if reasoning_effort:
+        kwargs['reasoning'] = {'effort': reasoning_effort}
+    if verbosity:
+        kwargs['text'] = {'verbosity': verbosity}
 
-    # Chat Completions fallback (OpenAI-compatible providers like Ollama)
-    oai_messages = []
-    for m in messages:
-        role = m.get('role', 'user')
-        if role not in ('system', 'user', 'assistant'):
-            role = 'user'
-        oai_messages.append({"role": role, "content": m.get('content', '')})
-
-    comp = client.chat.completions.create(
+    resp = client.responses.create(
         model=model,
-        messages=oai_messages,
+        input=input_text,
         temperature=temperature,
-        max_tokens=max_tokens,
+        max_output_tokens=max_tokens,
+        **kwargs,
     )
-    return (comp.choices[0].message.content or "") if comp and comp.choices else ""
+    # Extract text robustly
+    if hasattr(resp, 'output_text') and resp.output_text:
+        return str(resp.output_text)
+    if hasattr(resp, 'output') and resp.output:
+        for item in resp.output:
+            content = getattr(item, 'content', None)
+            if isinstance(content, list):
+                for sub in content:
+                    t = getattr(sub, 'text', None)
+                    if t:
+                        return str(t)
+            t = getattr(content, 'text', None)
+            if t:
+                return str(t)
+    t = getattr(resp, 'text', None)
+    if t:
+        return str(t)
+    return ""

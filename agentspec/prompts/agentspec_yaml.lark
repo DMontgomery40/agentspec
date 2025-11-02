@@ -1,0 +1,29 @@
+// AgentSpec YAML Grammar (simplified, structure-enforcing)
+// Enforces core sections and fences; prevents format drift
+
+start: block
+
+block: START what_section why_section guardrails_section END
+
+START: "---agentspec" NL
+END: "---/agentspec" NL?
+
+what_section: "what:" WS? "|" NL INDENT (LINE NL)+ DEDENT
+why_section: "why:" WS? "|" NL INDENT (LINE NL)+ DEDENT
+guardrails_section: "guardrails:" NL INDENT (GUARDRAIL NL)+ DEDENT
+
+GUARDRAIL: "-" WS GUARD_TYPE ":" WS? TEXT?
+GUARD_TYPE: "DO NOT" | "ALWAYS" | "NOTE" | "ASK USER"
+
+// Tokens
+LINE: /[^\n]{0,200}/
+TEXT: /[^\n]{0,300}/
+
+// Indentation control (simplified for static formatting)
+INDENT: /[ ]{2}/
+DEDENT: /(?<!\G)/   // placeholder: actual enforcement handled by LLM guidance at generation time
+NL: /\n/
+WS: /[ \t]/
+
+%ignore /[\t]/
+
