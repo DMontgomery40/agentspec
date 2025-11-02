@@ -1,0 +1,35 @@
+---
+# Use logging best practice
+- id: require-module-logger
+  message: "Prefer a module-level logger: logger = logging.getLogger(__name__)."
+  severity: info
+  language: python
+  rule:
+    pattern: logging.getLogger(__name__)
+
+# Ensure CLI entrypoint pattern exists in CLI modules
+- id: cli-has-main
+  message: "Prefer an explicit CLI entrypoint guarded by if __name__ == '__main__': main()."
+  severity: info
+  language: python
+  rule:
+    pattern: if __name__ == "__main__": $MAIN()
+
+# Discourage shell pipelines in f-strings
+- id: discourage-shell-in-fstring
+  message: "Avoid composing shell commands inside f-strings; pass argv as list to subprocess."
+  severity: warning
+  language: python
+  rule:
+    pattern: f"$CMD"
+  constraints:
+    regex: "\b(;|\|\||\|)\b"
+
+# Optional: flag leftover TODOs
+- id: no-leftover-todos
+  message: "Resolve TODO before merge (or track in an issue)."
+  severity: info
+  language: python
+  rule:
+    pattern: "# TODO"
+

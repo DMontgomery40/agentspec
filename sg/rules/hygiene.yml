@@ -1,0 +1,21 @@
+---
+# Disallow print(...) in library code (keeps CLI/logging consistent)
+- id: no-print-in-library
+  message: "Use logging instead of print(...)."
+  severity: warning
+  language: python
+  rule:
+    pattern: print($$ARGS)
+
+# argparse: require help=... for every add_argument call
+# This is intentionally broad; it flags arguments missing any help kwarg.
+- id: argparse-require-help
+  message: "Every argparse flag should include help= for CLI discoverability."
+  severity: warning
+  language: python
+  rule:
+    pattern: $PARSER.add_argument($$ARGS)
+  constraints:
+    not:
+      regex: "help\s*="
+

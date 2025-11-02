@@ -9,7 +9,8 @@ import ast
 import json
 import yaml
 from pathlib import Path
-from agentspec.utils import collect_python_files
+import re
+from agentspec.utils import collect_python_files, collect_source_files
 from dataclasses import dataclass, asdict, field
 from typing import List, Dict, Any, Optional
 
@@ -557,6 +558,151 @@ def extract_from_file(path: Path) -> List[AgentSpec]:
         return []
 
 
+def _strip_jsdoc_stars(block: str) -> str:
+    """
+    ---agentspec
+    what: |
+      Normalizes a JSDoc block by removing comment delimiters and leading '*' prefixes from each line.
+
+      Accepts a raw text block that may include '/**', '*/', and lines starting with '*'. Returns the
+      cleaned content preserving internal newlines but without JSDoc decoration, suitable for scanning
+      for agentspec markers and YAML parsing.
+
+    deps:
+      calls:
+        - str.splitlines
+        - str.strip
+        - list.append
+        - '\n'.join
+    why: |
+      YAML markers live inside JSDoc; removing decoration yields a clean string for delimiter search using
+      the existing `_extract_block` function without duplicating logic.
+    guardrails:
+      - DO NOT attempt to parse YAML here; return only normalized text
+      - ALWAYS preserve relative line order and blank lines
+    changelog:
+      - "2025-11-01: Initial implementation for JS/TS agentspec extraction"
+    ---/agentspec
+    """
+    lines = block.splitlines()
+    out: List[str] = []
+    for raw in lines:
+        s = raw.rstrip('\n')
+        # Remove opening/closing delimiters entirely
+        if s.strip().startswith('/**') or s.strip().endswith('*/'):
+            s = ''
+        else:
+            # Remove leading JSDoc star while preserving following indentation
+            s = re.sub(r"^\s*\*\s?", "", s)
+        out.append(s)
+    return "\n".join(out)
+
+
+def extract_from_js_file(path: Path) -> List[AgentSpec]:
+    """
+    ---agentspec
+    what: |
+      Extracts AgentSpec definitions from JavaScript/TypeScript source by scanning JSDoc blocks for
+      '---agentspec'/'---/agentspec' delimiters and attaching them to the following function/class name.
+
+      - Reads file as UTF-8, locates all '/** ... */' comment blocks
+      - Normalizes each block (remove leading '*') and searches for agentspec delimiters
+      - Parses YAML content with yaml.safe_load into structured fields when present
+      - Heuristically derives the symbol name from the line after the comment using common patterns
+        (function decl, export function, const name =, class name, export default variants)
+
+      Returns a list of AgentSpec objects with name, lineno, filepath, raw_block and parsed fields.
+
+    deps:
+      calls:
+        - path.read_text
+        - re.finditer
+        - _strip_jsdoc_stars
+        - _extract_block
+        - _parse_yaml_block
+        - asdict
+      imports:
+        - re
+        - yaml
+        - pathlib.Path
+    why: |
+      For parity with Python extraction without introducing a JS parser dependency in the extract step,
+      scanning JSDoc is robust enough given explicit agentspec delimiters and conventional placement
+      immediately before the symbol.
+    guardrails:
+      - DO NOT modify or write to source files; extraction must be read-only
+      - DO NOT raise on malformed YAML; skip those blocks gracefully
+      - ALWAYS attach the spec to the next non-empty line to derive a best-effort symbol name
+    changelog:
+      - "2025-11-01: Initial JS/TS extraction support"
+    ---/agentspec
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except Exception:
+        return []
+
+    specs: List[AgentSpec] = []
+
+    # Find all JSDoc comment blocks
+    for m in re.finditer(r"/\*\*[\s\S]*?\*/", text):
+        block = m.group(0)
+        cleaned = _strip_jsdoc_stars(block)
+        if "---agentspec" not in cleaned:
+            continue
+        raw = _extract_block(cleaned)
+        if not raw:
+            continue
+        data = _parse_yaml_block(raw)
+        if data is None:
+            continue
+
+        # Determine name and lineno by inspecting the following code line(s)
+        after = text[m.end():].splitlines()
+        symbol_name = ""
+        sym_lineno = text[: m.end()].count("\n") + 1
+        name_patterns = [
+            r"^\s*export\s+default\s+function\s+([A-Za-z_$][\w$]*)",
+            r"^\s*export\s+function\s+([A-Za-z_$][\w$]*)",
+            r"^\s*function\s+([A-Za-z_$][\w$]*)",
+            r"^\s*const\s+([A-Za-z_$][\w$]*)\s*=\s*(async\s+)?(function|\([^)]+\)\s*=>)",
+            r"^\s*export\s+default\s+class\s+([A-Za-z_$][\w$]*)",
+            r"^\s*class\s+([A-Za-z_$][\w$]*)",
+        ]
+        for idx, line in enumerate(after[:10]):
+            for pat in name_patterns:
+                mm = re.search(pat, line)
+                if mm:
+                    symbol_name = mm.group(1)
+                    sym_lineno += idx + 1
+                    break
+            if symbol_name:
+                break
+        if not symbol_name:
+            symbol_name = "(anonymous)"
+
+        spec = AgentSpec(
+            name=symbol_name,
+            lineno=sym_lineno,
+            filepath=str(path),
+            raw_block=raw,
+        )
+
+        if isinstance(data, dict):
+            spec.parsed_data = data
+            spec.what = data.get("what", "") or ""
+            spec.deps = data.get("deps", {}) or {}
+            spec.why = data.get("why", "") or ""
+            spec.guardrails = data.get("guardrails", []) or []
+            spec.changelog = data.get("changelog", []) or []
+            spec.testing = data.get("testing", {}) or {}
+            spec.performance = data.get("performance", {}) or {}
+
+        specs.append(spec)
+
+    return specs
+
+
 def export_markdown(specs: List[AgentSpec], out: Path):
     '''
     ---agentspec
@@ -826,12 +972,12 @@ def run(target: str, fmt: str = "markdown") -> int:
     """
     ---agentspec
     what: |
-      Extracts agent specification blocks from Python files in a target directory and exports them in the specified format.
+      Extracts agent specification blocks from Python and JavaScript/TypeScript files in a target directory and exports them in the specified format.
 
       Behavior:
       - Accepts a target path (file or directory) and optional format string (markdown, json, or agent-context)
-      - Collects all Python files from the target using collect_python_files, which handles path validation and .gitignore/.venv filtering
-      - Iterates through collected files and extracts AgentSpec objects from embedded YAML blocks and docstrings using extract_from_file
+      - Collects source files using collect_source_files (Python via collect_python_files, JS/TS via language adapters)
+      - Iterates through collected files and extracts AgentSpec objects from embedded YAML blocks and docstrings using extract_from_file (Python) and extract_from_js_file (JS/TS)
       - Aggregates all extracted specs into a single list
       - Exports aggregated specs to a format-specific output file: agent_specs.json, AGENT_CONTEXT.md, or agent_specs.md (default)
       - Returns 0 on successful export, 1 if no specs are found
@@ -862,6 +1008,7 @@ def run(target: str, fmt: str = "markdown") -> int:
             - print
           imports:
             - agentspec.utils.collect_python_files
+            - agentspec.utils.collect_source_files
             - ast
             - dataclasses.asdict
             - dataclasses.dataclass
@@ -891,14 +1038,19 @@ def run(target: str, fmt: str = "markdown") -> int:
     changelog:
 
       - "2025-10-31: Clean up docstring formatting"
+      - "2025-11-01: Add JS/TS extraction via collect_source_files and extract_from_js_file"
         ---/agentspec
     """
     path = Path(target)
-    files = collect_python_files(path)
+    # Multi-language discovery (Python + JS/TS)
+    files = collect_source_files(path)
     all_specs: List[AgentSpec] = []
 
     for file in files:
-        all_specs.extend(extract_from_file(file))
+        if file.suffix == ".py":
+            all_specs.extend(extract_from_file(file))
+        else:
+            all_specs.extend(extract_from_js_file(file))
 
     if not all_specs:
         print("⚠️  No agent spec blocks or docstrings found.")

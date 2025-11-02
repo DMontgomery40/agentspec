@@ -8,9 +8,10 @@ Now with YAML validation and verbose comment requirements.
 
 import ast
 import sys
+import re
 import yaml
 from pathlib import Path
-from agentspec.utils import collect_python_files
+from agentspec.utils import collect_python_files, collect_source_files
 from typing import List, Tuple, Dict, Any
 
 
@@ -502,20 +503,107 @@ def check_file(filepath: Path, min_lines: int = 10) -> Tuple[List[Tuple[int, str
         return [(0, f"Error parsing {filepath}: {e}")], []
 
 
+def _extract_agentspec_from_text(doc: str) -> str | None:
+    """
+    Return YAML block between ---agentspec and ---/agentspec in a given text, or None.
+    """
+    if not doc or "---agentspec" not in doc:
+        return None
+    start = doc.find("---agentspec") + len("---agentspec")
+    end = doc.find("---/agentspec")
+    return doc[start:end].strip() if end != -1 else None
+
+
+def check_js_file(filepath: Path, min_lines: int = 10) -> Tuple[List[Tuple[int, str]], List[Tuple[int, str]]]:
+    """
+    ---agentspec
+    what: |
+      Lints a JavaScript/TypeScript file for agentspec compliance by scanning JSDoc blocks for
+      YAML sections delimited by '---agentspec' and '---/agentspec'. Validates presence of required
+      keys and minimum line count.
+
+    deps:
+      calls:
+        - filepath.read_text
+        - re.finditer
+        - yaml.safe_load
+      imports:
+        - re
+        - yaml
+        - pathlib.Path
+
+    why: |
+      A lightweight text-based scan provides immediate parity with Python linting without requiring
+      a full JS AST. The explicit delimiters make this approach reliable in practice.
+
+    guardrails:
+      - DO NOT modify the file; this function must be read-only
+      - ALWAYS ignore malformed YAML blocks instead of raising exceptions
+    changelog:
+      - "2025-11-01: Initial JS/TS linter"
+    ---/agentspec
+    """
+    errors: List[Tuple[int, str]] = []
+    warnings: List[Tuple[int, str]] = []
+
+    try:
+        text = filepath.read_text(encoding="utf-8")
+    except Exception as e:
+        return [(0, f"Error reading {filepath}: {e}")], []
+
+    # Find all JSDoc comment blocks
+    for m in re.finditer(r"/\*\*[\s\S]*?\*/", text):
+        block = m.group(0)
+        # Normalize JSDoc stars (preserve indentation after *)
+        lines = []
+        for raw in block.splitlines():
+            s = raw.rstrip('\n')
+            if s.strip().startswith('/**') or s.strip().endswith('*/'):
+                s = ''
+            else:
+                s = re.sub(r"^\s*\*\s?", "", s)
+            lines.append(s)
+        cleaned = "\n".join(lines)
+
+        yml = _extract_agentspec_from_text(cleaned)
+        if not yml:
+            continue
+        try:
+            data = yaml.safe_load(yml)
+        except Exception:
+            errors.append((text[:m.start()].count("\n") + 1, "Invalid YAML in agentspec block"))
+            continue
+        if not isinstance(data, dict):
+            errors.append((text[:m.start()].count("\n") + 1, "Agentspec block must parse to a mapping"))
+            continue
+        # Minimum size check
+        if len(yml.splitlines()) < min_lines:
+            warnings.append((text[:m.start()].count("\n") + 1, f"Agentspec block under {min_lines} lines"))
+        # Required keys
+        for k in REQUIRED_KEYS:
+            if k not in data:
+                errors.append((text[:m.start()].count("\n") + 1, f"Missing required key: {k}"))
+
+    return errors, warnings
+
+
 def run(target: str, min_lines: int = 10, strict: bool = False) -> int:
     '''
     ---agentspec
     what: |
-      Executes batch linting validation on Python files within a target directory to verify agentspec block compliance. Collects all Python files from the target path (file or directory), invokes check_file on each to validate agentspec requirements, and aggregates error and warning counts. Returns exit code 0 on success (no errors, and either no warnings or strict mode disabled), or exit code 1 on failure (errors present, or warnings present in strict mode). Prints per-file diagnostics with line numbers and messages, followed by a summary line showing total files checked and issue counts. Edge case: empty directory returns 0 with zero files checked and no output per file.
+      Executes batch linting validation on Python and JavaScript/TypeScript files within a target directory to verify agentspec block compliance. Collects all source files from the target path (file or directory), invokes language-specific checkers (`check_file` for Python, `check_js_file` for JS/TS) to validate agentspec requirements, and aggregates error and warning counts. Returns exit code 0 on success (no errors, and either no warnings or strict mode disabled), or exit code 1 on failure (errors present, or warnings present in strict mode). Prints per-file diagnostics with line numbers and messages, followed by a summary line showing total files checked and issue counts. Edge case: empty directory returns 0 with zero files checked and no output per file.
     deps:
           calls:
             - Path
             - check_file
+            - check_js_file
             - collect_python_files
+            - collect_source_files
             - len
             - print
           imports:
             - agentspec.utils.collect_python_files
+            - agentspec.utils.collect_source_files
             - ast
             - pathlib.Path
             - sys
@@ -538,16 +626,20 @@ def run(target: str, min_lines: int = 10, strict: bool = False) -> int:
     changelog:
 
       - "2025-10-31: Clean up docstring formatting"
+      - "2025-11-01: Add JS/TS linting via collect_source_files and check_js_file"
         ---/agentspec
     '''
     path = Path(target)
-    files = collect_python_files(path)
+    files = collect_source_files(path)
 
     total_errors = 0
     total_warnings = 0
 
     for file in files:
-        errors, warnings = check_file(file, min_lines=min_lines)
+        if file.suffix == ".py":
+            errors, warnings = check_file(file, min_lines=min_lines)
+        else:
+            errors, warnings = check_js_file(file, min_lines=min_lines)
 
         if errors or warnings:
             print(f"\n{file}:")

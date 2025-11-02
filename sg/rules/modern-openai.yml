@@ -1,0 +1,19 @@
+---
+# Migrate deprecated Chat Completions -> Responses API
+- id: openai-chat-to-responses
+  message: "Use client.responses.create(...) instead of client.chat.completions.create(...)."
+  severity: warning
+  language: python
+  rule:
+    pattern: $CLIENT.chat.completions.create($$$ARGS)
+  fix: $CLIENT.responses.create($$$ARGS)
+
+# Rename max_tokens -> max_completion_tokens (for models that use the new param)
+- id: openai-max-tokens-rename
+  message: "Use 'max_completion_tokens=' instead of 'max_tokens='."
+  severity: warning
+  language: python
+  rule:
+    pattern: $CALL(max_tokens=$VAL, $$$REST)
+  fix: $CALL(max_completion_tokens=$VAL, $$$REST)
+

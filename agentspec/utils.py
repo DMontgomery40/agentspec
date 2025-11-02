@@ -22,6 +22,7 @@ import os
 import subprocess
 from pathlib import Path
 from typing import Iterable, List, Set, Optional
+from agentspec.langs import LanguageRegistry
 
 
 DEFAULT_EXCLUDE_DIRS: Set[str] = {
@@ -37,63 +38,42 @@ def _is_excluded_by_dir(path: Path) -> bool:
     """
     ---agentspec
     what: |
-      Checks if a file path contains any excluded directory names by iterating through all path components.
+      Fast pre-filter to skip obviously excluded directories before calling git check-ignore.
+      
+      ONLY checks for .git directory to avoid recursing into repository metadata.
+      All other exclusions (.venv, node_modules, etc.) are handled by .gitignore.
 
       Inputs:
-      - path: A pathlib.Path object representing a file or directory path
+      - path: A pathlib.Path object
 
       Behavior:
-      - Decomposes the path into individual components using Path.parts (cross-platform safe)
-      - Iterates through each component sequentially
-      - Compares each component against DEFAULT_EXCLUDE_DIRS set for membership
-      - Returns True immediately upon finding the first excluded directory name
-      - Returns False if iteration completes without matches
+      - Checks if '.git' is in any path component
+      - Returns True only for .git, False otherwise
+      - All other filtering delegated to git check-ignore
 
-      Outputs:
-      - Boolean: True if any path component matches an excluded directory name, False otherwise
-
-      Edge cases:
-      - Handles nested excluded directories at any depth (e.g., .git/objects/pack)
-      - Works correctly with relative and absolute paths
-      - Preserves Windows and Unix path separator semantics via pathlib.Path
-      - Empty paths or single-component paths are handled safely
     deps:
           imports:
-            - __future__.annotations
-            - os
             - pathlib.Path
-            - subprocess
-            - typing.Iterable
-            - typing.List
-            - typing.Optional
-            - typing.Set
-
 
     why: |
-      Enables efficient filtering of version control, build, and cache directories during file system traversal without recursing into excluded subtrees.
-
-      Design rationale:
-      - Early return on first match optimizes common case where excluded dirs appear near root
-      - Set membership testing (DEFAULT_EXCLUDE_DIRS) provides O(1) lookup per component
-      - Path.parts abstraction ensures code works identically on Windows and Unix without manual separator handling
-      - Checking all components catches excluded dirs at any nesting level, preventing accidental traversal into .venv/lib or .git/objects
+      Previous versions tried to maintain a hardcoded exclusion list that would never
+      cover all cases (.venv311, venv38, etc.). Instead, rely on .gitignore which the
+      user has already configured correctly. Only exclude .git since it's universal
+      and we never want to process repository metadata.
 
     guardrails:
-      - DO NOT use string.split() instead of Path.parts; manual splitting breaks cross-platform compatibility and requires separator awareness
-      - DO NOT assume DEFAULT_EXCLUDE_DIRS is defined; verify it exists at module scope before calling this function
-      - ALWAYS use pathlib.Path for path decomposition to maintain platform independence
-      - ALWAYS ensure DEFAULT_EXCLUDE_DIRS contains only universally excluded directory names (.git, .venv, __pycache__, node_modules, etc.) that should never be traversed
-      - DO NOT modify the path object; this function is read-only and must remain side-effect free
+      - DO NOT add more directories to this check; use .gitignore instead
+      - ONLY check for .git directory
+      - Let git check-ignore handle all other exclusions
 
     changelog:
-          - "- 2025-10-30: feat: robust docstring generation and Haiku defaults"
-          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
+          - "2025-11-01: Simplify to only check .git; delegate all other exclusions to .gitignore"
+          - "2025-11-01: Add pattern matching for versioned virtualenvs (.venv*, venv*, .env*)"
+          - "2025-10-30: feat: robust docstring generation and Haiku defaults"
         ---/agentspec
     """
-    for part in path.parts:
-        if part in DEFAULT_EXCLUDE_DIRS:
-            return True
-    return False
+    # Only exclude .git - everything else is handled by .gitignore
+    return '.git' in path.parts
 
 
 def _find_git_root(start: Path) -> Path | None:
@@ -241,9 +221,26 @@ def _git_check_ignore(repo_root: Path, paths: List[Path]) -> Set[Path]:
 
 
 def _find_agentspecignore(repo_root: Path) -> Path | None:
-    """Find .agentspecignore file in repo root."""
+    """
+    Find .agentspecignore file. 
+    
+    Returns agentspec's built-in .agentspecignore from the package installation.
+    User's project-specific .agentspecignore is checked in addition (via _parse_agentspecignore).
+    """
+    # Use agentspec's built-in .agentspecignore from package installation
+    try:
+        import agentspec
+        package_root = Path(agentspec.__file__).parent.parent
+        builtin_ignore = package_root / '.agentspecignore'
+        if builtin_ignore.exists():
+            return builtin_ignore
+    except Exception:
+        pass
+    
+    # Fallback: check repo root
     if repo_root and (repo_root / ".agentspecignore").exists():
         return repo_root / ".agentspecignore"
+    
     return None
 
 
@@ -295,18 +292,21 @@ def _matches_pattern(path: Path, pattern: str, repo_root: Path) -> bool:
             # Replace **/ with * for fnmatch
             pattern = pattern.replace('**/', '*')
 
-        # Check if any component matches
+        # Check if any path component (directory or file name) matches
         parts = rel_str.split('/')
-        for i in range(len(parts)):
-            test_path = '/'.join(parts[i:])
-            if fnmatch.fnmatch(test_path, pattern):
+        for i, part in enumerate(parts):
+            # Test just this component name against the pattern
+            if fnmatch.fnmatch(part, pattern):
                 if dir_only:
-                    # For directory patterns, check if it's actually a directory
-                    test_full = repo_root / test_path
-                    return test_full.is_dir()
-                return True
+                    # For directory patterns, verify this component is actually a directory
+                    # Reconstruct the path up to this component
+                    component_path = repo_root / Path(*parts[:i+1])
+                    if component_path.is_dir():
+                        return True
+                else:
+                    return True
 
-        # Also check full path
+        # Also check full path for patterns like "foo/bar"
         if fnmatch.fnmatch(rel_str, pattern):
             if dir_only:
                 test_full = repo_root / rel_str
@@ -319,15 +319,40 @@ def _matches_pattern(path: Path, pattern: str, repo_root: Path) -> bool:
 
 
 def _check_agentspecignore(path: Path, repo_root: Path | None) -> bool:
-    """Check if a path is ignored by .agentspecignore. Returns True if ignored."""
+    """
+    Check if a path is ignored by .agentspecignore. Returns True if ignored.
+    
+    Loads patterns from:
+    1. Agentspec's built-in .agentspecignore (stock patterns)
+    2. User's project .agentspecignore (if it exists - for project-specific overrides)
+    
+    Both sets of patterns are merged and applied.
+    """
     if not repo_root:
         return False
 
-    ignore_file = _find_agentspecignore(repo_root)
-    if not ignore_file:
+    patterns = []
+    
+    # Load agentspec's built-in patterns (ALWAYS)
+    try:
+        import agentspec
+        package_root = Path(agentspec.__file__).parent.parent
+        builtin_ignore = package_root / '.agentspecignore'
+        if builtin_ignore.exists():
+            patterns.extend(_parse_agentspecignore(builtin_ignore, repo_root))
+    except Exception:
+        pass
+    
+    # ALSO load user's project patterns (if they exist)
+    user_ignore = repo_root / ".agentspecignore"
+    if user_ignore.exists():
+        patterns.extend(_parse_agentspecignore(user_ignore, repo_root))
+    
+    # If no patterns found, not ignored
+    if not patterns:
         return False
-
-    patterns = _parse_agentspecignore(ignore_file, repo_root)
+    
+    # Check if path matches any pattern
     for pattern in patterns:
         if _matches_pattern(path, pattern, repo_root):
             return True
@@ -431,6 +456,126 @@ def collect_python_files(target: Path) -> List[Path]:
 
     files.sort(key=lambda p: str(p))
     return files
+
+
+def collect_source_files(target: Path) -> List[Path]:
+    """
+    ---agentspec
+    what: |
+      Discover source files across all registered language adapters (Python, JavaScript, TypeScript) while
+      honoring repository ignore patterns and adapter-specific exclusions.
+
+      Behavior:
+      - Accepts a file or directory `target`
+      - If `target` is a file, returns `[target]` only if its extension is supported by any registered adapter
+      - If `target` is a directory, unions results of per-adapter discovery:
+        * Python files are discovered via `collect_python_files` (preserves .gitignore and .agentspecignore handling)
+        * Other languages use their adapter's `discover_files` method (expected to exclude build/third-party dirs)
+        * ALL files (Python and non-Python) are post-filtered through .gitignore and .agentspecignore for consistency
+      - Deduplicates and returns a sorted list of absolute Paths
+
+      Edge cases:
+      - Nonexistent `target`: returns an empty list (graceful degradation consistent with other collectors)
+      - Repositories without git: Python discovery still works without .gitignore filtering; adapters may still exclude common directories
+
+    deps:
+      calls:
+        - LanguageRegistry.list_adapters
+        - LanguageRegistry.supported_extensions
+        - collect_python_files
+        - adapter.discover_files
+        - target.is_file
+        - target.is_dir
+        - target.suffix
+        - files.sort
+        - _find_git_root
+        - _git_check_ignore
+        - _check_agentspecignore
+      imports:
+        - agentspec.langs.LanguageRegistry
+        - pathlib.Path
+        - typing.List
+
+    why: |
+      Agentspec aims to be language-agnostic. Centralizing file discovery avoids duplicating multi-language logic
+      in each CLI entry point (extract, lint, strip). It preserves robust Python discovery semantics while enabling
+      pluggable discovery for other languages via their adapters.
+      
+      The post-filtering through .gitignore and .agentspecignore ensures that ALL languages respect the same
+      ignore patterns, preventing vendor/minified/build files from being processed regardless of language.
+
+    guardrails:
+      - DO NOT hard-code extensions here; rely on registered adapters for non-Python languages
+      - DO NOT raise on missing paths; always return an empty list for graceful CLI behavior
+      - ALWAYS delegate Python discovery to `collect_python_files` to preserve .gitignore and .agentspecignore handling
+      - ALWAYS post-filter adapter results through .gitignore and .agentspecignore to maintain parity with Python
+      - ALWAYS return absolute, sorted paths for deterministic downstream processing
+
+    changelog:
+      - "2025-11-01: Add multi-language collect_source_files (JS/TS support)"
+      - "2025-11-01: Fix .gitignore/.agentspecignore filtering for non-Python languages (adapter results now post-filtered)"
+    ---/agentspec
+    """
+    # Gracefully handle missing/nonexistent paths
+    try:
+        exists = target.exists()
+    except Exception:
+        exists = False
+    if not exists:
+        return []
+
+    if target.is_file():
+        ext = target.suffix.lower()
+        if ext == ".py":
+            return [target]
+        if ext in LanguageRegistry.supported_extensions():
+            # For single files, apply ignore filters directly
+            repo_root = _find_git_root(target)
+            if repo_root:
+                ignored = _git_check_ignore(repo_root, [target])
+                if target.resolve() in ignored:
+                    return []
+                if _check_agentspecignore(target, repo_root):
+                    return []
+            return [target]
+        return []
+
+    if not target.is_dir():
+        return []
+
+    files: List[Path] = []
+    # Python via dedicated collector (already has ignore semantics built-in)
+    files.extend(collect_python_files(target))
+
+    # Other languages via their adapters
+    non_python_files: List[Path] = []
+    for ext, adapter in LanguageRegistry.list_adapters().items():
+        if ext == ".py":
+            continue
+        try:
+            non_python_files.extend(adapter.discover_files(target))
+        except Exception:
+            # Ignore adapter-specific discovery failures to avoid breaking cross-language processing
+            continue
+
+    # POST-FILTER non-Python files through .gitignore and .agentspecignore
+    # This ensures parity with Python discovery and prevents vendor/minified files from being processed
+    if non_python_files:
+        repo_root = _find_git_root(target)
+        if repo_root:
+            # Filter through .gitignore
+            ignored = _git_check_ignore(repo_root, non_python_files)
+            filtered = [p for p in non_python_files if p.resolve() not in ignored]
+            # Filter through .agentspecignore
+            filtered = [p for p in filtered if not _check_agentspecignore(p, repo_root)]
+            files.extend(filtered)
+        else:
+            # No git repo, just add them all
+            files.extend(non_python_files)
+
+    # Deduplicate and sort
+    uniq = sorted({p.resolve() for p in files}, key=lambda p: str(p))
+    return uniq
 
 
 def load_env_from_dotenv(env_path: Optional[Path] = None, override: bool = False) -> Optional[Path]:

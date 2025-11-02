@@ -50,6 +50,28 @@ def get_agentspec_yaml_prompt() -> str:
     return load_prompt("agentspec_yaml")
 
 
+# V2 Prompts (Clean - No Metadata Leakage)
+# These prompts have:
+# - NO metadata mentions (no {hard_data}, no deps.calls/imports instructions)
+# - Extensive bug-catching examples (7 patterns each)
+# - Anthropic best practices (XML tags, few-shot prompting)
+# - Explicit anti-hallucination instructions
+
+def get_verbose_docstring_prompt_v2() -> str:
+    """Get the verbose docstring generation prompt (v2 - clean, no metadata leakage)."""
+    return load_prompt("verbose_docstring_v2")
+
+
+def get_terse_docstring_prompt_v2() -> str:
+    """Get the terse docstring generation prompt (v2 - clean, no metadata leakage)."""
+    return load_prompt("terse_docstring_v2")
+
+
+def get_agentspec_yaml_prompt_v2() -> str:
+    """Get the agentspec YAML block generation prompt (v2 - clean, no metadata leakage)."""
+    return load_prompt("agentspec_yaml_v2")
+
+
 def format_prompt(template: str, **kwargs: Any) -> str:
     """
     Format a prompt template with the provided variables.

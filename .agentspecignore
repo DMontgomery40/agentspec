@@ -11,17 +11,40 @@ dist/
 build/
 *.egg-info/
 
-# Virtual environments
-.venv/
-venv/
-env/
-ENV/
+# Virtual environments (all variants)
+.venv*/
+venv*/
+env*/
+ENV*/
+.env*/
+
+# Python site-packages
+site-packages/
+**/site-packages/
 
 # Cache directories
 __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.tox/
+
+# JavaScript/Node
+node_modules/
+
+# Git worktrees and GitHub Pages
+.worktrees/
+gh-pages/
+
+# Vendor and asset directories
+vendor/
+vendors/
+assets/
+
+# Minified files
+*.min.js
+*.min.mjs
+*.min.css
 
 # Generated files
 FUNCTION_DOCS.md
@@ -43,3 +66,70 @@ __version__.py
 
 # Init files (usually minimal)
 # __init__.py  # Uncomment to skip all __init__.py files
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+develop-eggs/
+pip-wheel-metadata/
+.installed.cfg
+.venv/
+venv/
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.cache/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Node / JavaScript
+node_modules/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editors/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.orig
+
+# Local data / logs
+faxdata/
+*.db
+logs/
+*.log
+
+# Project-specific
+/AGENTS.md
+
+# Ignore built sites and vendor
+_site/
+docs/_site/
+vendor/
+.bundle/
+
+.venv_ci/
+

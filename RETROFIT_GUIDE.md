@@ -4,6 +4,25 @@ Use this guide to add comprehensive agentspecs to existing codebases.
 
 **Ideally do it with the prompt route; however, just running the bash script below against an entire repo, has been tested to work surprisingly well**
 
+Fast path (two‑phase, multi‑language)
+```bash
+# 1) Clean stale blocks (Python + JS/TS)
+agentspec strip <path> --mode all
+
+# 2) Generate narrative + deterministic metadata, idempotent
+agentspec generate <path> --update-existing --strip
+
+# 3) Lint and fix
+agentspec lint <path> --strict
+
+# 4) Export a single doc for the whole codebase
+agentspec extract <path> --format markdown
+```
+
+Why this matters
+- Metadata (deps/calls/history) is deterministic and LLM‑agnostic; narrative and metadata are produced in separate, validated phases.
+- Export gives agents and humans function‑specific history that RAG/memory cannot reliably reconstruct.
+
 ## 📝 The Retrofit Prompt
 
 Copy the prompt below and use it with your AI agent. Attach the file(s) you want to retrofit.
@@ -350,7 +369,7 @@ As you retrofit, you'll discover:
 
 - **Functions you didn't know existed**
 - **Dependencies you didn't know about**
-- **Design decisions that now make sense**
+- **Design decisions that make sense in hindsight**
 - **Guardrails that prevent past bugs**
 
 This is GOOD. This is the point.
@@ -379,4 +398,4 @@ git add agent_specs.md
 git commit -m "Add extracted agentspec documentation"
 ```
 
-Now all future agents (and humans) can read the full context before making changes.
+Future agents (and humans) can read the full context before making changes.

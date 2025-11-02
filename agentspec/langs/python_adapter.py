@@ -196,7 +196,7 @@ class PythonAdapter:
     def validate_syntax(self, filepath: Path) -> bool:
         """
         Check if file has valid Python syntax.
-        
+
         Returns True if valid, raises SyntaxError if invalid.
         """
         try:
@@ -205,6 +205,18 @@ class PythonAdapter:
             return True
         except SyntaxError as e:
             raise ValueError(f"Syntax error in {filepath}: {e}")
+
+    def validate_syntax_string(self, source: str, filepath: Path = None) -> bool:
+        """
+        Validate Python syntax string.
+
+        Returns True if valid, raises ValueError if invalid.
+        """
+        try:
+            compile(source, str(filepath) if filepath else '<string>', 'exec')
+            return True
+        except SyntaxError as e:
+            raise ValueError(f"Syntax error: {e}")
 
     def get_comment_delimiters(self) -> tuple[str, str]:
         """

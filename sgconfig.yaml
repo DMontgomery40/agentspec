@@ -1,0 +1,17 @@
+ruleDirs:
+  - sg/rules
+
+# What files to scan
+include:
+  - agentspec/**/*.py
+  - **/*.py
+
+# Ignore typical build and venv output
+ignore:
+  - .git/**
+  - .venv/**
+  - venv/**
+  - build/**
+  - dist/**
+  - __pycache__/**
+

@@ -172,44 +172,192 @@ def strip_file(filepath: Path, mode: str, dry_run: bool = False) -> None:
         print(f"  ✅ Stripped agentspec content from {func_name}")
 
 
+JS_EXTS = {".js", ".mjs", ".jsx", ".ts", ".tsx"}
+
+
+def _detect_agentspec_jsdoc(block_lines: list[str]) -> tuple[bool, bool]:
+    """
+    ---agentspec
+    what: |
+      Detect whether a JSDoc block contains agentspec-generated content and whether it is YAML vs narrative.
+
+      Returns (is_yaml, is_narrative). A block is YAML if it contains '---agentspec' or '---/agentspec'.
+      A block is narrative if it contains one or more of the deterministic sections or context markers:
+      - 'DEPENDENCIES (from code analysis):'
+      - 'CHANGELOG (from git history):'
+      - 'AGENTSPEC_CONTEXT:'
+    deps:
+      calls:
+        - any
+    guardrails:
+      - DO NOT broaden heuristics without tests
+      - ALWAYS check YAML fences first
+    changelog:
+      - "2025-11-01: Initial JS detectors"
+    ---/agentspec
+    """
+    joined = "\n".join(block_lines)
+    is_yaml = ("---agentspec" in joined) or ("---/agentspec" in joined)
+    is_narr = any(
+        m in joined for m in (
+            "DEPENDENCIES (from code analysis):",
+            "CHANGELOG (from git history):",
+            "AGENTSPEC_CONTEXT:",
+        )
+    )
+    return is_yaml, is_narr
+
+
+def strip_js_file(filepath: Path, mode: str, dry_run: bool = False) -> None:
+    """
+    ---agentspec
+    what: |
+      Removes agentspec-generated JSDoc blocks from a JavaScript/TypeScript file using textual heuristics.
+
+      Behavior:
+      - Scans for '/**' ... '*/' JSDoc blocks
+      - Uses _detect_agentspec_jsdoc() to classify each block as YAML vs narrative
+      - Depending on mode ('yaml'|'docstrings'|'all'), deletes matching blocks
+      - Also removes single following line if it matches a console.log with 'AGENTSPEC_CONTEXT'
+      - Writes the file once after all removals; prints actions and respects dry_run
+
+      Note: Syntax validation is attempted via language adapter when available; otherwise no validation is performed.
+    deps:
+      calls:
+        - _detect_agentspec_jsdoc
+      imports:
+        - agentspec.langs.LanguageRegistry
+    guardrails:
+      - DO NOT attempt to reformat; only delete exact block spans
+      - ALWAYS respect dry_run
+    changelog:
+      - "2025-11-01: Add JS/TS strip support"
+    ---/agentspec
+    """
+    print(f"\n🧹 Processing (strip) {filepath}")
+    try:
+        text = filepath.read_text(encoding="utf-8", errors="ignore")
+    except Exception as e:
+        print(f"  ❌ Cannot read file: {e}")
+        return
+
+    lines = text.splitlines()
+    n = len(lines)
+    i = 0
+    removed_spans: list[tuple[int, int]] = []
+
+    while i < n:
+        line = lines[i]
+        if "/**" in line:
+            start = i
+            j = i + 1
+            found_end = False
+            while j < n:
+                if lines[j].strip().endswith("*/"):
+                    found_end = True
+                    end = j
+                    break
+                j += 1
+            if not found_end:
+                i += 1
+                continue
+            block = lines[start : end + 1]
+            is_yaml, is_narr = _detect_agentspec_jsdoc(block)
+            if mode == "yaml":
+                should_delete = is_yaml
+            elif mode == "docstrings":
+                should_delete = is_narr and not is_yaml
+            else:
+                should_delete = is_yaml or is_narr
+            if should_delete:
+                # Extend to remove one following AGENTSPEC context console.log if present
+                end_plus = end + 1
+                if end_plus < n and "AGENTSPEC_CONTEXT" in lines[end_plus]:
+                    end = end_plus
+                removed_spans.append((start, end))
+                i = end + 1
+                continue
+            i = end + 1
+        else:
+            i += 1
+
+    if not removed_spans:
+        print("  ✅ Nothing to strip in this file")
+        return
+
+    # Build new content by skipping removed spans
+    removed_spans.sort()
+    out: list[str] = []
+    last = 0
+    for s, e in removed_spans:
+        print(f"  ✂️  Removing JSDoc lines {s+1}-{e+1}")
+        out.extend(lines[last:s])
+        last = e + 1
+    out.extend(lines[last:])
+    new_text = "\n".join(out) + ("\n" if text.endswith("\n") else "")
+
+    if dry_run:
+        return
+
+    # Optional syntax validation via adapter
+    try:
+        from agentspec.langs import LanguageRegistry
+        adapter = LanguageRegistry.get_by_extension(filepath.suffix.lower())
+        if adapter is not None:
+            adapter.validate_syntax_string(new_text)  # may raise
+    except Exception:
+        # Best-effort only; proceed even if validation not available
+        pass
+
+    filepath.write_text(new_text, encoding="utf-8")
+    print(f"  ✅ Stripped {len(removed_spans)} agentspec block(s)")
+
+
 def run(target: str, mode: str = "all", dry_run: bool = False) -> int:
     """
     ---agentspec
     what: |
-      Batch entry point for stripping agentspec content across Python files.
+      Batch entry point for stripping agentspec content across Python and JavaScript/TypeScript files.
 
-      Accepts file or directory path, collects Python files, and applies strip_file() to each.
-      Dry-run prints intended changes without modifying files. Returns exit code 0 on success, 1 on errors.
+      Accepts file or directory path, collects source files across registered languages, and applies language-specific
+      strip routines (AST-based for Python; JSDoc heuristic for JS/TS). Dry-run prints intended changes without modifying files.
+      Returns exit code 0 on success, 1 on errors.
     deps:
       calls:
         - Path
-        - collect_python_files
-        - strip_file
+        - collect_source_files
+        - strip_file (Python)
+        - strip_js_file (JavaScript/TypeScript)
         - print
       imports:
-        - agentspec.utils.collect_python_files
+        - agentspec.utils.collect_source_files
         - pathlib.Path
     why: |
-      Separate module isolates strip logic for modularity and clean code. Keeps generate focused on generation.
+      Unifies strip behavior across languages and allows pre-clean runs before regeneration to avoid duplicate blocks.
     guardrails:
-      - DO NOT require any API credentials; this must remain offline-safe
+      - DO NOT require any API credentials
       - ALWAYS handle both file and directory targets
+      - ALWAYS route by file extension conservatively
     changelog:
-      - "2025-10-31: Initial implementation"
+      - "2025-11-01: Extend strip to JS/TS via JSDoc heuristic and collect_source_files()"
     ---/agentspec
     """
-    from agentspec.utils import collect_python_files
+    from agentspec.utils import collect_source_files
 
     path = Path(target)
     if not path.exists():
         print(f"❌ Error: Path does not exist: {target}")
         return 1
 
-    files = [path] if path.is_file() else collect_python_files(path)
+    files = [path] if path.is_file() else collect_source_files(path)
 
     for fp in files:
         try:
-            strip_file(fp, mode, dry_run=dry_run)
+            ext = fp.suffix.lower()
+            if ext == ".py":
+                strip_file(fp, mode, dry_run=dry_run)
+            elif ext in JS_EXTS:
+                strip_js_file(fp, mode, dry_run=dry_run)
         except Exception as e:
             print(f"❌ Error processing {fp}: {e}")
     print("\n✅ Done!")

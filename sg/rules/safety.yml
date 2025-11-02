@@ -1,0 +1,33 @@
+---
+# subprocess.run(..., shell=True) -> dangerous unless carefully sanitized
+- id: dangerous-subprocess-shell-true
+  message: "Avoid shell=True; prefer list args and shlex.split, and set check=True."
+  severity: error
+  language: python
+  rule:
+    pattern: subprocess.run($$ARGS, shell=True, $$$REST)
+
+# os.system(...) is shell=True by definition
+- id: os-system-shell
+  message: "Avoid os.system(...); use subprocess.run([...], check=True)."
+  severity: error
+  language: python
+  rule:
+    pattern: os.system($$ARGS)
+
+# eval(...) is almost never appropriate in library code
+- id: ban-eval
+  message: "Avoid eval(...); parse or map inputs safely."
+  severity: error
+  language: python
+  rule:
+    pattern: eval($$ARGS)
+
+# exec(...) is dangerous and breaks introspection/typing
+- id: ban-exec
+  message: "Avoid exec(...); import/dispatch explicitly."
+  severity: error
+  language: python
+  rule:
+    pattern: exec($$ARGS)
+

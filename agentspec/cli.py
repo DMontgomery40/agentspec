@@ -750,6 +750,13 @@ def main():
         help="DIFF SUMMARY: Add LLM-generated summaries of git diffs for each commit (separate API call)",
     )
 
+    # Optional pre-clean flag: strip existing agentspec docs before generation
+    generate_parser.add_argument(
+        "--strip",
+        action="store_true",
+        help="Strip existing agentspec docs in target files before generation (Python + JS/TS)",
+    )
+
     strip_parser = subparsers.add_parser(
         "strip",
         help="Remove agentspec-generated docstrings from Python files",
@@ -803,8 +810,16 @@ def main():
         # Lazy import to avoid requiring anthropic unless generate is used
         from agentspec import generate
 
+        # If requested, strip existing agentspec docs first (Python + JS/TS)
+        if getattr(args, "strip", False):
+            try:
+                strip.run(args.target, mode="all", dry_run=args.dry_run)
+            except Exception as e:
+                print(f"⚠️  Pre-clean (strip) failed: {e}")
+
         exit_code = generate.run(
             args.target,
+            language=args.language,
             dry_run=args.dry_run,
             force_context=args.force_context,
             model=args.model,

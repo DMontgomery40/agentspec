@@ -92,18 +92,64 @@ def _collect_python_deps(filepath: Path, func_name: str) -> Optional[Tuple[List[
 
 
 def _collect_git_changelog(filepath: Path, func_name: str) -> List[str]:
-    """Collect deterministic git changelog entries for a function."""
+    """Collect deterministic git changelog entries for a function.
+
+    Falls back to file-level history if function-level tracking fails
+    (common for JavaScript files using IIFEs where functions are nested).
+    """
     try:
+        # CRITICAL: Git command must run in the file's git repo, not current working directory
+        # Find git root for this file
+        filepath = filepath.resolve()
+        file_dir = filepath.parent if filepath.is_file() else filepath
+
+        # Find git root by walking up directories
+        git_root = file_dir
+        for parent in [file_dir] + list(file_dir.parents):
+            if (parent / ".git").exists():
+                git_root = parent
+                break
+
+        # Get relative path from git root
+        try:
+            rel_path = filepath.relative_to(git_root)
+        except ValueError:
+            # File not in a git repo
+            return ["- no git history available"]
+
+        # Try function-level history first
         cmd = [
             "git",
             "log",
             "-L",
-            f":{func_name}:{filepath}",
+            f":{func_name}:{rel_path}",
             "--pretty=format:- %ad: %s (%h)",
             "--date=short",
             "-n5",
         ]
-        out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode("utf-8", errors="ignore")
+        try:
+            out = subprocess.check_output(cmd, cwd=git_root, stderr=subprocess.DEVNULL).decode("utf-8", errors="ignore")
+            commit_pattern = re.compile(r"^-\s+\d{4}-\d{2}-\d{2}:\s+.+\([a-f0-9]{4,}\)$")
+            lines = []
+            for ln in out.splitlines():
+                ln = ln.strip()
+                if ln and commit_pattern.match(ln):
+                    lines.append(ln)
+            if lines:
+                return lines
+        except subprocess.CalledProcessError:
+            pass  # Fall through to file-level history
+
+        # Fallback to file-level history (e.g., for nested functions in IIFEs)
+        file_cmd = [
+            "git",
+            "log",
+            "--pretty=format:- %ad: %s (%h)",
+            "--date=short",
+            "-n5",
+            str(rel_path),
+        ]
+        out = subprocess.check_output(file_cmd, cwd=git_root, stderr=subprocess.DEVNULL).decode("utf-8", errors="ignore")
         commit_pattern = re.compile(r"^-\s+\d{4}-\d{2}-\d{2}:\s+.+\([a-f0-9]{4,}\)$")
         lines = []
         for ln in out.splitlines():
@@ -124,13 +170,32 @@ def _collect_javascript_metadata(filepath: Path, func_name: str) -> Optional[Dic
     try:
         metadata = adapter.gather_metadata(filepath, func_name)  # type: ignore[arg-type]
     except Exception:
-        return None
+        metadata = {}
 
     if not isinstance(metadata, dict):
-        return None
+        metadata = {}
 
     calls = _normalize_metadata_list(metadata.get("calls"))
     imports = _normalize_metadata_list(metadata.get("imports"))
+
+    # Fallback: lightweight regex scan if adapter couldn't extract anything (e.g., missing tree-sitter)
+    if not calls or not imports:
+        try:
+            src = filepath.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            src = ""
+        # naive call detection: foo.bar(  -> capture foo.bar
+        import re as _re
+        if not calls:
+            call_matches = _re.findall(r"([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)\s*\(", src)
+            calls = sorted({m for m in call_matches})
+        if not imports:
+            # collect ES module imports
+            import_lines = []
+            for line in src.splitlines():
+                if line.strip().startswith("import ") or "require(" in line:
+                    import_lines.append(line.strip())
+            imports = sorted(set(import_lines))
 
     changelog = _collect_git_changelog(filepath, func_name)
 
@@ -316,7 +381,7 @@ def collect_function_code_diffs(filepath: Path, func_name: str, limit: int = 5) 
 def collect_metadata(filepath: Path, func_name: str) -> Dict[str, Any]:
     filepath = Path(filepath)
 
-    if filepath.suffix.lower() in {".js", ".mjs"}:
+    if filepath.suffix.lower() in {".js", ".mjs", ".jsx", ".ts", ".tsx"}:
         js_result = _collect_javascript_metadata(filepath, func_name)
         if not js_result:
             return {}

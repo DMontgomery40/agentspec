@@ -2,9 +2,24 @@
 
 **Verbose, structured, YAML-parsable docstrings for AI-assisted codebases.**
 
-> **NEW:** Now supports both Python and JavaScript! Tree-sitter integration enables JSDoc comment parsing for JavaScript/TypeScript projects.
+Supports both Python and JavaScript. Tree-sitter integration enables JSDoc comment parsing for JavaScript/TypeScript projects.
 
 Think of it as something between `black`, `autodoc`, and `copilot-lint`, but tailored for LLMs.
+
+TL;DR (highlights)
+- Two‑phase write: LLM narrative first, then deterministic metadata (deps/calls/imports + function‑specific changelog) injected programmatically — never passed to a model, never costs tokens.
+- Multi‑language: Python docstrings and JavaScript/TypeScript JSDoc, with tree‑sitter validation when available.
+- Idempotent flows: `--strip` removes stale agentspec blocks; JSDoc insertion replaces the nearest block instead of appending.
+- Export: `agentspec extract <path> --format markdown` produces a single documentation artifact for the whole codebase — zero hallucinations for dependencies/history.
+- Enhances Serena (and other agents): gives a trusted, tool‑agnostic context layer; metadata is derived solely from source + git.
+
+Quick start (short):
+```bash
+pip install -e .[all]
+agentspec generate src/ --update-existing --strip
+agentspec lint src/ --strict
+agentspec extract src/ --format markdown
+```
 
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -216,7 +231,7 @@ For especially important code paths (auth, payments, security):
 Example:
 agentspec generate src/auth/
 
-# UPDATE EXISTING: Regenerate when code changes (NEW!)
+# Update existing: regenerate when code changes
 agentspec generate src/ --update-existing
 
 # Validate agentspecs in your codebase

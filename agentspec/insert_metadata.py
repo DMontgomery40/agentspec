@@ -35,22 +35,59 @@ def apply_docstring_with_metadata(
     diff_summary_text: Optional[str] = None,
 ) -> bool:
     """
-    Insert narrative-only docstring first, verify syntax, then inject deterministic
-    metadata (deps/changelog) and verify syntax again. If both passes succeed,
-    replace the target file atomically.
+    ---agentspec
+    what: |
+      Single-pass docstring insertion with metadata injection.
 
-    Notes
-    - This function deliberately avoids exposing metadata to any LLM.
-    - Works by writing to a temporary copy, then replacing the original file.
+      Builds the complete docstring (narrative + deterministic metadata) FIRST,
+      then inserts it ONCE into the file.
+
+      Supported languages:
+      - Python (.py): uses insert_docstring_at_line() and py_compile
+      - JS/TS (.js, .mjs, .jsx, .ts, .tsx): uses LanguageRegistry adapter.insert_docstring() and adapter.validate_syntax_string()
+
+    deps:
+      calls:
+        - insert_docstring_at_line (Python)
+        - LanguageRegistry.get_by_extension (JS/TS)
+        - adapter.insert_docstring (JS/TS)
+        - adapter.validate_syntax_string (JS/TS)
+        - inject_deterministic_metadata
+        - os.replace
+        - py_compile.compile (Python)
+      imports:
+        - agentspec.generate (inject_deterministic_metadata, insert_docstring_at_line)
+        - agentspec.langs.LanguageRegistry
+
+    why: |
+      Previous implementation did a "two-phase" insert that called insert_docstring TWICE,
+      creating duplicate JSDoc blocks. This version builds the complete docstring first,
+      then inserts it once.
+
+    guardrails:
+      - DO NOT call insert_docstring/insert_docstring_at_line more than ONCE per function
+      - ALWAYS build the complete docstring (narrative + metadata) BEFORE inserting
+      - ALWAYS operate on a temp copy and perform an atomic replace on success
+      - ALWAYS route by file extension; do not try to parse JS with Python tooling
+
+    changelog:
+      - "2025-11-01: Fix duplicate JSDoc insertion bug - build complete docstring first, insert once"
+      - "2025-11-01: Add JS/TS support and unify two-phase flow"
+    ---/agentspec
     """
-    # Lazy import to avoid circulars
+    # Lazy imports to avoid circulars and optional deps at import time
     from agentspec.generate import insert_docstring_at_line, inject_deterministic_metadata
 
     src = Path(filepath)
     if not src.exists():
         return False
 
-    # Create temp copy in same directory for atomic replace semantics
+    # Build the complete docstring FIRST (narrative + deterministic metadata)
+    doc_with_meta = inject_deterministic_metadata(narrative, metadata, as_agentspec_yaml)
+    if diff_summary_text:
+        doc_with_meta = doc_with_meta.rstrip() + "\n\n" + diff_summary_text.strip() + "\n"
+
+    # Prepare tmp copy
     with open(src, "r", encoding="utf-8") as f:
         original = f.read()
 
@@ -60,22 +97,39 @@ def apply_docstring_with_metadata(
     try:
         tmp_path.write_text(original, encoding="utf-8")
 
-        # Phase 1: narrative only
-        ok = insert_docstring_at_line(tmp_path, lineno, func_name, narrative, force_context)
-        if not ok or not _compile_ok(tmp_path):
+        ext = src.suffix.lower()
+        is_python = ext == ".py"
+        is_js = ext in {".js", ".mjs", ".jsx", ".ts", ".tsx"}
+
+        # Insert the COMPLETE docstring ONCE
+        if is_python:
+            # Add force-context marker for Python
+            ok = insert_docstring_at_line(tmp_path, lineno, func_name, doc_with_meta, force_context)
+            if not ok or not _compile_ok(tmp_path):
+                return False
+        elif is_js:
+            # Use JS adapter
+            from agentspec.langs import LanguageRegistry
+            adapter = LanguageRegistry.get_by_extension(ext)
+            if adapter is None:
+                return False
+            
+            # Add force-context marker inside JSDoc for JS/TS
+            if force_context:
+                doc_with_meta = doc_with_meta.rstrip() + f"\nAGENTSPEC_CONTEXT: function {func_name} documented\n"
+            
+            try:
+                adapter.insert_docstring(tmp_path, lineno, doc_with_meta)
+                # Validate via adapter on the modified content
+                content = tmp_path.read_text(encoding="utf-8", errors="ignore")
+                adapter.validate_syntax_string(content, tmp_path)
+            except Exception:
+                return False
+        else:
+            # Unsupported language
             return False
 
-        # Phase 2: deterministic metadata (never shown to LLM)
-        doc_with_meta = inject_deterministic_metadata(narrative, metadata, as_agentspec_yaml)
-        if diff_summary_text:
-            # Append diff summary as a separate section after metadata
-            doc_with_meta += "\n\n" + diff_summary_text.strip() + "\n"
-
-        ok2 = insert_docstring_at_line(tmp_path, lineno, func_name, doc_with_meta, force_context)
-        if not ok2 or not _compile_ok(tmp_path):
-            return False
-
-        # Replace original atomically
+        # Atomically replace
         os.replace(tmp_path, src)
         return True
     finally:
