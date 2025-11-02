@@ -9,35 +9,37 @@ import os
 import re
 from pathlib import Path
 from typing import Dict, Any
-from agentspec.utils import collect_python_files, load_env_from_dotenv
+from agentspec.utils import collect_source_files, load_env_from_dotenv
 from agentspec.collect import collect_metadata
+from agentspec.prompts import (
+    get_verbose_docstring_prompt,
+    get_terse_docstring_prompt,
+    get_agentspec_yaml_prompt,
+)
+# Per-run generation metrics (estimated tokens and continuation counts)
+GEN_METRICS: list[dict] = []
+
 def _get_client():
+    # Ensure .env is loaded so ANTHROPIC_API_KEY is present if available
     """
     ---agentspec
     what: |
-      Lazily instantiates and returns an Anthropic API client, deferring the import of the Anthropic class until the function is first called rather than at module load time.
+      Initializes and returns a singleton Anthropic client instance. The function performs environment setup by loading variables from a .env file (if present) to ensure ANTHROPIC_API_KEY is available in the environment, then lazily imports the Anthropic class and instantiates it. The Anthropic constructor automatically reads the ANTHROPIC_API_KEY from environment variables. Returns an Anthropic client object ready for API calls.
 
       Inputs: None
-
-      Outputs: An Anthropic() instance configured to automatically read the ANTHROPIC_API_KEY environment variable.
-
-      Behavior:
-      - Calls load_env_from_dotenv() to ensure environment variables from .env files are loaded
-      - Performs a deferred import of the Anthropic class from the anthropic package only at call time
-      - Instantiates and returns a new Anthropic() client, which internally reads ANTHROPIC_API_KEY from the environment
-      - Each invocation creates a fresh client instance; no caching or singleton pattern is implemented
+      Outputs: anthropic.Anthropic instance configured with credentials from environment
 
       Edge cases:
-      - If ANTHROPIC_API_KEY is missing or invalid, the Anthropic() constructor will raise anthropic.APIError or related authentication exceptions; callers must handle these gracefully
-      - If the anthropic package is not installed, ImportError is raised only when _get_client() is called, not during module import
-      - Enables agentspec/generate.py to be imported successfully in environments where the Anthropic API is not needed (e.g., dry-run paths, metadata collection, file discovery)
-    deps:
+      - If ANTHROPIC_API_KEY is not set in environment or .env file, Anthropic() will raise an authentication error
+      - If .env file does not exist, load_env_from_dotenv() handles gracefully without raising
+      - Lazy import means anthropic package must be installed; ImportError raised if missing
+        deps:
           calls:
             - Anthropic
             - load_env_from_dotenv
           imports:
             - agentspec.collect.collect_metadata
-            - agentspec.utils.collect_python_files
+            - agentspec.utils.collect_source_files
             - agentspec.utils.load_env_from_dotenv
             - ast
             - json
@@ -50,200 +52,35 @@ def _get_client():
 
 
     why: |
-      Lazy loading defers the hard dependency on the anthropic package until it is actually needed, allowing the module to load successfully in non-generation workflows. This approach prevents ImportError exceptions during dry-run scenarios, testing, or when users invoke only non-generation commands such as metadata collection or file discovery.
-
-      The Anthropic() constructor automatically reads ANTHROPIC_API_KEY from the environment, following standard SDK conventions and avoiding the need for explicit credential passing.
-
-      Lightweight client instantiation means performance impact is negligible; the client is typically created only once per generate command invocation.
-
-      Alternative approaches (module-level import with try/except, singleton caching) were rejected because: (1) module-level import would fail immediately if anthropic is unavailable, defeating the purpose of supporting non-generation workflows, and (2) singleton caching adds unnecessary complexity and state management overhead without clear benefit for stateless, lightweight client instantiation.
+      Lazy importing the Anthropic class defers the dependency load until the client is actually needed, reducing startup time for code paths that don't use the API. Loading .env first ensures credentials are available before instantiation, supporting both explicit environment variables and .env file-based configuration. This pattern centralizes client creation logic, making it easier to manage authentication and swap implementations if needed.
 
     guardrails:
-      - DO NOT move the import statement to module level or wrap it in a try/except that silently fails; this defeats the lazy-loading purpose and reintroduces hard dependencies during module import
-      - DO NOT implement caching or singleton behavior without explicit requirements; it adds complexity and state management overhead without clear benefit
-      - DO NOT remove the inline comment explaining the lazy import pattern; it documents the intentional design choice for future maintainers
-      - ALWAYS ensure the ANTHROPIC_API_KEY environment variable is documented in user-facing setup instructions so users understand the credential requirement
-      - ALWAYS preserve the deferred import structure to maintain compatibility with non-generation workflows and partial command invocations
-      - ALWAYS handle anthropic.APIError and related authentication exceptions in calling code, as missing or invalid credentials will raise exceptions at runtime
+      - DO NOT call this function multiple times in tight loops; consider caching the result since creating new client instances is unnecessary overhead
+      - DO NOT assume ANTHROPIC_API_KEY is set; always handle potential authentication errors from Anthropic() constructor
+      - DO NOT modify this function to hardcode API keys; rely exclusively on environment variables for security
+      - DO NOT remove the load_env_from_dotenv() call; it is essential for .env file support in development environments
 
-    changelog:
-          - "- 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features"
-          - "- Performs lazy initialization of the Anthropic client by importing the Anthropic class only at call time, not at module load time"
-          - "- Returns a new Anthropic() instance configured to read the ANTHROPIC_API_KEY environment variable automatically"
-          - "- Enables the agentspec/generate.py module to be imported and used for non-generation commands (e.g., metadata collection, file discovery) without requiring a valid Anthropic API key or the anthropic package to be available"
-          - "- Avoids ImportError exceptions during dry-run paths, testing scenarios, or when users only invoke non-generation functionality"
-          - "- Each call creates a fresh client instance; no caching or singleton pattern is implemented at this level"
-          - "- Called by: agentspec.generate module functions that need to invoke Anthropic API calls (inferred from file context agentspec/generate.py)"
-          - "- Calls: anthropic.Anthropic() constructor"
-          - "- Imports used: anthropic.Anthropic (deferred/lazy import)"
-          - "- External services: Anthropic API (requires valid ANTHROPIC_API_KEY environment variable at runtime)"
-          - "- Lazy importing prevents hard dependency failures when the anthropic package is not installed or when users run agentspec commands that do not require API calls (e.g., metadata collection via agentspec.collect.collect_metadata or file discovery via agentspec.utils.collect_python_files)"
-          - "- Deferring the import until _get_client() is called allows the module to load successfully in environments where the Anthropic API is not needed, improving user experience for partial workflows"
-          - "- Relying on environment variable ANTHROPIC_API_KEY (handled by Anthropic() constructor) avoids explicit credential passing and follows standard SDK conventions"
-          - "- Alternative approaches (e.g., module-level import with try/except, singleton pattern with caching) were not used because: (1) module-level import would fail immediately if anthropic is unavailable, (2) singleton caching adds complexity without clear benefit since client instantiation is lightweight and stateless for typical use cases"
-          - "- Performance impact is negligible; client instantiation is fast and typically called only once per generate command invocation"
-          - "- Current implementation: Lazy-loads Anthropic client on first call to defer import and avoid hard dependency during non-generation commands or dry-run paths."
-          - "- DO NOT move the import statement to module level or wrap it in a try/except that silently fails, as this defeats the purpose of lazy loading"
-          - "- DO NOT implement caching/singleton behavior without explicit requirements, as it adds complexity and state management overhead"
-          - "- DO NOT remove the inline comment explaining the lazy import pattern, as it documents the intentional design choice"
-          - "- ALWAYS ensure the ANTHROPIC_API_KEY environment variable is documented in user-facing setup instructions"
-          - "- ALWAYS preserve the deferred import structure to maintain compatibility with non-generation workflows"
-          - "- NOTE: This function will raise anthropic.APIError or related exceptions if ANTHROPIC_API_KEY is missing or invalid; callers must handle authentication failures gracefully"
-          - "- 2025-10-30: feat: robust docstring generation and Haiku defaults"
-          - "- 2025-10-29: Add auto-generator for verbose agentspec docstrings using Claude API"
+        changelog:
+          - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
+          - "- 2025-10-30: fix(critical): preserve commit hashes in injected CHANGELOG by relaxing section boundary regex (9c524b4)"
+          - "- 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features (e54b379)"
+          - "- 2025-10-30: feat: robust docstring generation and Haiku defaults (e428337)"
+          - "- 2025-10-29: Add auto-generator for verbose agentspec docstrings using Claude API (7baa9a8)"
         ---/agentspec
     """
-    # Ensure .env is loaded so ANTHROPIC_API_KEY is present if available
     load_env_from_dotenv()
     from anthropic import Anthropic  # Imported only when needed
     return Anthropic()  # Reads ANTHROPIC_API_KEY from env
 
-GENERATION_PROMPT = """You are helping to document a Python codebase with extremely verbose docstrings designed for AI agent consumption.
-
-Deterministic metadata collected from the repository (if any):
-{hard_data}
-
-Instructions for using deterministic metadata:
-- Use deps.calls/imports directly when present.
-- If any field contains a placeholder beginning with "No metadata found;", still produce a complete section based on the function code and context.
-- If changelog contains an item that begins with "- Current implementation:", complete that line with a concise, concrete one‑sentence summary of the function's current behavior (do not leave it blank).
-
-Deterministic metadata collected from the repository (if any):
-{hard_data}
-
-Analyze this function and generate a comprehensive docstring following this EXACT format:
-
-\"\"\"
-Brief one-line description.
-
-WHAT THIS DOES:
-- Detailed explanation of what this function does (3-5 lines)
-- Include edge cases, error handling, return values
-- Be specific about types and data flow
-
-WHY THIS APPROACH:
-- Explain why this implementation was chosen
-- Note any alternatives that were NOT used and why
-- Document performance considerations
-- Explain any "weird" or non-obvious code
-
-AGENT INSTRUCTIONS:
-- DO NOT [list things agents should not change]
-- ALWAYS [list things agents must preserve]
-- NOTE: [any critical warnings about this code]
-\"\"\"
-
-Here's the function to document:
-
-```python
-{code}
-```
-
-File context: {filepath}
-
-Generate ONLY the docstring content (without the triple quotes themselves). Be extremely verbose and thorough."""
-
-GENERATION_PROMPT_TERSE = """You are helping to document a Python codebase with concise docstrings for LLM consumption.
-
-Analyze this function and generate a TERSE docstring following this EXACT format:
-
-\"\"\"
-Brief one-line description.
-
-WHAT:
-- Core behavior (2-3 bullets max, one line each)
-- Key edge cases only
-
-WHY:
-- Main rationale (2-3 bullets max)
-- Critical tradeoffs only
-
-GUARDRAILS:
-- DO NOT [critical constraints, one line each]
-- ALWAYS [essential requirements, one line each]
-\"\"\"
-
-Here's the function to document:
-
-```python
-{code}
-```
-
-File context: {filepath}
-
-Generate ONLY the docstring content. Be CONCISE but include ALL sections above."""
-
-AGENTSPEC_YAML_PROMPT = """You are helping to document a Python codebase by creating an embedded agentspec YAML block inside a Python docstring.
-
-Deterministic metadata collected from the repository (if any):
-{hard_data}
-
-Instructions for using deterministic metadata:
-- Use deps.calls/imports directly when present.
-- If any field contains a placeholder beginning with "No metadata found;", still produce a complete section based on the function code and context.
-- If changelog contains an item that begins with "- Current implementation:", complete that line with a concise, concrete one‑sentence summary of the function’s current behavior (do not leave it blank).
-
-Deterministic metadata collected from the repository (if any):
-{hard_data}
-
-Requirements:
-- Output ONLY the YAML block fenced by the following exact delimiters:
-  ---agentspec
-  ... YAML content here ...
-  ---/agentspec
-- Follow this schema with verbose content (deps and changelog will be injected by code):
-  what: |
-    Detailed multi-line explanation of behavior, inputs, outputs, edge-cases
-  why: |
-    Rationale for approach and tradeoffs
-  guardrails:
-    - DO NOT ... (explain why)
-    - ...
-
-Context:
-- Function to document:
-
-```python
-{code}
-```
-
-- File path: {filepath}
-
-Important:
-- Produce strictly valid YAML under the delimiters.
-- Do NOT include triple quotes or any prose outside the fenced YAML.
-- Be comprehensive and specific.
-"""
+# Prompts are now loaded from separate .md files in agentspec/prompts/
+# See: agentspec/prompts.py for the loading functions
 
 def extract_function_info(filepath: Path, require_agentspec: bool = False, update_existing: bool = False) -> list[tuple[int, str, str]]:
-    '''
+    """
     ---agentspec
     what: |
-      Parses a Python source file into an abstract syntax tree (AST) and identifies all function definitions requiring documentation. Filters functions based on docstring presence, length, and agentspec marker requirements. Returns a list of (line_number, function_name, source_code) tuples sorted in descending line number order to enable safe sequential docstring insertion without line number invalidation.
-
-      Inputs:
-      - filepath: Path object pointing to a valid Python source file
-      - require_agentspec: Boolean flag; when True, only functions lacking docstrings or missing the "---agentspec" marker are included
-      - update_existing: Boolean flag; when True, forces inclusion of ALL functions regardless of docstring status, bypassing normal filtering logic
-
-      Outputs:
-      - List of tuples: (line_number: int, function_name: str, source_code: str)
-      - Sorted descending by line_number (bottom-to-top processing order)
-      - Empty list if no functions match filtering criteria
-
-      Behavior:
-      - Handles both synchronous (ast.FunctionDef) and asynchronous (ast.AsyncFunctionDef) function definitions
-      - Traverses entire AST tree to capture module-level, class methods, and nested functions
-      - Docstring filtering: includes functions with no docstring OR docstrings shorter than 5 lines (unless require_agentspec=True, which checks for "---agentspec" marker instead)
-      - Extracts complete function source including decorators and multi-line signatures using node.lineno and node.end_lineno
-      - Descending sort order is critical: prevents line number shifts when inserting docstrings sequentially from bottom to top
-
-      Edge cases:
-      - Malformed Python syntax raises ast.SyntaxError (caller responsibility to handle)
-      - Functions with stub docstrings (< 5 lines) are treated as underdocumented
-      - Nested functions are included in results
-      - Async functions receive equal treatment to sync functions
-    deps:
+      Extracts function definitions from a Python source file and returns metadata for functions requiring documentation. Parses the AST to identify all function and async function definitions, evaluates whether each needs an agentspec docstring based on three modes: (1) require_agentspec=True checks for missing docstrings or absence of "---agentspec" marker, (2) require_agentspec=False checks for missing or undersized docstrings (< 5 lines), (3) update_existing=True forces processing of all functions regardless of existing documentation. Returns a list of tuples containing line number, function name, and extracted source code. Results are sorted in descending line order to enable safe top-down insertion of docstrings without invalidating subsequent line numbers.
+        deps:
           calls:
             - ast.get_docstring
             - ast.parse
@@ -259,7 +96,7 @@ def extract_function_info(filepath: Path, require_agentspec: bool = False, updat
             - source.split
           imports:
             - agentspec.collect.collect_metadata
-            - agentspec.utils.collect_python_files
+            - agentspec.utils.collect_source_files
             - agentspec.utils.load_env_from_dotenv
             - ast
             - json
@@ -272,24 +109,23 @@ def extract_function_info(filepath: Path, require_agentspec: bool = False, updat
 
 
     why: |
-      AST parsing provides accurate syntactic understanding of function boundaries, correctly handling nested functions, decorators, and multi-line signatures where regex or text-based approaches would fail. The descending sort order is essential for correctness: when docstrings are inserted sequentially at specific line numbers, processing bottom-to-top ensures earlier insertions do not shift line numbers for functions processed later, preventing cascading index invalidation. Tuple-based return structure enables efficient positional unpacking and sorting in downstream code. Supporting both FunctionDef and AsyncFunctionDef ensures compatibility with modern Python async patterns. The 5-line threshold balances between detecting stub docstrings and respecting intentionally brief documentation. The update_existing flag provides programmatic control for regeneration workflows without requiring external filtering logic.
+      Reverse sorting by line number prevents line number drift during batch docstring insertion—when docstrings are added to functions, earlier insertions would shift line numbers of functions below them. Processing bottom-to-top preserves the validity of cached line numbers. The dual-mode checking (agentspec-specific vs. general docstring quality) allows flexible workflows: strict mode enforces agentspec compliance, while lenient mode targets underdocumented functions. The update_existing flag enables regeneration of existing documentation without re-parsing, supporting iterative refinement workflows.
 
     guardrails:
-      - DO NOT reverse the sort order without updating all downstream insertion logic, as this will cause line number misalignment and syntax errors during docstring insertion
-      - DO NOT change the 5-line docstring threshold without updating related configuration and documentation, as this affects which functions are considered underdocumented
-      - DO NOT replace ast.walk() with ast.iter_child_nodes() without explicit handling for nested functions, as iter_child_nodes() only traverses immediate children
-      - DO NOT remove ast.AsyncFunctionDef handling, as this breaks support for Python 3.5+ async function documentation
-      - DO NOT use ast.get_source_segment() instead of manual line slicing without verifying Python 3.8+ availability across target environments
-      - ALWAYS preserve the (lineno, name, source_code) tuple structure, as downstream code depends on positional unpacking
-      - ALWAYS use node.end_lineno to capture complete function source including decorators and multi-line signatures
-      - ALWAYS validate that the input file contains syntactically valid Python before calling this function
-      - NOTE: Line number sorting is CRITICAL for correctness; reversing sort order without updating insertion logic will cause line number misalignment and potential syntax corruption
+      - DO NOT rely on line numbers after insertion without re-parsing, as the returned list is only valid for the original source state.
+      - DO NOT use this function on files with syntax errors; ast.parse() will raise SyntaxError and halt processing.
+      - DO NOT assume docstring presence correlates with quality; require_agentspec=False may skip functions with minimal or placeholder docstrings.
+      - DO NOT process extremely large files without memory consideration; ast.walk() traverses the entire tree and source is held in memory.
+      - DO NOT mix update_existing=True with require_agentspec=True in the same call; update_existing bypasses all skip logic, making require_agentspec ineffective.
 
-    changelog:
-
-      - "2025-10-31: Clean up docstring formatting"
+        changelog:
+          - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
+          - "- 2025-10-30: fix(critical): preserve commit hashes in injected CHANGELOG by relaxing section boundary regex (9c524b4)"
+          - "- 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features (e54b379)"
+          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate (172e0a7)"
+          - "- 2025-10-29: CRITICAL FIX: Process functions bottom-to-top to prevent line number invalidation and syntax errors (bab4295)"
         ---/agentspec
-    '''
+    """
     with open(filepath, 'r') as f:
         source = f.read()
 
@@ -322,40 +158,22 @@ def extract_function_info(filepath: Path, require_agentspec: bool = False, updat
     return functions
 
 def inject_deterministic_metadata(llm_output: str, metadata: Dict[str, Any], as_agentspec_yaml: bool) -> str:
-    '''
+    """
     ---agentspec
     what: |
-      Injects deterministic metadata (dependencies and changelog) into LLM-generated docstrings in either YAML or plain text format.
-
-      For YAML format (as_agentspec_yaml=True):
-      - Parses deps_data (calls, imports) and changelog_data from metadata dictionary
-      - Locates injection point by searching for "why:" or "why |" markers; injects deps section before the first occurrence
-      - Falls back to injecting after "what:" section if no "why:" marker found
-      - Strips any LLM-generated changelog sections using regex to prevent duplication
-      - Injects changelog section before the closing "---/agentspec" tag (or appends if tag absent)
-      - Includes "No git history available" placeholder when changelog_data is empty
-
-      For plain text format (as_agentspec_yaml=False):
-      - Appends "DEPENDENCIES (from code analysis):" section with Calls and Imports lists
-      - Appends "CHANGELOG (from git history):" section with timestamped entries
-      - Strips any pre-existing LLM-generated CHANGELOG sections before appending
-      - Returns unmodified output if metadata dictionary is empty or falsy
-
-      Edge cases:
-      - Handles missing "why:" section by falling back to "what:" injection point
-      - Handles missing closing "---/agentspec" tag by appending changelog to end
-      - Handles empty deps_data by omitting empty subsections
-      - Handles empty changelog_data by inserting placeholder text
+      Injects deterministic metadata (dependencies and changelog) into LLM-generated documentation output. Accepts an LLM output string, a metadata dictionary containing 'deps' (with 'calls' and 'imports' keys) and 'changelog' (list of git history entries), and a format flag. When as_agentspec_yaml is True, formats metadata as YAML and injects it into an agentspec block by locating the "why:" section and inserting deps before it, then forcefully replaces any existing changelog section with deterministic data before the closing "---/agentspec" tag. When as_agentspec_yaml is False, strips any existing LLM-emitted CHANGELOG and DEPENDENCIES sections using regex boundary detection, then appends deterministic versions at the end in consistent order (deps then changelog). Returns the modified output string with deterministic metadata guaranteed to override any LLM-generated equivalents.
         deps:
           calls:
+            - changelog_yaml.strip
             - deps_data.get
             - join
+            - llm_output.endswith
             - metadata.get
             - output.rfind
             - re.sub
           imports:
             - agentspec.collect.collect_metadata
-            - agentspec.utils.collect_python_files
+            - agentspec.utils.collect_source_files
             - agentspec.utils.load_env_from_dotenv
             - ast
             - json
@@ -368,24 +186,27 @@ def inject_deterministic_metadata(llm_output: str, metadata: Dict[str, Any], as_
 
 
     why: |
-      Separates deterministic facts (code calls, imports, git history) from LLM-generated reasoning to ensure reproducibility and auditability.
-      LLMs frequently hallucinate or ignore instructions about structured metadata, so programmatic injection after generation prevents contamination.
-      Two format options support both YAML-embedded agentspec blocks and traditional docstring conventions.
-      Regex-based stripping of LLM-generated changelog sections provides defense-in-depth against LLM non-compliance with generation instructions.
+      Deterministic metadata from code analysis and git history must always take precedence over LLM-generated content to ensure documentation accuracy and consistency. Separating concerns between LLM narrative generation (what/why/guardrails) and deterministic metadata injection prevents hallucination of dependencies or changelog entries. The dual-format approach (YAML and plain text) accommodates both structured agentspec blocks and human-readable documentation. Forceful replacement rather than conditional merging ensures metadata integrity regardless of LLM behavior or output variations.
+      
+      Using callable replacements (lambda functions) in re.sub calls instead of string replacements prevents Python from interpreting backslashes in injected metadata as escape sequences, avoiding "bad escape" errors when processing code containing backslash-u sequences or other escape-like patterns.
 
     guardrails:
-      - DO NOT allow LLM to generate deps or changelog content; always use provided metadata dictionary to ensure facts are never hallucinated
-      - ALWAYS strip LLM-generated changelog sections before injecting to prevent duplication and conflicting information
-      - ALWAYS inject deps before "why:" section when present; only fall back to "what:" injection if "why:" is absent
-      - ALWAYS include "No git history available" placeholder if changelog_data is empty to maintain consistent structure
-      - DO NOT modify metadata dictionary in-place; only transform the output string
-      - ALWAYS preserve exact YAML formatting (indentation, quotes, markers) to maintain valid agentspec block syntax
+      - DO NOT attempt to strip or validate LLM-generated narrative content (what/why/guardrails sections); only strip and replace metadata sections (CHANGELOG, DEPENDENCIES, deps, changelog keys) to maintain separation of concerns and preserve LLM creativity in narrative generation.
+      - DO NOT conditionally inject metadata based on LLM output quality or presence of placeholder text; always forcefully overwrite deterministic sections to guarantee metadata correctness and prevent stale or hallucinated entries from persisting.
+      - DO NOT merge LLM-generated and deterministic metadata lists; always replace entirely to avoid duplication and ensure single source of truth from code analysis and git history.
+      - DO NOT assume agentspec block structure exists; handle both cases where "---/agentspec" is present and absent, and gracefully append metadata when closing tag is missing.
+      - DO NOT use greedy regex patterns without explicit boundaries; employ non-greedy matching and lookahead assertions to prevent over-stripping adjacent sections in plain-text format.
+      - ALWAYS use callable replacements (lambda) in re.sub when injecting metadata to prevent backslash interpretation errors.
 
         changelog:
-
-          - "2025-10-31: Clean up docstring formatting"
+          - "- 2025-11-01: fix(critical): use callable replacements in re.sub to prevent 'bad escape \\u' errors when processing JS/TS"
+          - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
+          - "- 2025-10-30: fix(changelog): aggressively strip any LLM-emitted CHANGELOG/DEPENDENCIES sections and append deterministic ones with hashes (646ff28)"
+          - "- 2025-10-30: fix(critical): preserve commit hashes in injected CHANGELOG by relaxing section boundary regex (9c524b4)"
+          - "- 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features (e54b379)"
+          - "- 2025-10-30: feat: robust docstring generation and Haiku defaults (e428337)"
         ---/agentspec
-    '''
+    """
     if not metadata:
         return llm_output
 
@@ -415,11 +236,12 @@ def inject_deterministic_metadata(llm_output: str, metadata: Dict[str, Any], as_
 
         # Inject into LLM output
         # Strategy: Look for "why:" and inject deps before it
+        # USE CALLABLE REPLACEMENT to avoid backslash interpretation in deps_yaml
         if "why:" in llm_output or "why |" in llm_output:
             # Inject deps before why
             output = re.sub(
                 r'(\n\s*why[:\|])',
-                deps_yaml + r'\1',
+                lambda m: deps_yaml + m.group(1),
                 llm_output,
                 count=1
             )
@@ -427,7 +249,7 @@ def inject_deterministic_metadata(llm_output: str, metadata: Dict[str, Any], as_
             # Fallback: inject after what section
             output = re.sub(
                 r'(\n\s*what:.*?\n(?:\s+.*\n)*)',
-                r'\1' + deps_yaml,
+                lambda m: m.group(1) + deps_yaml,
                 llm_output,
                 count=1,
                 flags=re.DOTALL
@@ -439,12 +261,13 @@ def inject_deterministic_metadata(llm_output: str, metadata: Dict[str, Any], as_
 
         # FORCEFULLY INJECT changelog - replace any existing changelog sections with deterministic ones
         # This ensures deterministic metadata ALWAYS wins, regardless of LLM behavior
+        # USE CALLABLE REPLACEMENT to avoid backslash interpretation in changelog_yaml
         if "---/agentspec" in output:
             # If there's already a changelog section, replace it
             if "changelog:" in output:
                 output = re.sub(
                     r'changelog:.*?(?=---/agentspec)',
-                    changelog_yaml.strip(),
+                    lambda m: changelog_yaml.strip(),
                     output,
                     flags=re.DOTALL
                 )
@@ -499,56 +322,30 @@ def inject_deterministic_metadata(llm_output: str, metadata: Dict[str, Any], as_
         return llm_output
 
 
-def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5", as_agentspec_yaml: bool = False, base_url: str | None = None, provider: str | None = 'auto', terse: bool = False, diff_summary: bool = False) -> str:
-    '''
+def strip_js_agentspec_blocks(filepath: Path, *, dry_run: bool = False, mode: str = "all") -> int:
+    """
     ---agentspec
     what: |
-      Generates AI-agent-friendly docstrings or embedded agentspec YAML blocks by invoking Claude API with code context and deterministic metadata injection.
-
-      **Inputs:**
-      - `code` (str): Source code snippet to document
-      - `filepath` (str): Path to the file containing the code (used for context and metadata collection)
-      - `model` (str): Claude model identifier; defaults to "claude-haiku-4-5"
-      - `as_agentspec_yaml` (bool): If True, generates fenced YAML block; if False, generates verbose narrative docstring
-      - `base_url` (str | None): Optional custom LLM endpoint URL for provider routing
-      - `provider` (str | None): LLM provider identifier ('auto', 'anthropic', 'openai', etc.); defaults to 'auto'
-      - `terse` (bool): If True, uses compact prompt template and lower token limits (1500 vs 2000)
-      - `diff_summary` (bool): If True, makes secondary LLM call to infer WHY from function-scoped git diffs
-
-      **Processing flow:**
-      1. Extracts function name from code using regex pattern matching
-      2. Selects prompt template based on `as_agentspec_yaml` and `terse` flags
-      3. Routes through unified LLM layer (`generate_chat()`) with configurable provider and base_url
-      4. Returns narrative-only output (what/why/guardrails). Deterministic metadata (deps/changelog) is applied later via a safe two‑phase write.
-      5. If `diff_summary=True` and function name found, collects function-scoped code diffs and makes secondary LLM call to summarize WHY changes were made, returning the narrative with an appended DIFF SUMMARY section (still narrative-only).
-
-      **Outputs:**
-      - Returns complete docstring string (narrative sections only; metadata injected deterministically)
-      - Raises `anthropic.APIError`, `anthropic.RateLimitError`, `anthropic.AuthenticationError`, or provider-specific exceptions on API failures
-      - Raises `ValueError` or `KeyError` if required module-scope prompts (GENERATION_PROMPT, AGENTSPEC_YAML_PROMPT, GENERATION_PROMPT_TERSE) are undefined
-
-      **Edge cases:**
-      - If function name cannot be extracted from code, metadata collection is skipped (meta remains empty dict)
-      - If metadata collection fails, exception is caught and meta defaults to empty dict
-      - If diff_summary requested but no code diffs found, diff summary section is omitted
-      - If provider is 'auto', LLM layer auto-detects based on model name or environment configuration
-      - Empty or None metadata sections are replaced with explicit placeholder messages to prevent downstream docstring generation failures
-    deps:
+      Scans a JavaScript/TypeScript file and removes JSDoc comment blocks (/** ... */) that contain agentspec-related markers or metadata. The function identifies candidate blocks by searching for specific keywords: "---agentspec", "---/agentspec", "DEPENDENCIES (from code analysis):", "CHANGELOG (from git history):", and "AGENTSPEC_CONTEXT:". It processes the file line-by-line, collecting multi-line JSDoc blocks and testing each against the marker set. Matching blocks are either logged (dry_run=True) or deleted (dry_run=False). The function preserves file line-ending style and returns a count of removed blocks. Non-matching JSDoc blocks and all other content remain untouched. Malformed blocks (missing closing */) are kept as-is.
+        deps:
           calls:
-            - Path
-            - collect_function_code_diffs
-            - collect_metadata
-            - deps.get
-            - dict
-            - generate_chat
-            - inject_deterministic_metadata
-            - m.get
-            - m.group
-            - prompt.format
-            - re.search
+            - any
+            - block.append
+            - endswith
+            - filepath.read_text
+            - filepath.write_text
+            - is_agentspec_block
+            - join
+            - len
+            - out.append
+            - out.extend
+            - print
+            - strip
+            - text.endswith
+            - text.splitlines
           imports:
             - agentspec.collect.collect_metadata
-            - agentspec.utils.collect_python_files
+            - agentspec.utils.collect_source_files
             - agentspec.utils.load_env_from_dotenv
             - ast
             - json
@@ -561,391 +358,407 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5"
 
 
     why: |
-      **Rationale for approach:**
-      - Claude provides superior code understanding for nuanced, AI-consumable docstrings compared to local LLMs or rule-based approaches
-      - Separates LLM generation (narrative only) from deterministic metadata injection to avoid hallucination and ensure accuracy of deps/changelog
-      - Unified LLM layer (`generate_chat()`) abstracts provider differences, enabling flexible routing to Anthropic, OpenAI, or other compatible endpoints without code changes
-      - Optional `diff_summary` flag enables WHY inference from git history without bloating main generation call or requiring git parsing in primary prompt
-      - Terse mode reduces token usage and latency for resource-constrained scenarios while maintaining quality via lower temperature (0.0)
-      - Function-scoped diff collection (via `collect_function_code_diffs()`) excludes docstrings/comments to focus on actual logic changes
-
-      **Tradeoffs:**
-      - Max tokens set to 2000 (1500 for terse) balances comprehensiveness with API cost and latency; lower values truncate valuable content, higher values add unnecessary expense
-      - Temperature set to 0.2 (0.0 for terse) prioritizes consistency over creativity; higher values increase variance in docstring style
-      - Metadata normalization uses defensive placeholder messages rather than raising exceptions, ensuring downstream code never encounters empty sections but potentially obscuring collection failures
-      - Secondary diff_summary call adds latency and cost but provides richer WHY context without requiring complex multi-turn prompting
-      - Regex-based function name extraction is simple but fragile for complex signatures; more robust parsing would require AST analysis
+      Agentspec metadata blocks are auto-generated and may become stale or redundant during development. This function provides a cleanup mechanism to strip embedded documentation without manual editing. The dry_run mode allows safe preview before destructive changes. Marker-based detection is resilient to formatting variations while remaining specific enough to avoid false positives on regular documentation. Line-by-line processing with explicit block collection handles multi-line JSDoc syntax correctly and preserves file structure integrity.
 
     guardrails:
-      - DO NOT pass metadata to LLM during generation; inject only after generation to prevent hallucination of false deps or changelog entries
-      - DO NOT remove max_tokens limits without cost/latency analysis; unbounded tokens significantly increase API costs and response time
-      - DO NOT modify hardcoded model defaults without updating documentation of breaking changes; users may depend on specific model behavior
-      - DO NOT add validation that assumes specific prompt format unless GENERATION_PROMPT contract is formalized; prompt templates are module-scoped and may be overridden
-      - DO NOT call this function without error handling for anthropic.APIError, anthropic.RateLimitError, anthropic.AuthenticationError, or provider-specific exceptions at call site
-      - DO NOT remove or modify placeholder message strings ("No metadata found; Agentspec only allows non-deterministic data for...") as they communicate important context to downstream agents
-      - DO NOT change the changelog template structure (two-item list with "- Current implementation: " stub) without updating all docstring generation code that depends on it
-      - DO NOT add logic that silently drops empty metadata sections; the function's purpose is to guarantee non-empty sections for AI consumption
-      - ALWAYS ensure GENERATION_PROMPT, AGENTSPEC_YAML_PROMPT, and GENERATION_PROMPT_TERSE are defined in module scope before calling
-      - ALWAYS pass filepath context even if not immediately obvious why; it improves Claude's understanding of code purpose and generates more contextually appropriate docstrings
-      - ALWAYS preserve the message.content[0].text extraction pattern unless Anthropic SDK changes response structure
-      - ALWAYS preserve defensive None-handling in `_ensure_nonempty_metadata()` (m or {}) to accept None input gracefully
-      - ALWAYS return a dictionary (never None) from metadata normalization to maintain contract with callers
-    changelog:
-      - "No changelog available"
-    '''
+      - DO NOT remove JSDoc blocks that do not contain any of the five agentspec markers, as they may be legitimate API documentation unrelated to agentspec.
+      - DO NOT modify the file if dry_run=True; only print what would be removed to allow safe inspection before committing changes.
+      - DO NOT assume well-formed JSDoc; gracefully keep malformed blocks (missing */) to avoid data loss on corrupted input.
+      - DO NOT strip trailing newlines if the original file did not have them; preserve exact line-ending semantics to avoid spurious diffs.
+      - DO NOT process files that cannot be read (encoding errors, permission denied); silently return 0 to allow batch operations to continue.
 
-    # Try to infer the function name from the code and collect deterministic metadata
-    import re
+        changelog:
+          - "- no git history available"
+        ---/agentspec
+    """
+    try:
+        text = filepath.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return 0
+
+    lines = text.splitlines()
+    n = len(lines)
+    i = 0
+    removed = 0
+    out: list[str] = []
+
+    def is_agentspec_block(block_lines: list[str]) -> bool:
+        """
+        ---agentspec
+        what: |
+          Detects whether a list of text lines constitutes an agentspec block by checking for the presence of any marker strings that indicate agentspec content. The function joins the input lines into a single string and searches for five specific markers: the opening fence "---agentspec", the closing fence "---/agentspec", the dependency section header "DEPENDENCIES (from code analysis):", the changelog section header "CHANGELOG (from git history):", and the context marker "AGENTSPEC_CONTEXT:". Returns True if any single marker is found anywhere in the joined content, False otherwise. This is a simple substring-based detection mechanism with no positional or structural validation.
+            deps:
+              calls:
+                - any
+                - join
+              imports:
+                - agentspec.collect.collect_metadata
+                - agentspec.utils.collect_python_files
+                - agentspec.utils.collect_source_files
+                - agentspec.utils.load_env_from_dotenv
+                - ast
+                - json
+                - os
+                - pathlib.Path
+                - re
+                - sys
+                - typing.Any
+                - typing.Dict
+
+
+        why: |
+          This function provides a lightweight heuristic for identifying agentspec blocks during parsing or filtering operations. Rather than performing full YAML validation or structural parsing, substring matching offers fast O(n) detection that works across fragmented input (lines that may not yet be reassembled). The choice of markers balances specificity—markers are unlikely to appear in unrelated documentation—with simplicity, avoiding regex or stateful parsing overhead. This approach is suitable for preprocessing steps where only presence/absence matters, not content integrity.
+
+        guardrails:
+          - DO NOT rely on this function for validation of agentspec block structure or YAML correctness; it only confirms presence of markers, not well-formedness.
+          - DO NOT use this as a security boundary; markers can appear in comments or quoted strings within the block, leading to false positives.
+          - DO NOT assume marker presence guarantees a complete or properly closed block; only one marker may be present (e.g., opening fence without closing).
+          - DO NOT call this on extremely large line lists without considering memory impact of the join operation; for streaming scenarios, check markers incrementally instead.
+
+            changelog:
+              - "- no git history available"
+            ---/agentspec
+        """
+        content = "\n".join(block_lines)
+        markers = [
+            "---agentspec",
+            "---/agentspec",
+            "DEPENDENCIES (from code analysis):",
+            "CHANGELOG (from git history):",
+            "AGENTSPEC_CONTEXT:",
+        ]
+        return any(m in content for m in markers)
+
+    while i < n:
+        line = lines[i]
+        if "/**" in line:
+            # Collect the block until '*/'
+            start_idx = i
+            block: list[str] = [line]
+            i += 1
+            found_end = False
+            while i < n:
+                block.append(lines[i])
+                if lines[i].strip().endswith("*/"):
+                    found_end = True
+                    i += 1
+                    break
+                i += 1
+            if not found_end:
+                # Malformed block; keep as-is
+                out.extend(block)
+                continue
+            # Decide deletion
+            if is_agentspec_block(block):
+                removed += 1
+                if dry_run:
+                    print(f"  ✂️  Would remove agentspec JSDoc block at lines {start_idx+1}-{start_idx+len(block)}")
+                # Skip writing this block
+                continue
+            else:
+                out.extend(block)
+        else:
+            out.append(line)
+            i += 1
+
+    if removed and not dry_run:
+        filepath.write_text("\n".join(out) + ("\n" if text.endswith("\n") else ""), encoding="utf-8")
+    return removed
+
+
+def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5", as_agentspec_yaml: bool = False, base_url: str | None = None, provider: str | None = 'auto', terse: bool = False, diff_summary: bool = False) -> str:
+    """
+    ---agentspec
+    what: |
+      Generates narrative-only docstrings (or agentspec YAML) for a function. Implements continuation for
+      long YAML by detecting incomplete fences/sections and issuing follow-up calls (max 2). Provides
+      per-call token budgeting with environment overrides and emits per-function proof logs. Honors
+      AGENTSPEC_GENERATE_STUB=1 to force deterministic narrative for testing (no provider calls).
+
+    guardrails:
+      - DO NOT include deps/changelog here; injected in a separate phase
+      - ALWAYS produce YAML-only output when as_agentspec_yaml=True (no prose outside fences)
+      - ALWAYS validate YAML fences and required sections; continue generation if incomplete
+    changelog:
+      - "2025-11-01: Add continuation + token budgeting + proof logs + stub toggle"
+    ---/agentspec
+    """
+    import re, os
+
+    def _estimate_tokens(s: str) -> int:
+        return max(1, len(s) // 4)  # ~4 chars per token heuristic
+
+    def _yaml_complete(s: str) -> bool:
+        return ("---agentspec" in s) and ("---/agentspec" in s)
+
+    def _yaml_has_core_sections(s: str) -> bool:
+        return all(k in s for k in ("what:", "why:", "guardrails:"))
+
+    # Infer function name (best-effort)
     func_name = None
     m = re.search(r"def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", code)
-    func_name = m.group(1) if m else None
-
-    # DON'T pass metadata to LLM - it will be injected after generation
-    # Choose prompt based on terse flag
-    if as_agentspec_yaml:
-        prompt = AGENTSPEC_YAML_PROMPT
-    elif terse:
-        prompt = GENERATION_PROMPT_TERSE
+    if m:
+        func_name = m.group(1)
     else:
-        prompt = GENERATION_PROMPT
+        m_js = re.search(r"function\s+([A-Za-z_$][\w$]*)\s*\(", code)
+        if m_js:
+            func_name = m_js.group(1)
+        else:
+            m_arrow = re.search(r"(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=.*=>", code)
+            if m_arrow:
+                func_name = m_arrow.group(1)
+
+    # Offline stub toggle for tests
+    if os.getenv('AGENTSPEC_GENERATE_STUB') == '1':
+        if as_agentspec_yaml:
+            return (
+                "---agentspec\n"
+                "what: |\n  ok\n\nwhy: |\n  ok\n\n"
+                "guardrails:\n  - ok\n---/agentspec\n"
+            )
+        else:
+            return (
+                "\"\"\"\n"
+                "Brief one-line description.\n\n"
+                "WHAT:\n- ok\n\n"
+                "WHY:\n- ok\n\n"
+                "GUARDRAILS:\n- ok\n"
+                "\"\"\"\n"
+            )
+
+    # Choose prompt template (loaded from agentspec/prompts/*.md files)
+    if as_agentspec_yaml:
+        prompt = get_agentspec_yaml_prompt()
+    elif terse:
+        prompt = get_terse_docstring_prompt()
+    else:
+        prompt = get_verbose_docstring_prompt()
 
     content = prompt.format(code=code, filepath=filepath, hard_data="(deterministic metadata will be injected by code)")
 
-    # Route through unified LLM layer (Anthropic or OpenAI-compatible)
-    from agentspec.llm import generate_chat
-    text = generate_chat(
-        model=model,
-        messages=[
-            {"role": "system", "content": "You are a precise documentation generator. Generate ONLY narrative sections (what/why/guardrails). DO NOT generate deps or changelog sections."},
-            {"role": "user", "content": content},
-        ],
-        temperature=0.0 if terse else 0.2,
-        max_tokens=1500 if terse else 2000,
-        base_url=base_url,
-        provider=provider,
-    )
+    # Compute token budget with env overrides
+    prompt_tokens_est = _estimate_tokens(content)
+    context_cap = int(os.getenv('AGENTSPEC_CONTEXT_TOKENS', '0') or '0')
+    out_base = 1500 if terse else 2000
+    out_env = int(os.getenv('AGENTSPEC_MAX_OUTPUT_TOKENS', '0') or '0')
+    buffer = int(os.getenv('AGENTSPEC_TOKEN_BUFFER', '500') or '500')
+    max_out = out_base
+    if out_env > 0:
+        max_out = min(max_out, out_env)
+    if context_cap > 0:
+        avail = max(256, context_cap - prompt_tokens_est - buffer)
+        max_out = min(max_out, avail)
 
-    # Inject deterministic metadata (deps and changelog) from code analysis
-    # CRITICAL VALIDATION: Check for format consistency before metadata injection
-    import re
+    # Provider call
+    from agentspec.llm import generate_chat
+    def _call_llm(user_content: str, max_tokens: int) -> str:
+        return generate_chat(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are a precise documentation generator. Generate ONLY narrative sections (what/why/guardrails). DO NOT generate deps or changelog sections."},
+                {"role": "user", "content": user_content},
+            ],
+            temperature=0.0 if terse else 0.2,
+            max_tokens=max_tokens,
+            base_url=base_url,
+            provider=provider,
+        )
+
+    # Emit proof log (pre-call)
+    print(f"[PROOF] func={func_name or '(unknown)'} provider={(provider or 'auto')} model={model} prompt_tokens≈{prompt_tokens_est} max_out={max_out} as_yaml={as_agentspec_yaml}")
+
+    text = _call_llm(content, max_out)
+
+    # YAML continuation if needed
+    attempts = 0
+    if as_agentspec_yaml and (not _yaml_complete(text) or not _yaml_has_core_sections(text)):
+        continuation_prompt = (
+            "Continue the YAML agentspec block you were generating.\n"
+            "Do not repeat content already produced.\n"
+            "Finish any missing sections and CLOSE with ---/agentspec.\n"
+            "Output ONLY YAML (no prose)."
+        )
+        while (not _yaml_complete(text) or not _yaml_has_core_sections(text)) and attempts < 2:
+            more = _call_llm(continuation_prompt, max_out)
+            if more.strip().startswith('---agentspec'):
+                more = more.split('---agentspec', 1)[-1]
+            text = text.rstrip() + "\n" + more.strip() + "\n"
+            attempts += 1
+        if '---agentspec' in text and '---/agentspec' not in text:
+            text = text.rstrip() + "\n---/agentspec\n"
+
+    # Validate formats
     if as_agentspec_yaml:
-        # YAML mode: should NOT contain plain text sections like "WHAT:" "WHY:" "CHANGELOG:"
-        # Check for plain text section headers (typically at start of line with optional leading space)
-        plain_text_patterns = [
-            r'(?m)^[ \t]*WHAT:', r'(?m)^[ \t]*WHY:', r'(?m)^CHANGELOG \(from git history\):'
-        ]
-        if any(re.search(pattern, text) for pattern in plain_text_patterns):
+        bad = any(re.search(p, text) for p in [r'(?m)^[ \t]*WHAT:', r'(?m)^[ \t]*WHY:', r'(?m)^CHANGELOG \(from git history\):'])
+        if bad:
             raise ValueError("LLM generated invalid YAML format - contains plain text sections. Rejecting and requiring regeneration.")
     else:
-        # Plain text mode: should NOT contain YAML sections
-        # Check for YAML block markers and indented YAML section headers (not plain text headers)
-        yaml_patterns = [
-            r'^---agentspec',  # YAML block start at beginning of line
-            r'(?m)^[ \t]+what:',  # Indented YAML what: (not plain WHAT:)
-            r'(?m)^[ \t]+why:',   # Indented YAML why:
-            r'(?m)^[ \t]+changelog:',  # Indented YAML changelog:
-            r'---/agentspec'  # YAML block end
-        ]
-        if any(re.search(pattern, text, re.MULTILINE) for pattern in yaml_patterns):
+        has_yaml = any(re.search(p, text, re.MULTILINE) for p in [r'^---agentspec', r'(?m)^[ \t]+what:', r'(?m)^[ \t]+why:', r'(?m)^[ \t]+changelog:', r'---/agentspec'])
+        if has_yaml:
             raise ValueError("LLM generated invalid plain text format - contains YAML sections. Rejecting and requiring regeneration.")
+
+    # Record per-call metrics
+    try:
+        out_tokens_est = _estimate_tokens(text)
+        GEN_METRICS.append({
+            'file': filepath,
+            'func': func_name or '(unknown)',
+            'prompt_tokens': prompt_tokens_est,
+            'output_tokens': out_tokens_est,
+            'continuations': attempts if as_agentspec_yaml else 0,
+            'yaml': bool(as_agentspec_yaml),
+            'model': model,
+            'provider': provider or 'auto',
+        })
+    except Exception:
+        pass
 
     result = text
 
-    # If diff_summary requested, make separate LLM call to summarize function-scoped code diffs (excluding docstrings/comments)
+    # Optional diff summary
     if diff_summary and func_name:
         from agentspec.collect import collect_function_code_diffs
         code_diffs = collect_function_code_diffs(Path(filepath), func_name)
-
         if code_diffs:
-            # Build prompt for LLM: infer the WHY from the code changes and commit messages
             diff_prompt = (
                 "CRITICAL: Output format is EXACTLY one line per commit in format:\n"
                 "- YYYY-MM-DD: summary (hash)\n\n"
                 "Summarize the intent (WHY) behind these changes to the specific function.\n"
                 "Only consider the added/removed lines shown (docstrings/comments removed).\n"
-                "Use the exact date and commit hash provided. Provide a concise WHY summary in <=15 words.\n\n"
+                "Use the exact date and commit hash provided. Provide a concise WHY summary.\n\n"
             )
             for d in code_diffs:
-                commit_hash = d.get('hash', 'unknown')
-                diff_prompt += f"Commit: {d['date']} - {d['message']} ({commit_hash})\n"
-                diff_prompt += f"Function: {func_name}\n"
-                diff_prompt += f"Changed lines:\n{d['diff']}\n\n"
-
-            # Separate API call for diff summaries
-            from agentspec.llm import generate_chat
-            summary_system_prompt = (
-                "CRITICAL: You are a precise code-change analyst. Output EXACTLY one line per commit in format:\n"
-                "- YYYY-MM-DD: concise summary (hash)\n\n"
-                "Infer WHY the function changed in <=10 words. Use exact date and hash provided."
-                if terse else
-                "CRITICAL: You are a precise code-change analyst. Output EXACTLY one line per commit in format:\n"
-                "- YYYY-MM-DD: concise summary (hash)\n\n"
-                "Explain WHY the function changed in <=15 words. Use exact date and hash provided."
-            )
-            diff_summaries_text = generate_chat(
+                diff_prompt += f"Commit: {d['date']} - {d['message']} ({d.get('hash','')})\nFunction: {func_name}\nChanged lines:\n{d.get('diff','')}\n\n"
+            diff_text = generate_chat(
                 model=model,
                 messages=[
-                    {"role": "system", "content": summary_system_prompt},
-                    {"role": "user", "content": diff_prompt}
+                    {"role": "system", "content": "Output EXACTLY one line per commit: - YYYY-MM-DD: concise summary (hash)"},
+                    {"role": "user", "content": diff_prompt},
                 ],
                 temperature=0.0,
-                max_tokens=500 if terse else 1000,
+                max_tokens=min(1000, max_out),
                 base_url=base_url,
                 provider=provider,
             )
-
-            # Validate diff summary format
-            import re
-            expected_pattern = re.compile(r'^\s*-\s+\d{4}-\d{2}-\d{2}:\s+.+\([a-f0-9]{4,}\)\s*$', re.MULTILINE)
-            lines = [line.strip() for line in diff_summaries_text.split('\n') if line.strip()]
-
-            # Check if response follows the required format
-            valid_lines = []
-            for line in lines:
-                if expected_pattern.match(line):
-                    valid_lines.append(line)
-                elif line and not line.startswith('#') and not line.startswith('```'):
-                    # If line has content but doesn't match format, LLM ignored instructions
-                    print(f"  ⚠️  Warning: Diff summary line doesn't match required format: {line[:50]}...")
-                    break
-            else:
-                # All lines are valid or empty
-                if not valid_lines:
-                    print("  ⚠️  Warning: Diff summary is empty")
-                else:
-                    print(f"  ✅ Diff summary format validated ({len(valid_lines)} entries)")
-
-            # Inject function-scoped diff summary section
-            diff_summary_section = f"\n\nFUNCTION CODE DIFF SUMMARY (LLM-generated):\n{diff_summaries_text}\n"
-            result += diff_summary_section
+            result += f"\n\nFUNCTION CODE DIFF SUMMARY (LLM-generated):\n{diff_text}\n"
 
     return result
 
 def insert_docstring_at_line(filepath: Path, lineno: int, func_name: str, docstring: str, force_context: bool = False) -> bool:
     """
-    ```python
-    \"""
-    Insert or replace a docstring at a specific function, with optional debug context printing.
+    ---agentspec
+    what: |
+      Inserts or replaces a docstring for a specified function in a Python file at a given line number.
 
-    WHAT:
-    - Locates function by name/line using AST (with regex fallback), detects and removes existing docstring, inserts new docstring with correct indentation
-    - Optionally adds print statement with first 3 docstring bullets for agent debugging
-    - Validates syntax via compile before writing; returns False if compilation fails
+      **Inputs:**
+      - `filepath`: Path object pointing to the target Python file
+      - `lineno`: Approximate line number where the function is defined (1-based)
+      - `func_name`: Name of the function to document
+      - `docstring`: The docstring content to insert (plain text, without delimiters)
+      - `force_context`: Boolean flag to append a context print statement after the docstring
 
-    WHY:
-    - AST-first approach handles multi-line signatures and decorators robustly; textual fallback preserves formatting better than full rewrite
-    - Compile validation prevents leaving broken Python files on insertion errors
-    - Bottom-to-top processing (via reversed insertion) prevents line number invalidation on repeated runs
+      **Outputs:**
+      - Returns `True` if insertion succeeded and file was written; `False` if syntax validation failed
 
-    GUARDRAILS:
-    - DO NOT modify indentation calculation (base_indent + 4) without verifying 4-space function body assumption
-    - DO NOT remove quote-type detection (\""" vs '''); both are valid and files may use either
-    - DO NOT skip existing docstring/context-print removal; prevents duplicate accumulation on repeated runs
-    - ALWAYS use reversed() when inserting new_lines to maintain correct line order
-    - ALWAYS escape backslashes before quotes in print_content to prevent syntax errors in generated code
-    \"""
-    ```
+      **Behavior:**
+      1. Reads the entire file into memory as a list of lines
+      2. Locates the function definition using regex pattern matching on `func_name`, falling back to the provided `lineno` if not found
+      3. Uses AST parsing to robustly identify the function node and its first statement, handling multi-line signatures, annotations, and decorators
+      4. Detects and removes any existing docstring (Expr node containing a Constant or Str value) using AST line number metadata
+      5. Also removes any trailing `[AGENTSPEC_CONTEXT]` print statement if present
+      6. Determines appropriate indentation from the function definition line
+      7. Selects delimiter (`\"""` or `'''`) based on content, preferring triple-double unless it appears in the docstring and triple-single does not
+      8. Escapes conflicting delimiters within the docstring content
+      9. Formats the new docstring with proper indentation and line breaks
+      10. If `force_context=True`, extracts up to 3 bullet points (lines starting with `-`) and appends a print statement with escaped content
+      11. Performs a compile-test on a temporary file to validate syntax before writing
+      12. Writes the modified file only if compilation succeeds
 
-    DEPENDENCIES (from code analysis):
-    Calls: abs, ast.parse, ast.walk, candidate.insert, candidates.append, docstring.split, enumerate, f.readlines, f.writelines, func_line.lstrip, hasattr, isinstance, join, len, line.count, line.startswith, line.strip, list, max, min, new_lines.append, open, os.close, os.remove, path.exists, pattern.match, print, print_content.replace, py_compile.compile, re.compile, re.escape, replace, reversed, safe_doc.replace, safe_doc.split, sections.append, strip, tempfile.mkstemp, tf.writelines
-    Imports: agentspec.collect.collect_metadata, agentspec.utils.collect_python_files, agentspec.utils.load_env_from_dotenv, ast, json, os, pathlib.Path, re, sys, typing.Any, typing.Dict
+      **Edge cases:**
+      - Multi-line function signatures: AST parsing handles these robustly
+      - Existing docstrings: Detected and deleted using AST node boundaries (1-based to 0-based index conversion)
+      - Docstring content containing delimiters: Escaped or delimiter switched to avoid breakage
+      - AST parsing failure: Falls back to textual scanning using parenthesis depth tracking and colon detection
+      - Syntax errors in candidate: Rejected with warning; original file left untouched
+      - Empty or missing function body: Inserts after function definition line
+        deps:
+          calls:
+            - abs
+            - ast.parse
+            - ast.walk
+            - candidate.insert
+            - candidates.append
+            - docstring.split
+            - enumerate
+            - f.readlines
+            - f.writelines
+            - func_line.lstrip
+            - hasattr
+            - isinstance
+            - join
+            - len
+            - line.count
+            - line.startswith
+            - line.strip
+            - list
+            - max
+            - min
+            - new_lines.append
+            - open
+            - os.close
+            - os.remove
+            - path.exists
+            - pattern.match
+            - print
+            - print_content.replace
+            - py_compile.compile
+            - re.compile
+            - re.escape
+            - replace
+            - reversed
+            - safe_doc.replace
+            - safe_doc.split
+            - sections.append
+            - strip
+            - tempfile.mkstemp
+            - tf.writelines
+          imports:
+            - agentspec.collect.collect_metadata
+            - agentspec.utils.collect_python_files
+            - agentspec.utils.collect_source_files
+            - agentspec.utils.load_env_from_dotenv
+            - ast
+            - json
+            - os
+            - pathlib.Path
+            - re
+            - sys
+            - typing.Any
+            - typing.Dict
 
 
-    CHANGELOG (from git history):
-    - 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features
-    - Reads a Python source file and locates the function definition at the specified line number
-    - Detects and removes any existing docstring (both single-line and multi-line formats using \"\"\" or ''')
-    - Removes any existing [AGENTSPEC_CONTEXT] debug print statement if present
-    - Calculates proper indentation based on the function definition line to maintain code style
-    - Formats the new docstring with correct triple-quote wrapping and indentation
-    - Optionally adds a print statement containing the first 3 bullet points from the docstring for agent debugging
-    - Writes the modified file back to disk, preserving all other code
-    - Returns nothing; operates entirely through file I/O side effects
-    - Called by: agentspec/generate.py (likely called from a main documentation generation pipeline)
-    - Calls: open() (built-in), str.split(), str.strip(), str.lstrip(), str.replace(), reversed() (built-in), list.insert() (built-in)
-    - Imports used: Path (from pathlib)
-    - External services: File system access (reads and writes to filepath)
-    - Uses line-by-line string manipulation rather than AST parsing to preserve exact file formatting, comments, and non-docstring content
-    - Reads entire file into memory (readlines()) for simplicity; viable for typical Python source files but could be memory-intensive for very large files (>100MB)
-    - Detects both \"\"\" and ''' delimiters because Python supports both, requiring careful quote type tracking
-    - Handles both single-line docstrings (opening and closing quotes on same line) and multi-line docstrings with separate logic paths
-    - Removes existing docstrings before insertion to prevent duplicate docstrings and ensure old content does not interfere
-    - The force_context parameter allows injecting debug information into the function body itself as a print statement, enabling runtime inspection by agents
-    - Indentation is calculated by measuring the function definition line's leading whitespace, then adding 4 spaces for function body content (standard Python convention)
-    - Uses reversed() when inserting new lines to maintain correct order when inserting at the same index repeatedly
-    - Escapes backslashes and quotes in the context print statement to prevent syntax errors when the print statement is written to file
-    - [Current date]: Initial implementation with support for single/multi-line docstring detection, existing docstring removal, intelligent indentation preservation, and optional agent context printing
-    - DO NOT modify the indentation calculation logic (base_indent + 4) without understanding that it assumes standard 4-space function body indentation
-    - DO NOT remove the quote type detection logic (\"\"\" vs ''') as both are valid Python and files may use either convention
-    - DO NOT skip the "skip existing context print" block as it prevents accumulation of duplicate print statements on repeated runs
-    - DO NOT change the file I/O to use different methods (e.g., pathlib.write_text) without verifying that readlines()/writelines() behavior is preserved, as this maintains line endings
-    - ALWAYS preserve the reversed() iteration when inserting new_lines to maintain correct line order
-    - ALWAYS escape backslashes before quotes in print_content to prevent syntax errors in the generated print statement
-    - ALWAYS verify that the insert_idx is correctly positioned after skipping existing docstrings before inserting new content
-    - NOTE: This function DESTROYS any existing docstring without backup; if the docstring contains critical information not captured in the new docstring, it will be lost permanently
-    - NOTE: The force_context feature truncates docstring content to first 3 bullet points; longer docstrings will lose information in the debug output
-    - NOTE: This function assumes well-formed Python files; syntax errors or unusual formatting (e.g., decorators directly touching function def) may cause incorrect line detection
-    - NOTE: File encoding is assumed to be UTF-8 (default for open()); files with other encodings may fail silently or produce corrupted output
-    -        target = None
-    -            # Insert before the first statement in the body
-    -            insert_idx = (target.body[0].lineno or (func_line_idx + 1)) - 1
-    -    except Exception:
-    -    # Skip any existing docstring if present
-    -    if insert_idx < len(lines):
-    -        line = lines[insert_idx].strip()
-    -        if line.startswith('\"""') or line.startswith("'''"):
-    -            quote_type = '\"""' if '\"""' in line else "'''"
-    -            # Skip existing docstring
-    -            if line.count(quote_type) >= 2:
-    -                # Single-line docstring
-    -                insert_idx += 1
-    -            else:
-    -                # Multi-line docstring - find end
-    -                insert_idx += 1
-    -                while insert_idx < len(lines):
-    -                    if quote_type in lines[insert_idx]:
-    -                        break
-    -            # Also skip any existing context print
-    -            if insert_idx < len(lines) and '[AGENTSPEC_CONTEXT]' in lines[insert_idx]:
-    -                insert_idx += 1
-    -            # Delete the old docstring and print
-    -            del lines[func_line_idx + 1:insert_idx]
-    -            insert_idx = func_line_idx + 1
-    - 2025-10-30: feat: robust docstring generation and Haiku defaults
-    - Reads a Python source file and locates the function definition at the specified line number
-    - Detects and removes any existing docstring (both single-line and multi-line formats using \"\"\" or ''')
-    - Removes any existing [AGENTSPEC_CONTEXT] debug print statement if present
-    - Calculates proper indentation based on the function definition line to maintain code style
-    - Formats the new docstring with correct triple-quote wrapping and indentation
-    - Optionally adds a print statement containing the first 3 bullet points from the docstring for agent debugging
-    - Writes the modified file back to disk, preserving all other code
-    - Returns nothing; operates entirely through file I/O side effects
-    - Called by: agentspec/generate.py (likely called from a main documentation generation pipeline)
-    - Calls: open() (built-in), str.split(), str.strip(), str.lstrip(), str.replace(), reversed() (built-in), list.insert() (built-in)
-    - Imports used: Path (from pathlib)
-    - External services: File system access (reads and writes to filepath)
-    - Uses line-by-line string manipulation rather than AST parsing to preserve exact file formatting, comments, and non-docstring content
-    - Reads entire file into memory (readlines()) for simplicity; viable for typical Python source files but could be memory-intensive for very large files (>100MB)
-    - Detects both \"\"\" and ''' delimiters because Python supports both, requiring careful quote type tracking
-    - Handles both single-line docstrings (opening and closing quotes on same line) and multi-line docstrings with separate logic paths
-    - Removes existing docstrings before insertion to prevent duplicate docstrings and ensure old content does not interfere
-    - The force_context parameter allows injecting debug information into the function body itself as a print statement, enabling runtime inspection by agents
-    - Indentation is calculated by measuring the function definition line's leading whitespace, then adding 4 spaces for function body content (standard Python convention)
-    - Uses reversed() when inserting new lines to maintain correct order when inserting at the same index repeatedly
-    - Escapes backslashes and quotes in the context print statement to prevent syntax errors when the print statement is written to file
-    - [Current date]: Initial implementation with support for single/multi-line docstring detection, existing docstring removal, intelligent indentation preservation, and optional agent context printing
-    - DO NOT modify the indentation calculation logic (base_indent + 4) without understanding that it assumes standard 4-space function body indentation
-    - DO NOT remove the quote type detection logic (\"\"\" vs ''') as both are valid Python and files may use either convention
-    - DO NOT skip the "skip existing context print" block as it prevents accumulation of duplicate print statements on repeated runs
-    - DO NOT change the file I/O to use different methods (e.g., pathlib.write_text) without verifying that readlines()/writelines() behavior is preserved, as this maintains line endings
-    - ALWAYS preserve the reversed() iteration when inserting new_lines to maintain correct line order
-    - ALWAYS escape backslashes before quotes in print_content to prevent syntax errors in the generated print statement
-    - ALWAYS verify that the insert_idx is correctly positioned after skipping existing docstrings before inserting new content
-    - NOTE: This function DESTROYS any existing docstring without backup; if the docstring contains critical information not captured in the new docstring, it will be lost permanently
-    - NOTE: The force_context feature truncates docstring content to first 3 bullet points; longer docstrings will lose information in the debug output
-    - NOTE: This function assumes well-formed Python files; syntax errors or unusual formatting (e.g., decorators directly touching function def) may cause incorrect line detection
-    - NOTE: File encoding is assumed to be UTF-8 (default for open()); files with other encodings may fail silently or produce corrupted output
-    -    # Find the function definition line
-    -    func_line_idx = lineno - 1
-    -    # Find the first line after the function signature (where docstring goes)
-    -    new_lines.append(f'{indent}\"""\n')
-    -    for line in docstring.split('\n'):
-    -    new_lines.append(f'{indent}\"""\n')
-    -    # Insert the new docstring
-    -        lines.insert(insert_idx, line)
-    -    # Write back
-    -    with open(filepath, 'w') as f:
-    -        f.writelines(lines)
-    - 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate
-    -    Insert docstring at a specific line number in a file.
-    -    This handles the actual file modification.
-    -    \"""Process a single file and generate docstrings.\"""
-    - 2025-10-29: CRITICAL FIX: Escape quotes in context print statements to prevent syntax errors
-    - 2025-10-29: CRITICAL FIX: Process functions bottom-to-top to prevent line number invalidation and syntax errors
-    -    \"""Insert or replace docstring in function, optionally adding context print.\"""
-    -    # Find where to insert docstring (right after function definition)
-    -    func_line = node.lineno - 1
-    -    # Check if there's already a docstring
-    -    existing_docstring = ast.get_docstring(node)
-    -    if existing_docstring:
-    -        # Find and replace existing docstring
-    -        start_line = func_line + 1
-    -        # Skip decorators and find the actual def line
-    -        for i in range(func_line, len(lines)):
-    -            if 'def ' in lines[i]:
-    -                start_line = i + 1
-    -                break
-    -        # Find end of existing docstring
-    -        in_docstring = False
-    -        quote_type = None
-    -        end_line = start_line
-    -        for i in range(start_line, len(lines)):
-    -            line = lines[i].strip()
-    -            if not in_docstring:
-    -                if line.startswith('\"""') or line.startswith("'''"):
-    -                    in_docstring = True
-    -                    quote_type = '\"""' if '\"""' in line else "'''"
-    -                    if line.count(quote_type) >= 2:
-    -                        # Single line docstring
-    -                        end_line = i + 1
-    -                        break
-    -                if quote_type in line:
-    -                    end_line = i + 1
-    -                    break
-    -        # Check if there's already a context print statement after docstring
-    -        has_context_print = False
-    -        if end_line < len(lines):
-    -            next_line = lines[end_line].strip()
-    -            if 'print(f"[AGENTSPEC_CONTEXT]' in next_line or 'print("[AGENTSPEC_CONTEXT]' in next_line:
-    -                has_context_print = True
-    -                end_line += 1  # Include the print line in deletion
-    -        # Remove old docstring (and old print if exists)
-    -        del lines[start_line:end_line]
-    -        insert_line = start_line
-    -    else:
-    -        # Find insertion point (after function definition line)
-    -        for i in range(func_line, len(lines)):
-    -            if 'def ' in lines[i] or 'async def' in lines[i]:
-    -                insert_line = i + 1
-    -                break
-    -    indent = '    '  # Assuming 4-space indent
-    -    formatted = f'{indent}\"""\n'
-    -        formatted += f'{indent}{line}\n'
-    -    formatted += f'{indent}\"""\n'
-    -    # Add context-forcing print if requested
-    -        # Extract key sections for print
-    -        sections_to_print = []
-    -        current_section = None
-    -            if line.startswith('WHAT THIS DOES:'):
-    -                current_section = 'WHAT_THIS_DOES'
-    -            elif line.startswith('DEPENDENCIES:'):
-    -                current_section = 'DEPENDENCIES'
-    -            elif line.startswith('WHY THIS APPROACH:'):
-    -                current_section = 'WHY_APPROACH'
-    -            elif line.startswith('AGENT INSTRUCTIONS:'):
-    -                current_section = 'AGENT_INSTRUCTIONS'
-    -            elif line.startswith('CHANGELOG:'):
-    -                current_section = None  # Skip changelog in prints
-    -            elif current_section and line.startswith('-'):
-    -                sections_to_print.append(line)
-    -        # Add print statement that forces context
-    -        func_name = node.name
-    -        print_content = ' | '.join(sections_to_print[:3])  # First 3 bullet points
-    -        formatted += f'{indent}print(f"[AGENTSPEC_CONTEXT] {func_name}: {print_content}")\n'
-    -    # Insert new docstring (and print if applicable)
-    -    lines.insert(insert_line, formatted)
-    -    \"""Find all functions that need docstrings.\"""
-    -    def __init__(self):
-    -        self.functions = []
-    -    def visit_FunctionDef(self, node):
-    -        if not ast.get_docstring(node) or len(ast.get_docstring(node).split('\n')) < 5:
-    -            self.functions.append((node.lineno, node.name))
-    -        self.generic_visit(node)
-    -    def visit_AsyncFunctionDef(self, node):
-    -        if not ast.get_docstring(node) or len(ast.get_docstring(node).split('\n')) < 5:
-    -            self.functions.append((node.lineno, node.name))
-    -        self.generic_visit(node)
+    why: |
+      AST-based approach provides robustness against complex Python syntax (decorators, type hints, multi-line signatures) that regex or simple textual scanning cannot reliably handle. The 1-based to 0-based index conversion is critical because Python's `ast` module reports line numbers as 1-based (matching editor conventions) while Python lists are 0-indexed.
 
+      Compile-testing before write prevents leaving the file in a broken state due to escaping errors or malformed docstring formatting. Fallback to textual scanning ensures graceful degradation if AST parsing encounters unsupported syntax or edge cases.
+
+      Delimiter selection logic avoids breaking docstrings that contain triple quotes. Context print extraction and escaping supports downstream tooling that parses `[AGENTSPEC_CONTEXT]` markers while preventing quote/backslash injection attacks.
+
+    guardrails:
+      - DO NOT assume AST line numbers are 0-based; they are always 1-based per Python spec. Failure to convert causes off-by-one deletion of wrong lines.
+      - DO NOT write to the file without first validating syntax via `py_compile`; this prevents corrupting the source file if docstring formatting is malformed.
+      - DO NOT skip escaping triple quotes in docstring content; unescaped delimiters will break the syntax of the inserted docstring.
+      - DO NOT assume the function definition is always on a single line; use AST to find the actual first statement in the function body, not just `lineno + 1`.
+      - DO NOT leave temporary files behind; always clean up in a `finally` block to avoid disk space leaks.
+      - DO NOT assume existing docstrings are always single-line; use AST `end_lineno` to correctly identify multi-line docstring boundaries.
+
+        changelog:
+          - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
+          - "- 2025-10-30: fix(critical): preserve commit hashes in injected CHANGELOG by relaxing section boundary regex (9c524b4)"
+          - "- 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features (e54b379)"
+          - "- 2025-10-30: feat: robust docstring generation and Haiku defaults (e428337)"
+          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate (172e0a7)"
+        ---/agentspec
     """
     with open(filepath, 'r') as f:
         lines = f.readlines()
@@ -1102,7 +915,7 @@ def insert_docstring_at_line(filepath: Path, lineno: int, func_name: str, docstr
     # Add context print if requested
     if force_context:
         # Extract key bullet points
-        sections = []
+        sections: list[str] = []
         for line in docstring.split('\n'):
             line = line.strip()
             if line.startswith('-') and len(sections) < 3:
@@ -1153,60 +966,50 @@ def insert_docstring_at_line(filepath: Path, lineno: int, func_name: str, docstr
         f.writelines(candidate)
     return True
 
-def process_file(filepath: Path, dry_run: bool = False, force_context: bool = False, model: str = "claude-haiku-4-5", as_agentspec_yaml: bool = False, base_url: str | None = None, provider: str | None = 'auto', update_existing: bool = False, terse: bool = False, diff_summary: bool = False):
-    '''
+
+# --- Minimal JS/TS support (discovery + insertion via adapter) ---
+JS_EXTS = {".js", ".mjs", ".jsx", ".ts", ".tsx"}
+
+
+def _discover_js_functions(
+    filepath: Path, *, require_agentspec: bool = False, update_existing: bool = False
+) -> list[tuple[int, str, str]]:
+    """
     ---agentspec
     what: |
-      Processes a single Python file to identify functions lacking verbose docstrings and generates AI-consumable documentation for them using the Claude API.
+      Discovers JavaScript functions in a file that require agentspec documentation.
 
-      Behavior:
-      - Extracts all function definitions from the target file using AST parsing via extract_function_info()
-      - Filters to functions without existing verbose docstrings (or all functions if update_existing=True)
-      - Displays a summary of findings to the user with function names and line numbers
-      - For each function needing documentation, calls generate_docstring() to create AI-generated docstrings via Claude API
-      - Inserts generated docstrings into the source file at correct line numbers using insert_docstring_at_line()
-      - Processes functions in descending line order (bottom-to-top) to prevent line number shifting during multi-insertion
-      - Supports dry-run mode to preview changes without file modification
-      - Supports force-context mode to inject print() statements alongside docstrings for debugging
-      - Optionally generates agentspec YAML blocks instead of traditional docstrings when as_agentspec_yaml=True
-      - Handles SyntaxError gracefully with early return and batch-safe failure isolation
+      Scans a JavaScript file line-by-line to identify function declarations (both traditional `function name()` and arrow function assignments `const name = () =>`), including those with `export` modifiers. For each discovered function, examines up to 20 lines above to detect existing JSDoc blocks and checks for the presence of an agentspec marker (`---agentspec`).
 
-      Inputs:
-      - filepath: Path object pointing to Python file to process
-      - dry_run: bool (default False) - preview mode without file modifications
-      - force_context: bool (default False) - inject debug print() statements
-      - model: str (default "claude-haiku-4-5") - Claude model identifier
-      - as_agentspec_yaml: bool (default False) - generate YAML agentspec blocks instead of docstrings
-      - base_url: str | None (default None) - custom API endpoint URL
-      - provider: str | None (default 'auto') - API provider selection
-      - update_existing: bool (default False) - regenerate docstrings for all functions
-      - terse: bool (default False) - generate concise documentation
-      - diff_summary: bool (default False) - include diff summary in output
+      Returns a list of tuples containing (line_number, function_name, code_snippet) sorted in reverse line order. Each tuple represents a function candidate that either lacks documentation entirely, lacks an agentspec block when required, or is flagged for update. The code snippet captures the function declaration plus approximately 8 subsequent lines for context.
 
-      Outputs:
-      - Returns None in all cases (completion, early exit on syntax error, or dry-run)
-      - Side effects: modifies source file in-place (unless dry_run=True) by inserting docstrings
-      - Console output: progress messages, function list, success/error feedback
+      Handles file read errors gracefully by returning an empty list. Regex patterns match standard JavaScript function naming conventions (alphanumeric, underscore, dollar sign).
 
-      Edge cases:
-      - File with no functions: exits early with informational message
-      - File with all functions already documented: exits early (unless update_existing=True)
-      - SyntaxError in target file: caught and reported, allows batch processing to continue
-      - Individual function generation failure: caught and isolated, remaining functions still processed
-      - Dry-run mode: returns before any file modifications occur
-      - insert_docstring_at_line returns False: skips insertion with warning (syntax safety check)
-    deps:
+      Input parameters control filtering behavior: `require_agentspec=True` identifies functions with JSDoc but missing agentspec markers; `update_existing=True` includes all discovered functions regardless of documentation state.
+        deps:
           calls:
-            - extract_function_info
-            - functions.sort
-            - generate_docstring
-            - insert_docstring_at_line
+            - arrow_pat.match
+            - candidates.append
+            - candidates.sort
+            - enumerate
+            - filepath.read_text
+            - func_pat.match
+            - has_jsdoc
+            - join
             - len
-            - print
-            - str
+            - m1.group
+            - m2.group
+            - max
+            - min
+            - range
+            - re.compile
+            - s.endswith
+            - strip
+            - text.splitlines
           imports:
             - agentspec.collect.collect_metadata
             - agentspec.utils.collect_python_files
+            - agentspec.utils.collect_source_files
             - agentspec.utils.load_env_from_dotenv
             - ast
             - json
@@ -1219,42 +1022,295 @@ def process_file(filepath: Path, dry_run: bool = False, force_context: bool = Fa
 
 
     why: |
-      Bottom-to-top processing prevents cascading line offset errors: insertions from end of file backward ensure previously-calculated line numbers remain valid as the file grows.
-
-      Nested exception handling (outer for SyntaxError, inner for per-function failures) allows graceful degradation: one malformed function or API error does not block remaining functions in the same file or other files in batch operations.
-
-      Dry-run mode implemented as early return before any file modifications enables safe preview and user confidence before committing changes.
-
-      Force-context flag is propagated to insert_docstring_at_line rather than handled here, maintaining separation of concerns: this function orchestrates the workflow while insert_docstring_at_line handles file mutation details.
-
-      Model parameter exposed as configurable argument (not hardcoded) allows runtime selection of Claude models, supporting experimentation with different versions and cost/quality tradeoffs.
-
-      Print statements used for user feedback rather than logging module ensures immediate console output during long-running batch operations without buffering delays.
-
-      Sequential processing chosen over parallel/concurrent to avoid Claude API rate-limit issues and maintain simplicity; docstring generation is I/O-bound but rate-limited, not CPU-bound.
-
-      Complete API response collection (not streaming) is acceptable for docstring length and simplifies error handling and insertion logic.
+      This discovery mechanism enables automated or semi-automated generation of agentspec documentation blocks for JavaScript codebases. By identifying undocumented or partially documented functions, it supports tooling that can prompt developers or generate templates for specification. Reverse sorting by line number allows downstream processors to insert documentation without invalidating earlier line references. The configurable filtering logic accommodates different workflows: initial documentation generation, targeted agentspec addition to existing JSDoc, or bulk updates.
 
     guardrails:
-      - DO NOT modify the exception handling structure without understanding the bottom-to-top processing dependency; removing the nested try-except risks one malformed function blocking the entire file
-      - DO NOT change the order of operations (extract → check → generate → insert) without reviewing how line numbers are affected by insertions
-      - DO NOT hardcode the model name or remove the model parameter; this parameter must remain configurable for testing different Claude models
-      - DO NOT remove the dry-run early return; users depend on this to preview changes without file modification
-      - DO NOT skip the bottom-to-top sort; processing top-to-bottom will invalidate line numbers as insertions shift subsequent lines
-      - ALWAYS preserve the print statements that provide user feedback; they are critical for monitoring long-running batch operations
-      - ALWAYS pass filepath as a string (str(filepath)) when calling generate_docstring, even though filepath is a Path object, if the API expects strings
-      - ALWAYS maintain the force_context flag propagation to insert_docstring_at_line; this controls a critical feature for debugging
-      - ALWAYS process functions in bottom-to-top order (verify extract_function_info returns them sorted by line number descending) to prevent line number invalidation
-      - ALWAYS check the return value of insert_docstring_at_line; False indicates syntax safety rejection and should be reported to user
-      - NOTE: This function modifies the source file in-place; ensure files are version-controlled or backed up before running in non-dry-run mode
-      - NOTE: The Claude API call via generate_docstring may fail due to rate limits, authentication errors, or network issues; these are caught but users should monitor printed error messages
-      - NOTE: If a file has no functions or all functions already have docstrings, the function exits early without modifying anything; this is correct behavior and means repeated runs on the same file are safe
+      - DO NOT assume file encoding beyond UTF-8 with error ignoring; malformed files should fail silently and return empty results to prevent pipeline breakage.
+      - DO NOT match function names in comments or strings; regex patterns are line-anchored to reduce false positives, but multi-line string literals or commented-out code may still be detected.
+      - DO NOT look beyond 20 lines above for JSDoc markers; this bounds search cost and assumes JSDoc is reasonably proximate to function declarations.
+      - DO NOT include functions that already have complete agentspec documentation when `update_existing=False` and `require_agentspec=False`; this prevents redundant processing.
+      - DO NOT return candidates in original line order; reverse sorting is essential to prevent line number shifts when inserting documentation blocks sequentially.
 
-    changelog:
-
-      - "2025-10-31: Clean up docstring formatting"
+        changelog:
+          - "- no git history available"
         ---/agentspec
-    '''
+    """
+    try:
+        text = filepath.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return []
+
+    lines = text.splitlines()
+    candidates: list[tuple[int, str, str]] = []
+
+    # Patterns: function name(, export function name(, const name = (...) =>
+    func_pat = re.compile(r"^\s*(?:export\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(")
+    arrow_pat = re.compile(r"^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=.*=>")
+
+    def has_jsdoc(idx: int) -> tuple[bool, bool]:
+        """
+        ---agentspec
+        what: |
+          Scans up to 20 lines above a given line index to detect JSDoc comment blocks and identify whether they contain an agentspec marker. Returns a tuple of two booleans: (has_any_jsdoc, has_agentspec_marker). The function searches backward from the target line, looking for the closing */ of a JSDoc block, then locates the opening /** to determine if the complete block contains the "---agentspec" marker string. If no JSDoc block is found within the 20-line window, returns (False, False). If a JSDoc block is found but lacks the marker, returns (True, False). If both are present, returns (True, True).
+            deps:
+              calls:
+                - join
+                - max
+                - range
+                - s.endswith
+                - strip
+              imports:
+                - agentspec.collect.collect_metadata
+                - agentspec.utils.collect_python_files
+                - agentspec.utils.collect_source_files
+                - agentspec.utils.load_env_from_dotenv
+                - ast
+                - json
+                - os
+                - pathlib.Path
+                - re
+                - sys
+                - typing.Any
+                - typing.Dict
+
+        why: |
+          This function enables detection of pre-existing agentspec documentation blocks in JavaScript/TypeScript source files, supporting incremental documentation workflows where some functions may already be documented. The 20-line lookback window balances thoroughness against performance, capturing typical comment blocks while avoiding excessive backward scanning. The two-part return tuple allows callers to distinguish between "no JSDoc found" and "JSDoc found but no agentspec marker," enabling different handling strategies (e.g., skip vs. update).
+        guardrails:
+          - DO NOT assume lines are already stripped; the function explicitly calls .strip() to handle leading/trailing whitespace robustly.
+          - DO NOT search beyond 20 lines backward; this prevents performance degradation on large files and focuses on proximate documentation.
+          - DO NOT return True for has_any_jsdoc if only */ is found without a corresponding /**; the function requires both markers to confirm a valid JSDoc block.
+          - DO NOT treat "---agentspec" as case-sensitive; the marker check uses exact string matching, so variations in casing will not be detected.
+
+            changelog:
+              - "- no git history available"
+            ---/agentspec
+        """
+        # Look up to 20 lines above for */ and /**
+        start = max(0, idx - 20)
+        saw_end = False
+        has_marker = False
+        for i in range(idx - 1, start - 1, -1):
+            s = lines[i].strip()
+            if not saw_end and s.endswith("*/"):
+                saw_end = True
+                continue
+            if saw_end:
+                if "/**" in s:
+                    block = "\n".join(lines[i:idx])
+                    has_marker = "---agentspec" in block
+                    return True, has_marker
+        return False, False
+
+    for idx, ln in enumerate(lines, start=1):
+        m1 = func_pat.match(ln)
+        m2 = arrow_pat.match(ln)
+        name = m1.group(1) if m1 else (m2.group(1) if m2 else None)
+        if not name:
+            continue
+
+        has_any, has_marker = has_jsdoc(idx)
+        if update_existing:
+            needs = True
+        else:
+            needs = (not has_any) if not require_agentspec else ((not has_any) or (has_any and not has_marker))
+
+        if not needs:
+            continue
+
+        # Capture a small code snippet: current line + next ~8 lines
+        snippet = "\n".join(lines[idx - 1 : min(len(lines), idx + 8)])
+        candidates.append((idx, name, snippet))
+
+    candidates.sort(key=lambda t: t[0], reverse=True)
+    return candidates
+
+
+def process_js_file(
+    filepath: Path,
+    dry_run: bool = False,
+    force_context: bool = False,
+    model: str = "claude-haiku-4-5",
+    as_agentspec_yaml: bool = False,
+    base_url: str | None = None,
+    provider: str | None = "auto",
+    update_existing: bool = False,
+    terse: bool = False,
+    diff_summary: bool = False,
+) -> None:
+    """
+    ---agentspec
+    what: |
+      Processes a JavaScript file to discover functions and generate embedded agentspec documentation.
+
+      Behavior additions:
+      - When update_existing=True, pre-cleans existing agentspec JSDoc blocks (YAML or narrative) to prevent duplicates.
+    ---/agentspec
+    """
+    # Pre-clean to ensure idempotency when updating
+    if update_existing and not dry_run:
+        try:
+            removed = strip_js_agentspec_blocks(filepath)
+            if removed:
+                print(f"  🧹 Removed {removed} existing agentspec JSDoc block(s)")
+        except Exception:
+            pass
+
+    try:
+        functions = _discover_js_functions(
+            filepath,
+            require_agentspec=as_agentspec_yaml,
+            update_existing=update_existing,
+        )
+    except Exception as e:
+        print(f"Error parsing {filepath}: {e}")
+        return
+
+    if not functions:
+        print(f"  Found 0 candidates in {filepath}")
+        return
+
+    print(f"  Found {len(functions)} candidate(s) in {filepath}")
+
+    if dry_run:
+        for lineno, func_name, _ in functions:
+            print(f"    [DRY-RUN] Would generate doc for {func_name} @ {filepath}:{lineno}")
+        return
+
+    from agentspec.insert_metadata import apply_docstring_with_metadata
+
+    for lineno, func_name, code in functions:
+        try:
+            narrative = generate_docstring(
+                code=code,
+                filepath=str(filepath),
+                model=model,
+                as_agentspec_yaml=as_agentspec_yaml,
+                base_url=base_url,
+                provider=provider,
+                terse=terse,
+                diff_summary=diff_summary,
+            )
+
+            # Collect deterministic metadata privately
+            try:
+                from agentspec.collect import collect_metadata
+                meta = collect_metadata(filepath, func_name) or {}
+            except Exception:
+                meta = {}
+
+            ok = apply_docstring_with_metadata(
+                filepath,
+                lineno,
+                func_name,
+                narrative,
+                meta,
+                as_agentspec_yaml=as_agentspec_yaml,
+                force_context=force_context,
+            )
+            if ok:
+                print(f"    ✅ Added verified JSDoc with deterministic metadata to {func_name}")
+            else:
+                print(f"    ⚠️ Skipped inserting docstring for {func_name} (validation failed)")
+        except Exception as e:
+            print(f"    ❌ Error processing {func_name}: {e}")
+
+def process_file(filepath: Path, dry_run: bool = False, force_context: bool = False, model: str = "claude-haiku-4-5", as_agentspec_yaml: bool = False, base_url: str | None = None, provider: str | None = 'auto', update_existing: bool = False, terse: bool = False, diff_summary: bool = False):
+    """
+    ---agentspec
+    what: |
+      Orchestrates end-to-end docstring generation for a single Python file by extracting all functions requiring documentation, generating AI-powered narratives via LLM, collecting deterministic metadata (deps, imports, changelog) separately, and applying both through a two-phase insertion process with compile-safety verification.
+
+      **Inputs:**
+      - filepath (Path): Target Python file to process
+      - dry_run (bool): Preview mode; prints plan without writing changes
+      - force_context (bool): Injects print() statements for agent observability
+      - model (str): LLM model identifier (default: "claude-haiku-4-5")
+      - as_agentspec_yaml (bool): Generate structured agentspec YAML instead of traditional docstrings
+      - base_url (str | None): Custom LLM provider endpoint
+      - provider (str | None): LLM provider selection ('auto' for automatic detection)
+      - update_existing (bool): Force regeneration of existing docstrings
+      - terse (bool): Generate concise documentation
+      - diff_summary (bool): Include diff summaries in changelog
+
+      **Processing Flow:**
+      1. Extracts all functions lacking verbose docstrings or marked for update via extract_function_info
+      2. Returns early if no functions need processing or if dry_run=True after printing the plan
+      3. Sorts functions in reverse line-number order (bottom-to-top) to prevent line-shift invalidation during insertion
+      4. For each function: generates LLM narrative, collects deterministic metadata independently, applies both via compile-safe insertion
+      5. Handles syntax errors gracefully by catching and reporting without crashing
+      6. Prints detailed progress including function names, line numbers, model selection, and success/failure status
+
+      **Outputs:**
+      - None (side effects: modified filepath with inserted docstrings, console output with progress)
+      - Early returns on: syntax errors, no functions found, dry_run=True
+      - Graceful degradation: metadata collection failures do not block docstring insertion
+
+      **Edge Cases:**
+      - Syntax errors in target file are caught and reported; processing halts without exception
+      - Metadata collection failures (missing markers, import errors, format issues) fall back to empty dict
+      - Compile-safety verification may skip insertion if docstring would break syntax; reported as warning
+      - Multiple LLM providers/models with configurable endpoints; invalid model/provider combinations fail at LLM call time
+      - Bottom-to-top processing ensures line numbers remain valid throughout loop without recalculation
+        deps:
+          calls:
+            - apply_docstring_with_metadata
+            - collect_metadata
+            - extract_function_info
+            - functions.sort
+            - generate_docstring
+            - len
+            - print
+            - str
+          imports:
+            - agentspec.collect.collect_metadata
+            - agentspec.utils.collect_python_files
+            - agentspec.utils.collect_source_files
+            - agentspec.utils.load_env_from_dotenv
+            - ast
+            - json
+            - os
+            - pathlib.Path
+            - re
+            - sys
+            - typing.Any
+            - typing.Dict
+
+
+    why: |
+      **Bottom-to-top processing (reverse sort by line number)** is essential because inserting docstrings shifts all subsequent line numbers downward; processing in reverse order ensures line numbers remain valid throughout the loop without recalculation. Ascending order would cause line-number invalidation and insertion failures.
+
+      **Two-phase generation (narrative from LLM, metadata collected separately)** maintains clean separation of concerns: the LLM generates human-readable documentation without knowledge of internal implementation details (deps, imports, changelog), while deterministic metadata is collected from the codebase independently and merged only at insertion time. This prevents LLM hallucination of technical details and keeps the LLM focused on narrative quality.
+
+      **Metadata collection wrapped in try-except with fallback to empty dict** ensures metadata extraction failures (missing agentspec markers, import errors, file format issues) never block docstring insertion. Graceful degradation allows partial success rather than total failure.
+
+      **Compile-safety verification via apply_docstring_with_metadata** prevents insertion of syntactically invalid docstrings that would break the file. The function returns a boolean indicating success, allowing the caller to report skips without raising exceptions.
+
+      **Dry-run mode** allows users to preview which functions will be processed and with which model before committing any changes, reducing risk of unintended modifications.
+
+      **Support for as_agentspec_yaml flag** enables generation of structured agent specifications instead of traditional docstrings, allowing the same pipeline to serve different documentation formats without code duplication.
+
+      **Early return conditions** (no functions found, dry_run=True) are intentional gates that prevent unnecessary LLM calls or file writes, improving efficiency and reducing API costs.
+
+    guardrails:
+      - DO NOT modify the bottom-to-top sort order (reverse=True on line number); changing to ascending order will cause line-number invalidation and docstring insertion failures
+      - DO NOT remove the try-except wrapper around collect_metadata or the fallback to empty dict; metadata collection failures must not block docstring generation
+      - DO NOT pass metadata to generate_docstring; the LLM must only receive code and filepath, never implementation details like deps or changelog
+      - DO NOT skip the compile-safety check via apply_docstring_with_metadata; always use this function for insertion rather than direct file manipulation
+      - DO NOT attempt to process files with syntax errors; catch SyntaxError from extract_function_info and return early without attempting further processing
+      - DO NOT pass string paths to extract_function_info or apply_docstring_with_metadata; filepath must be a Path object for compatibility
+      - DO NOT assume model/provider combinations are valid; invalid selections will fail at LLM call time with authentication/availability errors
+      - ALWAYS preserve the two-phase generation pattern: narrative first (LLM), then metadata insertion (deterministic)
+      - ALWAYS call extract_function_info with require_agentspec and update_existing parameters matching the function's own flags
+      - ALWAYS print progress messages at key stages (extraction, generation start, success/failure) for agent observability and user feedback
+
+        changelog:
+          - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
+          - "- 2025-10-30: refactor(injection): move deps/changelog injection out of LLM path via safe two‑phase writer (219a717)"
+          - "- 2025-10-30: fix(critical): preserve commit hashes in injected CHANGELOG by relaxing section boundary regex (9c524b4)"
+          - "- 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features (e54b379)"
+          - "- 2025-10-30: feat: robust docstring generation and Haiku defaults (e428337)"
+        ---/agentspec
+    """
     print(f"\n📄 Processing {filepath}")
 
     try:
@@ -1312,73 +1368,26 @@ def process_file(filepath: Path, dry_run: bool = False, force_context: bool = Fa
         except Exception as e:
             print(f"  ❌ Error processing {name}: {e}")
 
-def run(target: str, dry_run: bool = False, force_context: bool = False, model: str = "claude-haiku-4-5", as_agentspec_yaml: bool = False, provider: str | None = 'auto', base_url: str | None = None, update_existing: bool = False, terse: bool = False, diff_summary: bool = False) -> int:
-    '''
+def run(target: str, language: str = "auto", dry_run: bool = False, force_context: bool = False, model: str = "claude-haiku-4-5", as_agentspec_yaml: bool = False, provider: str | None = 'auto', base_url: str | None = None, update_existing: bool = False, terse: bool = False, diff_summary: bool = False) -> int:
+    """
     ---agentspec
     what: |
-      CLI entry point for batch docstring generation across Python files with multi-provider LLM support.
+      Orchestrates generation across Python and JS/TS with per-run metrics and proof logs.
 
-      Accepts a target path (file or directory). Performs provider auto-detection (Anthropic/OpenAI-compatible), validates API credentials before processing, and defaults to local Ollama (http://localhost:11434/v1) if OpenAI provider is selected without credentials.
-
-      Collects all Python files from target path using collect_python_files(), then iterates through each file, catching per-file exceptions to allow batch processing to continue despite individual failures. Dry-run mode prevents all file modifications and displays what would be processed. Returns 0 on success, 1 on credential validation failure or fatal errors.
-
-      Inputs: target (str path), dry_run (bool), force_context (bool), model (str, defaults to "claude-haiku-4-5"), as_agentspec_yaml (bool), provider (str or None, defaults to 'auto'), base_url (str or None), update_existing (bool), terse (bool), diff_summary (bool).
-
-      Outputs: int exit code (0 for success, 1 for failure).
-
-      Edge cases: target path does not exist (returns 1 after validation), missing API credentials in non-dry-run mode (returns 1 with error message), per-file processing exceptions (caught and logged, batch continues), provider auto-detection when model name contains "claude" (forces Anthropic provider).
-    deps:
-          calls:
-            - Path
-            - collect_python_files
-            - load_env_from_dotenv
-            - lower
-            - os.getenv
-            - path.exists
-            - print
-            - process_file
-            - startswith
-          imports:
-            - agentspec.collect.collect_metadata
-            - agentspec.utils.collect_python_files
-            - agentspec.utils.load_env_from_dotenv
-            - ast
-            - json
-            - os
-            - pathlib.Path
-            - re
-            - sys
-            - typing.Any
-            - typing.Dict
-
-
-    why: |
-      Centralizes provider detection and credential validation at batch entry point to prevent runtime failures across multiple files. Auto-detection logic (checking model name for "claude" prefix, falling back to Ollama for OpenAI provider) enables offline-first workflows without credential setup while maintaining explicit control via provider parameter.
-
-      Dry-run mode provides safe preview capability before committing changes.
-
-      Per-file exception handling allows batch operations to be resilient—one malformed file or API failure does not block processing of remaining files. Early path validation prevents wasted API calls on non-existent targets.
-
-      Lazy import patterns keep optional dependencies out of non-generate code paths and reduce module load overhead for standard operations.
+      Behavior:
+      - Loads .env and resolves provider/base_url
+      - Discovers files via collect_source_files and filters by --language
+      - Clears per-run token metrics before processing, prints summary afterward
+      - Delegates per-file processing (process_file for Python, process_js_file for JS/TS)
 
     guardrails:
-      - DO NOT proceed without valid API credentials (ANTHROPIC_API_KEY for Anthropic, OPENAI_API_KEY or base_url for OpenAI-compatible) unless dry_run=True, as this prevents silent failures mid-batch
-      - DO NOT hardcode model names or remove the model parameter; model selection must remain configurable for testing different versions
-      - DO NOT remove the dry-run early return; users depend on this to preview changes without file modification
-      - ALWAYS validate target path exists before file collection to fail fast with clear error message
-      - ALWAYS default to http://localhost:11434/v1 (local Ollama) if OpenAI provider is selected with no credentials, enabling offline-first workflows
-      - ALWAYS preserve per-file exception handling to allow batch processing to continue despite individual file failures
-      - ALWAYS load .env via load_env_from_dotenv() before credential checks to respect environment configuration
-      - ALWAYS pass base_url through to process_file to maintain provider configuration across batch operations
-      - NOTE: This function modifies source files in-place during non-dry-run execution; ensure files are version-controlled or backed up
-      - NOTE: Provider auto-detection checks model name for "claude" prefix (case-insensitive) to route to Anthropic; explicit provider parameter overrides this logic
-      - NOTE: Batch processing catches exceptions per-file but does not retry; users should monitor printed error messages for failures
-
+      - DO NOT perform file edits in dry_run
+      - ALWAYS handle invalid target path
+      - ALWAYS print per-run metrics summary when any functions were processed
     changelog:
-
-      - "2025-10-31: Clean up docstring formatting"
-        ---/agentspec
-    '''
+      - "2025-11-01: Add per-run metrics summary"
+    ---/agentspec
+    """
     # Load .env and decide provider
     load_env_from_dotenv()
     prov = (provider or 'auto').lower()
@@ -1391,60 +1400,118 @@ def run(target: str, dry_run: bool = False, force_context: bool = False, model: 
             print("Set it with: export ANTHROPIC_API_KEY='your-key-here'")
             return 1
     else:
-        # OpenAI-compatible
         if base_url is None:
             base_url = os.getenv('OPENAI_BASE_URL') or os.getenv('AGENTSPEC_OPENAI_BASE_URL') or os.getenv('OLLAMA_BASE_URL')
         if not os.getenv('OPENAI_API_KEY') and not base_url:
-            # Default to local Ollama if neither is provided
             base_url = 'http://localhost:11434/v1'
 
     path = Path(target)
-
     if not path.exists():
         print(f"❌ Error: Path does not exist: {target}")
         return 1
 
     if dry_run:
         print("🔍 DRY RUN MODE - no files will be modified\n")
-
     if update_existing:
         print("🔄 UPDATE MODE - Regenerating existing docstrings\n")
 
-    try:
-        files = collect_python_files(path)
-        for filepath in files:
-            try:
-                # Standard mode
-                process_file(filepath, dry_run, force_context, model, as_agentspec_yaml, base_url, prov, update_existing, terse, diff_summary)
-            except Exception as e:
-                print(f"❌ Error processing {filepath}: {e}")
+    # Discover
+    all_files = collect_source_files(path)
+    js_exts = {".js", ".mjs", ".jsx", ".ts", ".tsx"}
+    if language not in {"auto", "py", "js"}:
+        language = "auto"
+    if language == "py":
+        files = [p for p in all_files if p.suffix.lower() == ".py"]
+    elif language == "js":
+        files = [p for p in all_files if p.suffix.lower() in js_exts]
+    else:
+        files = [p for p in all_files if p.suffix.lower() in {".py", *js_exts}]
 
-        print("\n✅ Done!")
+    if not files:
+        print("No files found to process.")
         return 0
 
-    except Exception as e:
-        print(f"\n❌ Fatal error: {e}")
-        return 1
+    print(f"Found {len(files)} file(s)")
+
+    # Clear per-run metrics
+    try:
+        GEN_METRICS.clear()
+    except Exception:
+        pass
+
+    for fpath in files:
+        try:
+            print(f"Processing {fpath}")
+            ext = fpath.suffix.lower()
+            if ext == ".py":
+                process_file(
+                    fpath,
+                    dry_run=dry_run,
+                    force_context=force_context,
+                    model=model,
+                    as_agentspec_yaml=as_agentspec_yaml,
+                    base_url=base_url,
+                    provider=prov,
+                    update_existing=update_existing,
+                    terse=terse,
+                    diff_summary=diff_summary,
+                )
+            elif ext in js_exts:
+                process_js_file(
+                    fpath,
+                    dry_run=dry_run,
+                    force_context=force_context,
+                    model=model,
+                    as_agentspec_yaml=as_agentspec_yaml,
+                    base_url=base_url,
+                    provider=prov,
+                    update_existing=update_existing,
+                    terse=terse,
+                    diff_summary=diff_summary,
+                )
+            else:
+                print(f"Skipping unsupported file type: {fpath}")
+        except Exception as e:
+            print(f"❌ Error processing {fpath}: {e}")
+
+    # Per-run metrics summary
+    try:
+        if GEN_METRICS:
+            pts = [m.get('prompt_tokens', 0) for m in GEN_METRICS]
+            ots = [m.get('output_tokens', 0) for m in GEN_METRICS]
+            cont = sum(m.get('continuations', 0) for m in GEN_METRICS)
+            import statistics as _stats
+            def _fmt_stats(vals):
+                return f"min={min(vals)} avg={int(_stats.mean(vals))} max={max(vals)}"
+            print("\n[SUMMARY]")
+            print(f" items={len(GEN_METRICS)}")
+            print(f" prompt_tokens≈ {_fmt_stats(pts)}")
+            print(f" output_tokens≈ {_fmt_stats(ots)}")
+            print(f" continuations_used={cont}")
+    except Exception:
+        pass
+
+    print("\n✅ Done!")
+    return 0
 
 def main():
-    '''
+    """
     ---agentspec
     what: |
-      CLI entry point that parses command-line arguments and delegates to docstring generation.
+      Entry point for the documentation generation CLI that parses command-line arguments and delegates processing to the core run() function.
 
-      Accepts a positional path argument (file or directory) and optional flags:
-      - `--dry-run`: Preview changes without modifying files
-      - `--force-context`: Insert print() statements to force LLMs to load docstrings into context
-      - `--model MODEL`: Specify Claude model variant (defaults to claude-haiku-4-5)
+      Parses the following arguments:
+      - Positional argument (required): file or directory path to process
+      - --dry-run flag (optional): boolean presence check; enables preview mode without file modifications
+      - --force-context flag (optional): boolean presence check; injects print() statements to force LLM context loading
+      - --model flag (optional): accepts a model name string; defaults to "claude-haiku-4-5" if not specified
 
-      Validates that at least one argument is provided; exits with code 1 and displays usage if missing.
-      Extracts model name from `--model` flag if present, otherwise uses default.
-      Passes all parsed arguments (path, dry_run, force_context, model) to run() function.
-      Exits process with the exit code returned by run(), indicating success (0) or failure (non-zero).
+      Validates that at least one positional argument is provided; prints usage instructions and exits with code 1 if missing. Extracts the model name by locating the --model flag in sys.argv and reading the next argument if present; silently retains default if --model is the final argument or missing.
 
-      Supported models: claude-haiku-4-5, claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022.
-      Requires ANTHROPIC_API_KEY environment variable to be set before execution.
-    deps:
+      Delegates actual processing to run() with parameters: path, language="auto", dry_run boolean, force_context boolean, and model string. Propagates the exit code returned by run() back to the system via sys.exit(), allowing callers to detect success (0) or failure (non-zero).
+
+      Supported model options documented in usage string: claude-haiku-4-5 (default), claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022. Requires ANTHROPIC_API_KEY environment variable to be set before execution.
+        deps:
           calls:
             - argv.index
             - len
@@ -1454,6 +1521,7 @@ def main():
           imports:
             - agentspec.collect.collect_metadata
             - agentspec.utils.collect_python_files
+            - agentspec.utils.collect_source_files
             - agentspec.utils.load_env_from_dotenv
             - ast
             - json
@@ -1466,30 +1534,34 @@ def main():
 
 
     why: |
-      Manual argv parsing without argparse dependency keeps the single-file script minimal and self-contained.
-      Early validation of required path argument prevents silent failures and follows Unix convention (exit 1 on invalid input).
-      Model flag enables runtime switching between Claude variants without code modifications, allowing users to trade off speed/cost (Haiku) versus quality (Sonnet).
-      Default to claude-haiku-4-5 optimizes for speed and cost efficiency while maintaining reasonable output quality.
-      Boolean flags use simple string membership checks for clarity and minimal overhead in a lightweight CLI.
-      Usage message printed to stdout ensures visibility without requiring log configuration.
+      Manual argument parsing (rather than argparse) minimizes dependencies and suits a small CLI with few options, allowing simple inline flag detection without external libraries.
+
+      Default model is claude-haiku-4-5 (cost-effective) to balance performance and API costs for typical documentation generation tasks. The --model flag is positioned after the path argument to maintain intuitive CLI ordering (target first, then options).
+
+      Dry-run and force-context flags use simple boolean presence checks (no values required) to reduce parsing complexity and improve usability. Early validation and usage printing ensures users understand environment requirements before attempting to run.
+
+      Delegating to run() keeps main() thin and testable, separating CLI concerns from business logic. Propagating exit codes unchanged preserves the caller's ability to detect success/failure in shell scripts and automation.
 
     guardrails:
-      - DO NOT parse arguments without updating the usage message to match all supported flags
-      - DO NOT remove ANTHROPIC_API_KEY environment variable mention from usage text
-      - DO NOT add required positional arguments without updating the len(sys.argv) < 2 validation check
-      - DO NOT alter the default model without updating all documentation and usage text that references it
-      - ALWAYS validate model_index + 1 < len(sys.argv) before accessing sys.argv[model_index + 1] to prevent IndexError
-      - ALWAYS pass all parsed arguments to run() in correct order: path, dry_run, force_context, model
-      - ALWAYS preserve sys.exit(1) behavior when arguments are invalid to follow Unix conventions
-      - ALWAYS ensure usage message stays in sync with actual supported flags and model options
-      - DO NOT validate model names here; invalid models will fail at API call time inside run()
-      - DO NOT perform environment variable validation here; that occurs inside run()
+      - DO NOT modify the sys.exit(1) call for missing arguments; it ensures proper shell exit codes for scripting and automation
+      - DO NOT change the default model without updating documentation and considering API cost implications for end users
+      - DO NOT add new positional arguments without updating the usage string to remain synchronized
+      - DO NOT remove or rename the --dry-run, --force-context, or --model flags; they are part of the public CLI contract
+      - DO NOT alter the usage string without ensuring it accurately reflects all supported flags and options
+      - DO NOT suppress or modify the exit code from run(); callers depend on it to detect success/failure
+      - ALWAYS ensure the usage string remains synchronized with actual supported flags and their descriptions
+      - ALWAYS preserve exact flag names as they are part of the public CLI contract
+      - NOTE: sys.argv indexing assumes well-formed input; if --model is the last argument with no value following it, model silently remains at default (this is safe but may confuse users)
+      - NOTE: The model parameter is passed as a string directly to run(); ensure run() validates or handles unknown model names gracefully to provide clear error messages
 
-    changelog:
-
-      - "2025-10-31: Clean up docstring formatting"
+        changelog:
+          - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
+          - "- 2025-10-30: fix(critical): preserve commit hashes in injected CHANGELOG by relaxing section boundary regex (9c524b4)"
+          - "- 2025-10-30: feat: robust docstring generation and Haiku defaults (e428337)"
+          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate (172e0a7)"
+          - "- 2025-10-29: CRITICAL FIX: Process functions bottom-to-top to prevent line number invalidation and syntax errors (bab4295)"
         ---/agentspec
-    '''
+    """
     if len(sys.argv) < 2:
         print("Usage: python generate.py <file_or_dir> [--dry-run] [--force-context] [--model MODEL]")
         print("\nRequires ANTHROPIC_API_KEY environment variable")
@@ -1511,7 +1583,7 @@ def main():
         if model_index + 1 < len(sys.argv):
             model = sys.argv[model_index + 1]
 
-    exit_code = run(path, dry_run, force_context, model)
+    exit_code = run(path, language="auto", dry_run=dry_run, force_context=force_context, model=model)
     sys.exit(exit_code)
 
 if __name__ == "__main__":
