@@ -18,17 +18,17 @@ Instead, use these permanent reference files:
 ### TypeScript/TSX
 - **Symlink:** `ref_Dashboard.tsx`
 - **Target:** `/Users/davidmontgomery/faxbot_folder/faxbot/api/admin_ui/src/components/Dashboard.tsx`
-- **Use for:** TypeScript/TSX syntax validation, JSDoc insertion, TSX parser testing
+- **Use for:** ALL TypeScript/TSX testing (generate, extract, lint, strip, --terse, --update-existing, --diff-summary, --strict, everything)
 
 ### Python
 - **Symlink:** `ref_phaxio_service.py`
 - **Target:** `/Users/davidmontgomery/faxbot_folder/faxbot/api/app/phaxio_service.py`
-- **Use for:** Python docstring insertion, metadata collection
+- **Use for:** ALL Python testing (generate, extract, lint, strip, --terse, --update-existing, --diff-summary, --strict, everything)
 
 ### JavaScript
 - **Symlink:** `ref_indexing.js`
 - **Target:** `/Users/davidmontgomery/agro/gui/js/indexing.js`
-- **Use for:** JavaScript syntax validation, JSDoc insertion
+- **Use for:** ALL JavaScript testing (generate, extract, lint, strip, --terse, --update-existing, --diff-summary, --strict, everything)
 
 ## Why?
 
