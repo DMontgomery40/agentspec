@@ -494,15 +494,18 @@ def _show_generate_rich_help():
 
     guide = (
         "[bold]Quick Provider Guide[/bold]\n\n"
-        "[bold green]OpenAI (default, CFG)[/bold green]\n"
+        "[bold green]OpenAI (default)[/bold green]\n"
         "OPENAI_API_KEY must be set.\n"
-        "[white]agentspec generate src/ --model gpt-5 --agentspec-yaml --update-existing[/white]\n\n"
-        "[bold yellow]Anthropic[/bold yellow]\n"
+        "[white]agentspec generate src/ --provider openai --model gpt-5 --agentspec-yaml --update-existing[/white]\n\n"
+        "[bold yellow]Claude (Anthropic)[/bold yellow]\n"
         "ANTHROPIC_API_KEY must be set.\n"
-        "[white]agentspec generate src/ --provider claude --model claude-3-haiku-20240307 --agentspec-yaml --update-existing[/white]\n\n"
-        "[bold cyan]Ollama (local)[/bold cyan]\n"
-        "Run: [white]ollama run qwen3-coder:30b[/white]\n"
-        "[white]agentspec generate src/ --provider openai --base-url http://localhost:11434/v1 --model qwen3-coder:30b --agentspec-yaml --update-existing[/white]"
+        "[white]agentspec generate src/ --provider claude --model claude-haiku-4-5 --agentspec-yaml --update-existing[/white]\n\n"
+        "[bold cyan]Local (Ollama)[/bold cyan]\n"
+        "Run: [white]ollama run <your-model>[/white]\n"
+        "[white]agentspec generate src/ --provider local --base-url http://localhost:11434/v1 --model <your-model> --agentspec-yaml --update-existing[/white]\n\n"
+        "[bold magenta]Auto (tries providers in order)[/bold magenta]\n"
+        "Tries: gpt-5 → claude-haiku-4-5 → ollama\n"
+        "[white]agentspec generate src/ --provider auto --agentspec-yaml --update-existing[/white]"
     )
     c.print(Panel(guide, title="Provider Guide", border_style="dim", padding=(0,1)))
 
@@ -518,9 +521,9 @@ def _show_generate_rich_help():
     t = Table(title="Key Flags", box=box.SIMPLE_HEAVY, show_header=False)
     t.add_column("Flag", style="yellow")
     t.add_column("Description")
-    t.add_row("--model", "Model id (e.g., gpt-5, claude-3-haiku-20240307, qwen3-coder:30b)")
-    t.add_row("--provider", "openai | claude | auto (Ollama uses openai w/ base-url)")
-    t.add_row("--base-url", "Custom endpoint (e.g., http://localhost:11434/v1)")
+    t.add_row("--model", "Model id (e.g., gpt-5, claude-haiku-4-5, your-local-model)")
+    t.add_row("--provider", "openai | claude | local | auto (default: auto)")
+    t.add_row("--base-url", "Custom endpoint for local/self-hosted models")
     t.add_row("--agentspec-yaml", "Generate structured YAML blocks")
     t.add_row("--update-existing", "Regenerate existing docstrings")
     t.add_row("--terse", "Shorter output (max_tokens=500)")
