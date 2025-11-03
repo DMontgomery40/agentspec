@@ -526,9 +526,20 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5"
             from agentspec.prompts import load_base_prompt, load_examples_json, load_agentspec_yaml_grammar
             base_prompt_text = load_base_prompt()
             examples = load_examples_json().get("examples", [])
-            # Summarize examples (ids only to keep size small)
-            ex_ids = "\n".join(f"- {ex.get('id','ex')}" for ex in examples[:5])
-            system_text = f"{base_prompt_text}\n\n<examples_index>\n{ex_ids}\n</examples_index>"
+            # Include FULL examples (not just IDs) so LLM learns from them
+            examples_text = ""
+            for ex in examples[:5]:
+                examples_text += f"\n<example id=\"{ex.get('id', 'unknown')}\">\n"
+                examples_text += f"CODE: {ex.get('code', ex.get('code_snippet', 'N/A'))}\n"
+                if 'bad_documentation' in ex:
+                    examples_text += f"BAD DOC: {ex['bad_documentation'].get('what', 'N/A')}\n"
+                if 'good_documentation' in ex:
+                    examples_text += f"GOOD DOC: {ex['good_documentation'].get('what', 'N/A')}\n"
+                    if 'guardrails' in ex['good_documentation']:
+                        examples_text += f"GUARDRAILS: {', '.join(ex['good_documentation']['guardrails'][:2])}\n"
+                examples_text += f"LESSON: {ex.get('lesson', 'N/A')}\n"
+                examples_text += "</example>\n"
+            system_text = f"{base_prompt_text}\n\n<examples>\n{examples_text}\n</examples>"
             grammar_lark = load_agentspec_yaml_grammar()
         except Exception:
             system_text = "Generate Agentspec YAML."
