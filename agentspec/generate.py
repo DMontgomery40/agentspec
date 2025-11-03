@@ -523,9 +523,18 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5"
     if as_agentspec_yaml:
         # Compose system prompt from base rules + (lightweight) examples summary
         try:
-            from agentspec.prompts import load_base_prompt, load_examples_json, load_agentspec_yaml_grammar
-            base_prompt_text = load_base_prompt()
-            examples = load_examples_json().get("examples", [])
+            from agentspec.prompts import load_base_prompt, load_examples_json, load_agentspec_yaml_grammar, load_prompt
+            from pathlib import Path
+            import json
+            # Use terse base prompt and examples if terse flag is set
+            if terse:
+                base_prompt_text = load_prompt("base_prompt_terse")
+                terse_examples_path = Path(__file__).parent / "prompts" / "examples_terse.json"
+                examples_data = terse_examples_path.read_text(encoding="utf-8")
+                examples = json.loads(examples_data).get("examples", [])
+            else:
+                base_prompt_text = load_base_prompt()
+                examples = load_examples_json().get("examples", [])
             # Include FULL examples (not just IDs) so LLM learns from them
             examples_text = ""
             for ex in examples[:5]:
@@ -558,7 +567,7 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5"
     # Compute token budget with env overrides
     prompt_tokens_est = _estimate_tokens(system_text + "\n\n" + user_content)
     context_cap = int(os.getenv('AGENTSPEC_CONTEXT_TOKENS', '0') or '0')
-    out_base = 1500 if terse else 2000
+    out_base = 500 if terse else 2000
     out_env = int(os.getenv('AGENTSPEC_MAX_OUTPUT_TOKENS', '0') or '0')
     buffer = int(os.getenv('AGENTSPEC_TOKEN_BUFFER', '500') or '500')
     max_out = out_base

@@ -1,0 +1,105 @@
+{
+  "version": "1.0",
+  "last_updated": "2025-11-03",
+  "examples": [
+    {
+      "id": "weak_test_assertion_jsdoc_extract",
+      "type": "negative_then_positive",
+      "language": "python",
+      "code": "assert \"what\" in s.parsed_data",
+      "code_context": {
+        "file": "tests/test_extract_javascript_agentspec.py",
+        "function": "test_extract_from_jsdoc_agentspec_block",
+        "subject_function": "agentspec.extract.extract_from_js_file"
+      },
+      "bad_documentation": {
+        "what": "Assertion confirms that JSDoc parsing correctly identified and extracted the AgentSpec YAML/structured data (not just raw text)",
+        "why_bad": "Claims validation that doesn't happen \u2014 assertion only checks for the presence of the 'what' key; it does not evaluate content quality"
+      },
+      "good_documentation": {
+        "what": "Checks presence of the 'what' key in parsed_data dict. WARNING: This does not validate agentspec quality; any YAML with a 'what' key will pass.",
+        "why": "This integration test ensures the extraction pipeline returns a dict with expected keys from JSDoc agentspec blocks. It is not intended to validate semantic quality of the YAML, only that extraction produced a minimally structured result.",
+        "guardrails": [
+          "DO NOT conflate key-existence checks with content validation; keep separate tests for semantics vs structure",
+          "NOTE: Strengthen tests to validate model output quality"
+        ]
+      },
+      "lesson": "Do not infer semantic validation from key-existence assertions; document the actual check and add an ASK USER guardrail for ambiguous intent."
+    },
+    {
+      "id": "agent_downgrades_to_chat_completions",
+      "type": "negative_then_positive",
+      "language": "python",
+      "code": "client.chat.completions.create(model=\"gpt-4o-mini\", max_tokens=2000, messages=[...])",
+      "code_context": {
+        "file": "src/llm_utils.py",
+        "function": "generate_documentation",
+        "subject_function": "openai.OpenAI.chat.completions.create"
+      },
+      "bad_documentation": {
+        "what": "Generates docs w/ OpenAI API correctly",
+        "why_bad": "Uses deprecated chat.completions, wrong model gpt-4o-mini, wrong param max_tokens"
+      },
+      "good_documentation": {
+        "what": "Uses deprecated chat.completions.create (not responses.create). Uses gpt-4o-mini + max_tokens. WARNING: For gpt-5, use responses.create + max_output_tokens for CFG.",
+        "why": "Older endpoint, lacks CFG/deterministic generation for gpt-5.",
+        "guardrails": [
+          "ASK USER: Upgrade to responses.create w/ gpt-5?",
+          "DO NOT change w/o confirmation; gpt-4o-mini doesn't support Responses",
+          "ALWAYS assume chat.completions is wrong; unless it's for ollama"
+        ]
+      },
+      "lesson": "Responses API (responses.create, max_output_tokens, gpt-5) is current standard for CFG. ASK USER before API changes."
+    },
+    {
+      "id": "agent_uses_wrong_claude_model",
+      "type": "negative_then_positive",
+      "language": "python",
+      "code": "client.messages.create(model=\"claude-3-5-sonnet-20241022\", max_tokens=2000, messages=[...])",
+      "code_context": {
+        "file": "src/llm_caller.py",
+        "function": "call_claude",
+        "subject_function": "anthropic.Anthropic.messages.create"
+      },
+      "bad_documentation": {
+        "what": "Uses latest Claude for optimal performance",
+        "why_bad": "claude-3-5-sonnet-20241022 not allowed; only claude-haiku-4-5"
+      },
+      "good_documentation": {
+        "what": "Uses claude-3-5-sonnet-20241022. WARNING: NOT allowed. Only claude-haiku-4-5 or gpt-5 permitted.",
+        "why": "Outdated naming. Standard is claude-haiku-4-5.",
+        "guardrails": [
+          "DO NOT use claude-3-5-sonnet-20241022",
+          "DO NOT assume dated names are current",
+          "ALWAYS use claude-haiku-4-5 or gpt-5"
+        ]
+      },
+      "lesson": "Only 2 foundation models: gpt-5, claude-haiku-4-5. Agents 'update' to dated names. ASK USER before changing."
+    },
+    {
+      "id": "agent_uses_wrong_gpt_model",
+      "type": "negative_then_positive",
+      "language": "python",
+      "code": "client.responses.create(model=\"gpt-4o\", max_output_tokens=2000, input=...)",
+      "code_context": {
+        "file": "src/doc_generator.py",
+        "function": "generate_docs",
+        "subject_function": "openai.OpenAI.responses.create"
+      },
+      "bad_documentation": {
+        "what": "Uses latest GPT correctly",
+        "why_bad": "gpt-4o not allowed; only gpt-5"
+      },
+      "good_documentation": {
+        "what": "Uses Responses API w/ gpt-4o. WARNING: gpt-4o NOT allowed. Only gpt-5 permitted.",
+        "why": "Correct API, wrong model. gpt-5 required for CFG.",
+        "guardrails": [
+          "ASK USER: Use gpt-5?",
+          "DO NOT use gpt-4o; only gpt-5 allowed",
+          "ALWAYS remember that your training data cutoff is 2024, so gpt-5 is the latest model"
+        ]
+      },
+      "lesson": "Only gpt-5 and claude-haiku-4-5 allowed. Agents 'fix' gpt-5 to gpt-4o. ASK USER before model changes."
+    }
+  ]
+}
