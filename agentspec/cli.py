@@ -509,7 +509,9 @@ def _show_generate_rich_help():
     eg = (
         "[bold]Examples[/bold]\n"
         "[white]agentspec generate src/ --update-existing --terse[/white]\n"
-        "[white]agentspec generate src/core/ --agentspec-yaml --update-existing[/white]"
+        "[white]agentspec generate src/core/ --agentspec-yaml --update-existing[/white]\n"
+        "[white]agentspec generate src/ --diff-summary --dry-run[/white]\n"
+        "[white]agentspec generate src/ --force-context --agentspec-yaml[/white]"
     )
     c.print(Panel(eg, title="Examples", border_style="dim", padding=(0,1)))
 
@@ -521,7 +523,10 @@ def _show_generate_rich_help():
     t.add_row("--base-url", "Custom endpoint (e.g., http://localhost:11434/v1)")
     t.add_row("--agentspec-yaml", "Generate structured YAML blocks")
     t.add_row("--update-existing", "Regenerate existing docstrings")
-    t.add_row("--terse", "Shorter output")
+    t.add_row("--terse", "Shorter output (max_tokens=500)")
+    t.add_row("--diff-summary", "Add per-function code diff summaries")
+    t.add_row("--force-context", "Force print AGENTSPEC_CONTEXT to console")
+    t.add_row("--dry-run", "Show what would be generated without writing files")
     c.print(t)
 
 
@@ -529,9 +534,9 @@ def _show_prompts_rich_help():
     """
     ---agentspec
     what: |
-      Render a Rich-formatted help screen for the `prompts` subcommand, including usage, required/optional
-      arguments, and concrete examples. This is designed to be dyslexia-friendly with clear boxes, colors,
-      and concise wording.
+      Render a Rich-formatted help screen for the `prompts` subcommand with full TUI parity to generate -h.
+      Includes usage guide, workflow explanation, examples, and complete flags table. Critical accessibility
+      requirement for dyslexia accommodation.
     ---/agentspec
     """
     from rich.console import Console
@@ -541,53 +546,235 @@ def _show_prompts_rich_help():
 
     c = Console()
 
-    c.print(Panel.fit("[bold magenta]agentspec prompts[/bold magenta]\n[dim]Prompts and examples toolkit[/dim]", border_style="cyan", padding=(1,2)))
+    c.print(Panel.fit(
+        "[bold magenta]agentspec prompts[/bold magenta]\n[dim]Prompts and examples dataset toolkit[/dim]",
+        border_style="cyan", 
+        padding=(1,2)
+    ))
 
-    usage = (
-        "[bold]Usage[/bold]\n"
-        "[green]agentspec prompts --add-example --file <path> [--function <name>] [--subject-function <fqfn>]\\n"
-        "                  [--good-output TEXT] [--bad-output TEXT] [--correction TEXT]\\n"
-        "                  [--require-ask-user] [--dry-run] [--strict-ratio][/green]\n\n"
-        "[bold]Shorthand[/bold]\n"
-        "[green]agentspec prompts <path> --add-example [other options][/green]\n"
+    # Workflow guide (like Provider Guide for generate)
+    guide = (
+        "[bold]What This Does[/bold]\n\n"
+        "Builds a curated dataset of good/bad documentation examples to improve LLM output quality.\n\n"
+        "[bold green]Dataset Location[/bold green]\n"
+        "[white]agentspec/prompts/examples.json[/white]\n\n"
+        "[bold yellow]Quality Controls[/bold yellow]\n"
+        "• Maintains good:bad ratio (prevents dataset degradation)\n"
+        "• Validates ASK USER guardrails when required\n"
+        "• Dry-run mode for review before committing\n\n"
+        "[bold cyan]Typical Workflow[/bold cyan]\n"
+        "1. Find code with good/bad documentation examples\n"
+        "2. Run with --dry-run to preview the dataset entry\n"
+        "3. Review ratio impact and entry quality\n"
+        "4. Remove --dry-run to save to dataset"
     )
-    c.print(Panel(usage, title="Quick Start", border_style="dim", padding=(0,1)))
+    c.print(Panel(guide, title="Workflow Guide", border_style="dim", padding=(0,1)))
 
-    t = Table(title="Arguments", box=box.SIMPLE_HEAVY, show_header=False)
-    t.add_column("Arg", style="yellow")
-    t.add_column("Description")
-    t.add_row("--file <path>", "Target file path [bold]REQUIRED[/bold] with --add-example (or use positional <path>)")
-    t.add_row("--function <name>", "Scope the sample to a function (optional)")
-    t.add_row("--subject-function <fqfn>", "Fully qualified subject function for context (optional)")
-    t.add_row("--good-output TEXT", "Good documentation text to validate (optional)")
-    t.add_row("--bad-output TEXT", "Bad documentation text to analyze (optional)")
-    t.add_row("--correction TEXT", "Correction for bad output (optional)")
-    t.add_row("--require-ask-user", "Ensure ASK USER guardrail is present")
-    t.add_row("--dry-run", "Print record and ratio without writing to dataset")
-    t.add_row("--strict-ratio", "Fail if adding would drop good ratio below minimum")
-    c.print(t)
-
+    # Examples with better context
     examples = (
-        "[bold]Examples[/bold]\n"
-        "[green]agentspec prompts --add-example --file tests/test_extract_javascript_agentspec.py \\\n --function test_extract_from_jsdoc_agentspec_block \\\n --subject-function agentspec.extract.extract_from_js_file \\\n --good-output 'Checks presence only' --require-ask-user --dry-run[/green]\n\n"
-        "[green]agentspec prompts tests/test_extract_javascript_agentspec.py --add-example \\\n --good-output 'Checks presence only' --dry-run[/green]"
+        "[bold]Examples[/bold]\n\n"
+        "[dim]# Add a good example from a test file[/dim]\n"
+        "[green]agentspec prompts tests/test_extract.py --add-example \\\n"
+        "  --function test_extract_agentspec_block \\\n"
+        "  --good-output 'Clear and complete' --dry-run[/green]\n\n"
+        "[dim]# Add a bad example with correction[/dim]\n"
+        "[green]agentspec prompts src/utils.py --add-example \\\n"
+        "  --function parse_config \\\n"
+        "  --bad-output 'parses stuff' \\\n"
+        "  --correction 'Parses YAML config and validates required fields' \\\n"
+        "  --dry-run[/green]\n\n"
+        "[dim]# Require ASK USER guardrail (for dangerous operations)[/dim]\n"
+        "[green]agentspec prompts src/admin.py --add-example \\\n"
+        "  --function delete_user \\\n"
+        "  --require-ask-user --dry-run[/green]\n\n"
+        "[dim]# Short form (positional path)[/dim]\n"
+        "[green]agentspec prompts tests/test_lint.py --add-example --dry-run[/green]"
     )
     c.print(Panel(examples, title="Examples", border_style="dim", padding=(0,1)))
 
-    # Update Arguments table wording for clarity (ML engineers)
-    t = Table(title="Arguments", box=box.SIMPLE_HEAVY, show_header=False)
-    t.add_column("Arg", style="yellow")
+    # Complete flags table
+    t = Table(title="All Flags", box=box.SIMPLE_HEAVY, show_header=False)
+    t.add_column("Flag", style="yellow")
     t.add_column("Description")
-    t.add_row("--file <path>", "Path to the file to read code from. [bold]REQUIRED[/bold] with --add-example (or pass as positional <path>).")
-    t.add_row("--function <name>", "(Optional) Name of a test or function inside that file to focus the snippet on.")
-    t.add_row("--subject-function <fqfn>", "(Optional) What code this example is about, e.g. agentspec.extract.extract_from_js_file.")
-    t.add_row("--good-output TEXT", "(Optional) A good docstring you want to keep.")
-    t.add_row("--bad-output TEXT", "(Optional) A bad docstring you want analyzed.")
-    t.add_row("--correction TEXT", "(Optional) What the bad doc should have said.")
-    t.add_row("--require-ask-user", "Add an ASK USER guardrail to the record.")
-    t.add_row("--dry-run", "Print results only; do not write to dataset.")
-    t.add_row("--strict-ratio", "Fail if adding would reduce good:bad ratio below minimum.")
+    t.add_row("--add-example", "[bold]REQUIRED[/bold] - Create a dataset entry")
+    t.add_row("--file <path>", "Path to source file ([bold]REQUIRED[/bold], or use positional <path>)")
+    t.add_row("--function <name>", "Scope to specific function/test in file")
+    t.add_row("--subject-function <fqfn>", "Fully qualified name of code being documented")
+    t.add_row("--good-output TEXT", "Example of good documentation to validate")
+    t.add_row("--bad-output TEXT", "Example of bad documentation to analyze")
+    t.add_row("--correction TEXT", "What the bad documentation should have said")
+    t.add_row("--require-ask-user", "Ensure ASK USER guardrail is present in entry")
+    t.add_row("--dry-run", "Preview entry without writing to dataset")
+    t.add_row("--strict-ratio", "Fail if adding would reduce good:bad ratio below minimum")
     c.print(t)
+    
+    c.print()
+    c.print("[dim]Dataset location:[/dim] [white]agentspec/prompts/examples.json[/white]")
+
+
+def _show_lint_rich_help():
+    """Rich TUI help for agentspec lint command."""
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich import box
+    
+    c = Console()
+    
+    c.print(Panel.fit(
+        "[bold magenta]agentspec lint[/bold magenta]\n[dim]Validate agentspec blocks[/dim]",
+        border_style="cyan",
+        padding=(1,2)
+    ))
+    
+    guide = (
+        "[bold]What This Does[/bold]\n\n"
+        "Validates agentspec YAML blocks for:\n"
+        "• Required fields (what, deps, why, guardrails)\n"
+        "• YAML syntax errors\n"
+        "• Field completeness and structure\n"
+        "• Minimum documentation length\n\n"
+        "[bold green]Success Criteria[/bold green]\n"
+        "✅ All required fields present\n"
+        "✅ Valid YAML syntax\n"
+        "✅ Guardrails defined (minimum 2-3)\n"
+        "✅ Meets minimum line requirements\n\n"
+        "[bold yellow]Exit Codes[/bold yellow]\n"
+        "0 = All checks passed\n"
+        "1 = Errors found (or warnings with --strict)"
+    )
+    c.print(Panel(guide, title="Validation Guide", border_style="dim", padding=(0,1)))
+    
+    examples = (
+        "[bold]Examples[/bold]\n\n"
+        "[dim]# Lint entire project[/dim]\n"
+        "[green]agentspec lint src/[/green]\n\n"
+        "[dim]# Lint single file[/dim]\n"
+        "[green]agentspec lint src/utils.py[/green]\n\n"
+        "[dim]# Strict mode (warnings = errors)[/dim]\n"
+        "[green]agentspec lint src/ --strict[/green]\n\n"
+        "[dim]# Require longer documentation[/dim]\n"
+        "[green]agentspec lint src/ --min-lines 15[/green]"
+    )
+    c.print(Panel(examples, title="Examples", border_style="dim", padding=(0,1)))
+    
+    t = Table(title="Flags", box=box.SIMPLE_HEAVY, show_header=False)
+    t.add_column("Flag", style="yellow")
+    t.add_column("Description")
+    t.add_row("--strict", "Treat warnings as errors (fail on any issue)")
+    t.add_row("--min-lines", "Minimum lines required per agentspec (default: 10)")
+    c.print(t)
+
+
+def _show_extract_rich_help():
+    """Rich TUI help for agentspec extract command."""
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich import box
+    
+    c = Console()
+    
+    c.print(Panel.fit(
+        "[bold magenta]agentspec extract[/bold magenta]\n[dim]Extract agentspec blocks to various formats[/dim]",
+        border_style="cyan",
+        padding=(1,2)
+    ))
+    
+    guide = (
+        "[bold]Output Formats[/bold]\n\n"
+        "[bold green]markdown[/bold green] (default)\n"
+        "Human-readable format with headers, code blocks, and organization by file.\n"
+        "Best for documentation and review.\n\n"
+        "[bold yellow]json[/bold yellow]\n"
+        "Structured data format for programmatic access.\n"
+        "Includes all metadata, function signatures, and specs.\n"
+        "Best for tooling and automation.\n\n"
+        "[bold cyan]agent-context[/bold cyan]\n"
+        "Optimized format for AI assistants.\n"
+        "Includes function signatures, relationships, and dependencies.\n"
+        "Best for feeding into LLMs."
+    )
+    c.print(Panel(guide, title="Format Guide", border_style="dim", padding=(0,1)))
+    
+    examples = (
+        "[bold]Examples[/bold]\n\n"
+        "[dim]# Extract to markdown (human-readable)[/dim]\n"
+        "[green]agentspec extract src/[/green]\n\n"
+        "[dim]# Extract to JSON file[/dim]\n"
+        "[green]agentspec extract src/ --format json > specs.json[/green]\n\n"
+        "[dim]# Agent-context format for LLM[/dim]\n"
+        "[green]agentspec extract src/ --format agent-context > context.md[/green]\n\n"
+        "[dim]# Single file extraction[/dim]\n"
+        "[green]agentspec extract src/core.py --format json[/green]"
+    )
+    c.print(Panel(examples, title="Examples", border_style="dim", padding=(0,1)))
+    
+    t = Table(title="Flags", box=box.SIMPLE_HEAVY, show_header=False)
+    t.add_column("Flag", style="yellow")
+    t.add_column("Description")
+    t.add_row("--format", "Output format: markdown (default) | json | agent-context")
+    c.print(t)
+
+
+def _show_strip_rich_help():
+    """Rich TUI help for agentspec strip command."""
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich import box
+    
+    c = Console()
+    
+    c.print(Panel.fit(
+        "[bold magenta]agentspec strip[/bold magenta]\n[dim]Remove agentspec-generated content[/dim]",
+        border_style="cyan",
+        padding=(1,2)
+    ))
+    
+    guide = (
+        "[bold]Strip Modes[/bold]\n\n"
+        "[bold green]all[/bold green] (default)\n"
+        "Removes both YAML blocks and narrative docstrings.\n"
+        "Complete cleanup for regeneration.\n\n"
+        "[bold yellow]yaml[/bold yellow]\n"
+        "Removes only fenced agentspec YAML blocks (---agentspec...---/agentspec).\n"
+        "Keeps narrative docstrings intact.\n\n"
+        "[bold cyan]docstrings[/bold cyan]\n"
+        "Removes only narrative docstrings generated by agentspec.\n"
+        "Keeps YAML blocks intact.\n\n"
+        "[bold red]⚠️ Safety Features[/bold red]\n"
+        "• AST-based parsing (only removes marked content)\n"
+        "• Compile check per edit (skips if compilation fails)\n"
+        "• Deletes adjacent AGENTSPEC_CONTEXT print statements\n"
+        "• Dry-run mode to preview changes"
+    )
+    c.print(Panel(guide, title="Mode Guide", border_style="dim", padding=(0,1)))
+    
+    examples = (
+        "[bold]Examples[/bold]\n\n"
+        "[dim]# Preview what would be removed (DRY RUN - ALWAYS START HERE!)[/dim]\n"
+        "[green]agentspec strip src/ --dry-run[/green]\n\n"
+        "[dim]# Remove everything (for full regeneration)[/dim]\n"
+        "[green]agentspec strip src/ --mode all[/green]\n\n"
+        "[dim]# Remove only YAML blocks[/dim]\n"
+        "[green]agentspec strip src/ --mode yaml[/green]\n\n"
+        "[dim]# Remove only narrative docstrings[/dim]\n"
+        "[green]agentspec strip src/ --mode docstrings[/green]\n\n"
+        "[dim]# Single file strip with preview[/dim]\n"
+        "[green]agentspec strip src/core.py --mode all --dry-run[/green]"
+    )
+    c.print(Panel(examples, title="Examples", border_style="dim", padding=(0,1)))
+    
+    t = Table(title="Flags", box=box.SIMPLE_HEAVY, show_header=False)
+    t.add_column("Flag", style="yellow")
+    t.add_column("Description")
+    t.add_row("--mode", "Strip mode: all (default) | yaml | docstrings")
+    t.add_row("--dry-run", "Preview changes without modifying files [bold]RECOMMENDED FIRST[/bold]")
+    c.print(t)
+    
+    c.print()
+    c.print("[bold yellow]⚠️  RECOMMENDATION:[/bold yellow] [white]Always run with --dry-run first to preview changes![/white]")
 
 
 def _check_python_version():
@@ -711,6 +898,30 @@ def main():
                     _show_generate_rich_help(); sys.exit(0)
                 except Exception:
                     pass
+    
+    # Intercept lint help
+    if len(sys.argv) >= 2 and sys.argv[1] == "lint":
+        if any(h in sys.argv[2:] for h in ("-h", "--help")):
+            try:
+                _show_lint_rich_help(); sys.exit(0)
+            except Exception:
+                pass
+    
+    # Intercept extract help
+    if len(sys.argv) >= 2 and sys.argv[1] == "extract":
+        if any(h in sys.argv[2:] for h in ("-h", "--help")):
+            try:
+                _show_extract_rich_help(); sys.exit(0)
+            except Exception:
+                pass
+    
+    # Intercept strip help
+    if len(sys.argv) >= 2 and sys.argv[1] == "strip":
+        if any(h in sys.argv[2:] for h in ("-h", "--help")):
+            try:
+                _show_strip_rich_help(); sys.exit(0)
+            except Exception:
+                pass
 
     try:
         from rich_argparse import RichHelpFormatter as _HelpFmt  # type: ignore
