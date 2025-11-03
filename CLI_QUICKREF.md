@@ -427,8 +427,8 @@ agentspec generate src/important.py --model <your_best_model>
 # Fast and cheap
 agentspec generate src/ --model claude-haiku-4-5
 
-# Local/free with Ollama
-agentspec generate src/ --model llama3.2 --provider openai --base-url http://localhost:11434/v1
+# Local/free with local LLM (Ollama, vLLM, LM Studio, etc.)
+agentspec generate src/ --model <your-model> --provider local --base-url http://localhost:11434/v1
 ```
 
 ### Model Comparison
@@ -436,8 +436,8 @@ agentspec generate src/ --model llama3.2 --provider openai --base-url http://loc
 ```bash
 # Test different models on same file
 agentspec generate src/test.py --model claude-haiku-4-5 --dry-run > haiku.txt
-agentspec generate src/test.py --model claude-sonnet-4-5-20250929 --dry-run > sonnet.txt
-agentspec generate src/test.py --model gpt-4o-mini --provider openai --dry-run > gpt4.txt
+agentspec generate src/test.py --model claude-haiku-4-5 --dry-run > haiku2.txt
+agentspec generate src/test.py --model gpt-5 --provider openai --dry-run > gpt5.txt
 
 # Compare outputs
 diff haiku.txt sonnet.txt
@@ -531,7 +531,7 @@ agentspec generate src/broken.py
 ```bash
 # Use local models to avoid rate limits
 export OLLAMA_BASE_URL=http://localhost:11434/v1
-agentspec generate src/ --model llama3.2 --provider openai
+agentspec generate src/ --model <your-model> --provider local --base-url http://localhost:11434/v1
 
 # Or add delays between files
 for file in src/*.py; do
@@ -580,7 +580,7 @@ echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 | **Extract markdown** | `agentspec extract src/` |
 | **Extract JSON** | `agentspec extract src/ --format json` |
 | **Extract JS/TS** | `agentspec extract src/ --language js` |
-| **Use Ollama** | `agentspec generate src/ --model llama3.2 --provider openai --base-url http://localhost:11434/v1` |
+| **Use Local LLM** | `agentspec generate src/ --model <your-model> --provider local --base-url http://localhost:11434/v1` |
 | **Strip all** | `agentspec strip src/` |
 | **Strip preview** | `agentspec strip src/ --dry-run` |
 
@@ -615,7 +615,7 @@ agentspec generate src/changed_file.py --update-existing
 agentspec generate src/payments.py --update-existing --dry-run
 
 # The "Free Local Generation" Command
-agentspec generate src/ --model llama3.2 --provider openai --base-url http://localhost:11434/v1
+agentspec generate src/ --model <your-model> --provider local --base-url http://localhost:11434/v1
 ```
 
 ---

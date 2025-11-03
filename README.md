@@ -265,17 +265,17 @@ agentspec generate src/ --dry-run --force-context
 # Use different models
 # - Claude models (Anthropic) - auto-detected by model name:
 agentspec generate src/ --model claude-haiku-4-5
-agentspec generate src/ --model claude-3-5-sonnet-20241022
+agentspec generate src/ --model claude-haiku-4-5 --provider claude
 
 # - OpenAI cloud (requires OPENAI_API_KEY):
 export OPENAI_API_KEY=sk-...
 agentspec generate src/ --model gpt-5 --provider openai
 
-# - Local Ollama (no API key needed):
-agentspec generate src/ --model llama3.2 --provider openai --base-url http://localhost:11434/v1
+# - Local LLM (Ollama, vLLM, LM Studio - no API key needed):
+agentspec generate src/ --model <your-model> --provider local --base-url http://localhost:11434/v1
 # Or set env var for auto-detection:
 export OPENAI_BASE_URL=http://localhost:11434/v1
-agentspec generate src/ --model llama3.2 --provider openai
+agentspec generate src/ --model <your-model> --provider local
 
 # - Other OpenAI-compatible providers (LM Studio, vLLM, etc.):
 agentspec generate src/ --model custom-model --provider openai --base-url http://your-server:8000/v1
