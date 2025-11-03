@@ -440,7 +440,7 @@ agentspec generate src/test.py --model claude-haiku-4-5 --dry-run > haiku2.txt
 agentspec generate src/test.py --model gpt-5 --provider openai --dry-run > gpt5.txt
 
 # Compare outputs
-diff haiku.txt sonnet.txt
+diff haiku.txt gpt5.txt
 ```
 
 ---
