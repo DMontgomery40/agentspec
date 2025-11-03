@@ -57,3 +57,20 @@ def test_compute_ratio_counts_good_and_bad():
     g, b, r = parser.compute_ratio(data)
     assert g == 2 and b == 2 and abs(r - (2 / 4)) < 1e-6
 
+
+def test_make_example_includes_code_snippet(monkeypatch):
+    os.environ["AGENTSPEC_EXAMPLES_STUB"] = "1"
+    parser = ExampleParser()
+    file_path = str(Path("tests/test_extract_javascript_agentspec.py").resolve())
+    ctx = parser.extract_code_context(file_path, "test_extract_from_jsdoc_agentspec_block")
+
+    record = parser.make_example(
+        code_context=ctx,
+        subject_function="agentspec.extract.extract_from_js_file",
+        bad_output=None,
+        good_output="Checks presence only",
+        correction=None,
+        require_ask_user=False,
+    )
+    assert "code_snippet" in record and isinstance(record["code_snippet"], str) and record["code_snippet"].strip()
+

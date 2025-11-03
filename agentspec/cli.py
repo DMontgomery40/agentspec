@@ -428,6 +428,7 @@ def _show_rich_help():
     commands_table.add_row("extract", "Extract agentspec blocks to markdown or JSON")
     commands_table.add_row("generate", "Auto-generate verbose agentspec docstrings using Claude")
     commands_table.add_row("strip", "Remove agentspec-generated docstrings from Python files")
+    commands_table.add_row("prompts", "Prompts and examples toolkit")
 
     console.print(commands_table)
     console.print()
@@ -471,6 +472,122 @@ def _show_rich_help():
     console.print(
         "[dim]For detailed help on a specific command:[/dim] " "[bold cyan]agentspec <command> --help[/bold cyan]"
     )
+
+
+def _show_generate_rich_help():
+    """
+    ---agentspec
+    what: |
+      Render a dyslexia-friendly Rich help for `agentspec generate`, including a Quick Provider Guide with
+      copy/paste examples for OpenAI (CFG default), Anthropic, and Ollama. Uses big panels and short lines.
+    ---/agentspec
+    """
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich import box
+
+    c = Console()
+
+    c.print(Panel.fit("[bold magenta]agentspec generate[/bold magenta]\n[dim]Generate agentspec documentation[/dim]",
+                      border_style="cyan", padding=(1,2)))
+
+    guide = (
+        "[bold]Quick Provider Guide[/bold]\n\n"
+        "[bold green]OpenAI (default, CFG)[/bold green]\n"
+        "OPENAI_API_KEY must be set.\n"
+        "[white]agentspec generate src/ --model gpt-5 --agentspec-yaml --update-existing[/white]\n\n"
+        "[bold yellow]Anthropic[/bold yellow]\n"
+        "ANTHROPIC_API_KEY must be set.\n"
+        "[white]agentspec generate src/ --provider claude --model claude-3-haiku-20240307 --agentspec-yaml --update-existing[/white]\n\n"
+        "[bold cyan]Ollama (local)[/bold cyan]\n"
+        "Run: [white]ollama run qwen3-coder:30b[/white]\n"
+        "[white]agentspec generate src/ --provider openai --base-url http://localhost:11434/v1 --model qwen3-coder:30b --agentspec-yaml --update-existing[/white]"
+    )
+    c.print(Panel(guide, title="Provider Guide", border_style="dim", padding=(0,1)))
+
+    eg = (
+        "[bold]Examples[/bold]\n"
+        "[white]agentspec generate src/ --update-existing --terse[/white]\n"
+        "[white]agentspec generate src/core/ --agentspec-yaml --update-existing[/white]"
+    )
+    c.print(Panel(eg, title="Examples", border_style="dim", padding=(0,1)))
+
+    t = Table(title="Key Flags", box=box.SIMPLE_HEAVY, show_header=False)
+    t.add_column("Flag", style="yellow")
+    t.add_column("Description")
+    t.add_row("--model", "Model id (e.g., gpt-5, claude-3-haiku-20240307, qwen3-coder:30b)")
+    t.add_row("--provider", "openai | claude | auto (Ollama uses openai w/ base-url)")
+    t.add_row("--base-url", "Custom endpoint (e.g., http://localhost:11434/v1)")
+    t.add_row("--agentspec-yaml", "Generate structured YAML blocks")
+    t.add_row("--update-existing", "Regenerate existing docstrings")
+    t.add_row("--terse", "Shorter output")
+    c.print(t)
+
+
+def _show_prompts_rich_help():
+    """
+    ---agentspec
+    what: |
+      Render a Rich-formatted help screen for the `prompts` subcommand, including usage, required/optional
+      arguments, and concrete examples. This is designed to be dyslexia-friendly with clear boxes, colors,
+      and concise wording.
+    ---/agentspec
+    """
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich import box
+
+    c = Console()
+
+    c.print(Panel.fit("[bold magenta]agentspec prompts[/bold magenta]\n[dim]Prompts and examples toolkit[/dim]", border_style="cyan", padding=(1,2)))
+
+    usage = (
+        "[bold]Usage[/bold]\n"
+        "[green]agentspec prompts --add-example --file <path> [--function <name>] [--subject-function <fqfn>]\\n"
+        "                  [--good-output TEXT] [--bad-output TEXT] [--correction TEXT]\\n"
+        "                  [--require-ask-user] [--dry-run] [--strict-ratio][/green]\n\n"
+        "[bold]Shorthand[/bold]\n"
+        "[green]agentspec prompts <path> --add-example [other options][/green]\n"
+    )
+    c.print(Panel(usage, title="Quick Start", border_style="dim", padding=(0,1)))
+
+    t = Table(title="Arguments", box=box.SIMPLE_HEAVY, show_header=False)
+    t.add_column("Arg", style="yellow")
+    t.add_column("Description")
+    t.add_row("--file <path>", "Target file path [bold]REQUIRED[/bold] with --add-example (or use positional <path>)")
+    t.add_row("--function <name>", "Scope the sample to a function (optional)")
+    t.add_row("--subject-function <fqfn>", "Fully qualified subject function for context (optional)")
+    t.add_row("--good-output TEXT", "Good documentation text to validate (optional)")
+    t.add_row("--bad-output TEXT", "Bad documentation text to analyze (optional)")
+    t.add_row("--correction TEXT", "Correction for bad output (optional)")
+    t.add_row("--require-ask-user", "Ensure ASK USER guardrail is present")
+    t.add_row("--dry-run", "Print record and ratio without writing to dataset")
+    t.add_row("--strict-ratio", "Fail if adding would drop good ratio below minimum")
+    c.print(t)
+
+    examples = (
+        "[bold]Examples[/bold]\n"
+        "[green]agentspec prompts --add-example --file tests/test_extract_javascript_agentspec.py \\\n --function test_extract_from_jsdoc_agentspec_block \\\n --subject-function agentspec.extract.extract_from_js_file \\\n --good-output 'Checks presence only' --require-ask-user --dry-run[/green]\n\n"
+        "[green]agentspec prompts tests/test_extract_javascript_agentspec.py --add-example \\\n --good-output 'Checks presence only' --dry-run[/green]"
+    )
+    c.print(Panel(examples, title="Examples", border_style="dim", padding=(0,1)))
+
+    # Update Arguments table wording for clarity (ML engineers)
+    t = Table(title="Arguments", box=box.SIMPLE_HEAVY, show_header=False)
+    t.add_column("Arg", style="yellow")
+    t.add_column("Description")
+    t.add_row("--file <path>", "Path to the file to read code from. [bold]REQUIRED[/bold] with --add-example (or pass as positional <path>).")
+    t.add_row("--function <name>", "(Optional) Name of a test or function inside that file to focus the snippet on.")
+    t.add_row("--subject-function <fqfn>", "(Optional) What code this example is about, e.g. agentspec.extract.extract_from_js_file.")
+    t.add_row("--good-output TEXT", "(Optional) A good docstring you want to keep.")
+    t.add_row("--bad-output TEXT", "(Optional) A bad docstring you want analyzed.")
+    t.add_row("--correction TEXT", "(Optional) What the bad doc should have said.")
+    t.add_row("--require-ask-user", "Add an ASK USER guardrail to the record.")
+    t.add_row("--dry-run", "Print results only; do not write to dataset.")
+    t.add_row("--strict-ratio", "Fail if adding would reduce good:bad ratio below minimum.")
+    c.print(t)
 
 
 def _check_python_version():
@@ -557,322 +674,144 @@ def main():
     """
     ---agentspec
     what: |
-      CLI entry point that parses command-line arguments and dispatches to three subcommands: lint, extract, and generate.
+      CLI entry point that parses command-line arguments and dispatches to subcommands: lint, extract, generate, strip, and prompts.
 
-      **Lint subcommand**: Validates agentspec docstring blocks in Python files against format and verbosity requirements. Accepts target (file or directory), --min-lines (minimum lines in agentspec blocks, default 10), and --strict flag (treats warnings as errors). Calls lint.run() with parsed arguments.
-
-      **Extract subcommand**: Exports agentspec blocks from Python files to portable formats. Accepts target (file or directory) and --format flag (choices: markdown, json, agent-context; default markdown). Calls extract.run() with parsed arguments.
-
-      **Generate subcommand**: Auto-generates or refreshes agentspec docstrings using Claude or OpenAI-compatible APIs. Accepts target (file or directory), --dry-run (preview without modifying), --force-context (add print() statements for LLM context), --model (model identifier), --agentspec-yaml (embed YAML block), --provider (auto/anthropic/openai, default auto), --base-url (for OpenAI-compatible endpoints), --update-existing (regenerate existing docstrings), --terse (shorter output), and --diff-summary (add git diff summaries). Lazy-imports generate module to avoid requiring anthropic dependency unless command is used. Calls generate.run() with all parsed arguments.
-
-      **Strip subcommand**: Safely removes agentspec-generated YAML or narrative docstrings from Python files. Accepts target (file or directory), --mode (all/yaml/docstrings; default all), and --dry-run to preview removals. Calls strip.run() which performs per-edit compile verification before writing changes.
-
-      **Behavior**: Loads .env file automatically via load_env_from_dotenv(). Displays rich-formatted help if no arguments or --help flag provided. Uses argparse with RichHelpFormatter for improved CLI UX. Routes parsed args to appropriate submodule handler (lint.run(), extract.run(), or generate.run()). Exits with status code 0 on success or 1 on error/missing command. Prints help and exits if no subcommand provided.
-
-      **Edge cases**: Missing ANTHROPIC_API_KEY environment variable causes generate.run() to fail with auth error. Invalid Claude model names fail at API call time, not argument parsing time. --strict flag converts linting warnings to hard errors; use with caution in CI/CD pipelines.
-    deps:
-          calls:
-            - FuzzyArgumentParser
-            - _show_rich_help
-            - extract.run
-            - extract_parser.add_argument
-            - generate.run
-            - generate_parser.add_argument
-            - strip.run
-            - strip_parser.add_argument
-            - len
-            - lint.run
-            - lint_parser.add_argument
-            - load_env_from_dotenv
-            - parser.add_subparsers
-            - parser.parse_args
-            - parser.print_help
-            - subparsers.add_parser
-            - sys.exit
-          imports:
-            - agentspec.extract
-            - agentspec.lint
-            - agentspec.utils.load_env_from_dotenv
-            - argparse
-            - difflib
-            - pathlib.Path
-            - sys
-
-
-    why: |
-      Subcommand pattern isolates lint, extract, generate, and strip logic for independent testing, maintenance, and feature development without tight coupling. Rich-based help formatter improves CLI UX for both end users and agent consumption. Lazy import of generate module avoids requiring anthropic dependency unless generate command is explicitly invoked, reducing installation friction for users who only need lint/extract. Early exit on missing command prevents ambiguous behavior and ensures explicit user feedback via help text. Explicit if/elif dispatch chain is more readable and debuggable than dict-based dispatch at this scale; easier for agents to trace execution flow. Default values (--min-lines=10, --format=markdown, --model=claude-haiku-4-5) provide sensible out-of-the-box behavior for common workflows. sys.exit() calls ensure process terminates cleanly; Python does not auto-exit from main(). Strip command centralizes docstring removal tooling that previously required separate scripts, keeping lifecycle operations in a single CLI entry point.
-
-    guardrails:
-      - DO NOT modify the if/elif dispatch logic without updating corresponding submodule signatures in lint.py, extract.py, and generate.py
-      - DO NOT remove sys.exit() calls; they are required for proper CLI exit behavior and process termination
-      - DO NOT add new subcommands without documenting them in this docstring's WHAT section and updating help text
-      - DO NOT rename strip --mode choices without updating agentspec.strip guardrails and tests
-      - DO NOT change argument parameter names (e.g., target, format, model, provider, base_url) as they are consumed by downstream modules via args object attributes
-      - DO NOT remove or rename --dry-run and --force-context flags for generate; these are critical safety mechanisms
-      - ALWAYS preserve help text on all CLI flags for end-user clarity and discoverability
-      - ALWAYS validate that new CLI flags have sensible defaults to avoid breaking existing automation scripts and CI/CD pipelines
-      - ALWAYS ensure subcommand descriptions include common workflows and examples in epilog for agent/user guidance
-      - ALWAYS lazy-import optional dependencies (like generate module) to avoid requiring them unless explicitly needed
-      - ALWAYS call load_env_from_dotenv() at entry point to allow users to configure via .env without manual export
-
-    changelog:
-
-      - "2025-10-31: Clean up docstring formatting"
-      - "2025-10-31: Add strip subcommand wiring and documentation"
-        ---/agentspec
+      Behavior: Loads .env via load_env_from_dotenv(). Uses argparse with Rich help when available. Intercepts
+      -h/--help and missing provider value for generate to render dyslexia-friendly Rich help panels instead of
+      raw argparse errors.
+    ---/agentspec
     """
-    # Check Python version before anything else
-    _check_python_version()
+    import sys
+    import argparse
 
-    # Load .env automatically (nearest) so users don't have to export manually
+    from agentspec.utils import load_env_from_dotenv
+
     load_env_from_dotenv()
 
-    # Override help completely for main command
-    if len(sys.argv) == 1 or (len(sys.argv) == 2 and sys.argv[1] in ("--help", "-h")):
-        _show_rich_help()
-        sys.exit(0)
+    # Intercept global help
+    if len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help"):
+        try:
+            _show_rich_help(); sys.exit(0)
+        except Exception:
+            pass
 
-    # Use Rich-based help formatters (required dependency)
-    from rich_argparse import RichHelpFormatter as _HelpFmt  # type: ignore
-    from rich_argparse import RawDescriptionRichHelpFormatter
+    # Intercept generate help and provider mistakes early
+    if len(sys.argv) >= 2 and sys.argv[1] == "generate":
+        # `agentspec generate -h` or `--help`
+        if any(h in sys.argv[2:] for h in ("-h", "--help")):
+            try:
+                _show_generate_rich_help(); sys.exit(0)
+            except Exception:
+                pass
+        # `--provider` without a value -> show rich panel, not raw argparse error
+        if "--provider" in sys.argv[2:]:
+            idx = sys.argv.index("--provider")
+            if idx == len(sys.argv) - 1 or (idx+1 < len(sys.argv) and sys.argv[idx+1].startswith("-")):
+                try:
+                    _show_generate_rich_help(); sys.exit(0)
+                except Exception:
+                    pass
 
-    parser = FuzzyArgumentParser(
-        description="Agentspec: Structured, enforceable docstrings for AI agents",
+    try:
+        from rich_argparse import RichHelpFormatter as _HelpFmt  # type: ignore
+    except Exception:
+        _HelpFmt = argparse.HelpFormatter
+
+    parser = argparse.ArgumentParser(
+        prog="agentspec",
+        description="Agentspec CLI",
         formatter_class=_HelpFmt,
-        epilog=(
-            "Quick start:\n"
-            "  agentspec lint src/ --strict\n"
-            "  agentspec extract src/ --format json > specs.json\n"
-            "  agentspec generate src/ --dry-run\n"
-            "  agentspec generate src/auth.py --diff-summary\n\n"
-            "Tip: run 'agentspec <command> --help' for detailed flags."
-        ),
     )
-
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
-    # Lint command
-    lint_parser = subparsers.add_parser(
-        "lint",
-        help="Validate agentspec blocks in Python files",
-        description=(
-            "Validate agentspec docstrings for presence, structure, and verbosity.\n\n"
-            "Common flows:\n"
-            "  • Enforce standards in CI: --strict (warnings cause non-zero exit)\n"
-            "  • Raise minimum spec verbosity: --min-lines N\n"
-            "  • Quick check of a single file before commit\n\n"
-            "Behavior:\n"
-            "  • Prints per-file errors and warnings\n"
-            "  • Exits non-zero on errors (and on warnings when --strict)\n"
-        ),
-        epilog=(
-            "Examples:\n"
-            "  agentspec lint src/ --strict\n"
-            "  agentspec lint src/payments.py --strict --min-lines 20\n"
-            "  agentspec lint src/ --min-lines 15\n"
-        ),
-        formatter_class=RawDescriptionRichHelpFormatter,
-    )
+    # lint
+    lint_parser = subparsers.add_parser("lint", help="Validate agentspec blocks")
     lint_parser.add_argument("target", help="File or directory to lint")
-    lint_parser.add_argument(
-        "--language",
-        choices=["py", "js", "auto"],
-        default="auto",
-        help="Source language: 'py' (Python), 'js' (JavaScript), or 'auto' to detect from file extensions (default: auto)",
-    )
-    lint_parser.add_argument(
-        "--min-lines", type=int, default=10, help="Minimum lines required in agentspec blocks (default: 10)"
-    )
+    lint_parser.add_argument("--min-lines", dest="min_lines", type=int, default=10)
     lint_parser.add_argument("--strict", action="store_true", help="Treat warnings as errors")
 
-    # Extract command
-    extract_parser = subparsers.add_parser(
-        "extract",
-        help="Extract agentspec blocks to markdown or JSON",
-        description=(
-            "Extract agentspecs from code into portable docs for humans/CI/LLMs.\n\n"
-            "Common flows:\n"
-            "  • Human-readable docs site or review bundle: (default) markdown\n"
-            "  • Machine-readable output for pipelines: --format json\n"
-            "  • Agent-executable context with print() prompts: --format agent-context\n\n"
-            "Outputs:\n"
-            "  • markdown → agent_specs.md\n"
-            "  • json → agent_specs.json\n"
-            "  • agent-context → AGENT_CONTEXT.md\n"
-        ),
-        epilog=(
-            "Examples:\n"
-            "  agentspec extract src/\n"
-            "  agentspec extract src/ --format json > specs.json\n"
-            "  agentspec extract src/auth.py --format agent-context\n"
-        ),
-        formatter_class=RawDescriptionRichHelpFormatter,
-    )
+    # extract
+    extract_parser = subparsers.add_parser("extract", help="Extract agentspec blocks")
     extract_parser.add_argument("target", help="File or directory to extract from")
-    extract_parser.add_argument(
-        "--language",
-        choices=["py", "js", "auto"],
-        default="auto",
-        help="Source language: 'py' (Python), 'js' (JavaScript), or 'auto' to detect from file extensions (default: auto)",
-    )
     extract_parser.add_argument(
         "--format",
         choices=["markdown", "json", "agent-context"],
         default="markdown",
-        help="Output format (default: markdown)",
     )
 
-    # Generate command
-    generate_parser = subparsers.add_parser(
-        "generate",
-        help="Auto-generate verbose agentspec docstrings",
-        description=(
-            "Generate or refresh agentspec docstrings from code.\n\n"
-            "Common flows:\n"
-            "  • Keep docs in sync: --update-existing\n"
-            "  • For ambiguous or uncommon code: avoid --terse for thoroughness\n"
-            "  • Fit more into LLM context: --terse\n"
-            "  • Add commit-intent summaries: --diff-summary\n\n"
-            "Providers:\n"
-            "  • Anthropic by model name (e.g., claude-haiku-4-5)\n"
-            "  • OpenAI-compatible (incl. Ollama): --provider openai [--base-url URL]\n"
-        ),
-        epilog=(
-            "Examples:\n"
-            "  agentspec generate src/ --update-existing --terse\n"
-            "  agentspec generate src/core/ --diff-summary\n"
-            "  agentspec generate src/ --provider openai --model gpt-5\n"
-            "  agentspec generate src/ --provider openai --model llama3.2 --base-url http://localhost:11434/v1\n"
-        ),
-        formatter_class=RawDescriptionRichHelpFormatter,
-    )
-    generate_parser.add_argument("target", help="File or directory to generate docstrings for")
-    generate_parser.add_argument(
-        "--language",
-        choices=["py", "js", "auto"],
-        default="auto",
-        help="Source language: 'py' (Python), 'js' (JavaScript), or 'auto' to detect from file extensions (default: auto)",
-    )
-    generate_parser.add_argument(
-        "--dry-run", action="store_true", help="Preview what would be generated without modifying files"
-    )
-    generate_parser.add_argument(
-        "--force-context",
-        action="store_true",
-        help="Add print() statements to force LLMs to load docstrings into context",
-    )
-    generate_parser.add_argument(
-        "--model",
-        type=str,
-        default="claude-haiku-4-5",
-        help=(
-            "Claude model to use. Options: claude-haiku-4-5 (default), "
-            "claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022"
-        ),
-    )
-    generate_parser.add_argument(
-        "--agentspec-yaml",
-        action="store_true",
-        help="Generate docstrings that contain an embedded ---agentspec YAML block",
-    )
-    generate_parser.add_argument(
-        "--provider",
-        choices=["auto", "anthropic", "openai"],
-        default="auto",
-        help="LLM provider to use: 'anthropic' (Claude), 'openai' (OpenAI-compatible, including Ollama), or 'auto' (infer from model)",
-    )
-    generate_parser.add_argument(
-        "--base-url",
-        type=str,
-        default=None,
-        help="Base URL for OpenAI-compatible providers (e.g., http://localhost:11434/v1 for Ollama). Overrides env if set.",
-    )
-    generate_parser.add_argument(
-        "--update-existing",
-        action="store_true",
-        help="Regenerate docstrings even for functions that already have them (useful when code changes)",
-    )
-    generate_parser.add_argument(
-        "--terse",
-        action="store_true",
-        help="TERSE MODE: Shorter output with max_tokens=500 and temperature=0.0 (more concise, deterministic)",
-    )
-    generate_parser.add_argument(
-        "--diff-summary",
-        action="store_true",
-        help="DIFF SUMMARY: Add LLM-generated summaries of git diffs for each commit (separate API call)",
-    )
+    # generate
+    generate_parser = subparsers.add_parser("generate", help="Generate agentspec documentation")
+    generate_parser.add_argument("target", help="File or directory to process")
+    generate_parser.add_argument("--dry-run", action="store_true")
+    generate_parser.add_argument("--force-context", action="store_true")
+    generate_parser.add_argument("--model", default="claude-haiku-4-5")
+    generate_parser.add_argument("--agentspec-yaml", dest="agentspec_yaml", action="store_true")
+    generate_parser.add_argument("--provider", default="auto")
+    generate_parser.add_argument("--base-url", dest="base_url", default=None)
+    generate_parser.add_argument("--update-existing", action="store_true")
+    generate_parser.add_argument("--terse", action="store_true")
+    generate_parser.add_argument("--diff-summary", dest="diff_summary", action="store_true")
 
-    # Optional pre-clean flag: strip existing agentspec docs before generation
-    generate_parser.add_argument(
-        "--strip",
-        action="store_true",
-        help="Strip existing agentspec docs in target files before generation (Python + JS/TS)",
-    )
-
-    strip_parser = subparsers.add_parser(
-        "strip",
-        help="Remove agentspec-generated docstrings from Python files",
-        description=(
-            "Strip agentspec YAML or narrative docstrings from Python files with compile-safety.\n\n"
-            "Common flows:\n"
-            "  • Preview removals before editing: --dry-run\n"
-            "  • Remove only YAML fences: --mode yaml\n"
-            "  • Remove narrative docs while keeping YAML: --mode docstrings\n\n"
-            "Behavior:\n"
-            "  • Walks functions, detects agentspec content, and removes matching docstrings\n"
-            "  • Performs per-edit py_compile checks before writing changes\n"
-            "  • Leaves files untouched when no agentspec content is detected\n"
-        ),
-        epilog=(
-            "Examples:\n"
-            "  agentspec strip src/ --dry-run\n"
-            "  agentspec strip src/service.py --mode yaml\n"
-            "  agentspec strip src/ --mode docstrings\n"
-        ),
-        formatter_class=RawDescriptionRichHelpFormatter,
-    )
-    strip_parser.add_argument("target", help="File or directory to strip")
+    # strip
+    strip_parser = subparsers.add_parser("strip", help="Remove agentspec blocks")
+    strip_parser.add_argument("target", help="File or directory")
     strip_parser.add_argument(
         "--mode",
         choices=["all", "yaml", "docstrings"],
         default="all",
-        help="Content removal mode: all (default), yaml, or docstrings",
     )
-    strip_parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Preview removals without modifying files",
-    )
+    strip_parser.add_argument("--dry-run", action="store_true")
 
-    # Keep top-level help concise. Detailed flags remain in each subcommand's --help.
+    # prompts (new)
+    prompts_parser = subparsers.add_parser("prompts", help="Prompts and examples toolkit")
+    prompts_parser.add_argument("path", nargs="?", help="Optional file path (same as --file)")
+    prompts_parser.add_argument("--add-example", dest="add_example", action="store_true", help="Create a dataset entry from the given file")
+    prompts_parser.add_argument("--file", dest="file", required=False, help="Path to the file to read code from (REQUIRED with --add-example; or positional <path>)")
+    prompts_parser.add_argument("--function", dest="function", required=False, help="Optional: name of a test or function inside that file")
+    prompts_parser.add_argument("--subject-function", dest="subject_function", required=False, help="Optional: the code you’re documenting (e.g., agentspec.extract.extract_from_js_file)")
+    prompts_parser.add_argument("--bad-output", dest="bad_output", required=False, help="Optional: a bad documentation example to analyze")
+    prompts_parser.add_argument("--good-output", dest="good_output", required=False, help="Optional: a good documentation example to validate")
+    prompts_parser.add_argument("--correction", dest="correction", required=False, help="Optional: what the bad doc should have said")
+    prompts_parser.add_argument("--require-ask-user", dest="require_ask_user", action="store_true", help="Add an ASK USER guardrail to the record")
+    prompts_parser.add_argument("--dry-run", action="store_true", help="Print the record and ratio; do not write to the dataset")
+    prompts_parser.add_argument("--strict-ratio", dest="strict_ratio", action="store_true", help="Fail if adding would reduce the good:bad ratio below minimum")
 
-    # Parse args
+    # Show Rich top-level help when no args
+    if len(sys.argv) == 1:
+        try:
+            _show_rich_help(); sys.exit(0)
+        except Exception:
+            parser.print_help(); sys.exit(0)
+
     args = parser.parse_args()
 
-    if not args.command:
-        parser.print_help()
-        sys.exit(1)
+    if not getattr(args, "command", None):
+        try:
+            _show_rich_help(); sys.exit(0)
+        except Exception:
+            parser.print_help(); sys.exit(0)
 
-    # Execute command
     if args.command == "lint":
-        exit_code = lint.run(args.target, min_lines=args.min_lines, strict=args.strict)
+        from agentspec import lint as _lint
+        rc = _lint.run(args.target, min_lines=args.min_lines, strict=args.strict)
+        sys.exit(0 if rc == 0 else 1)
+
     elif args.command == "extract":
-        exit_code = extract.run(args.target, fmt=args.format)
+        from agentspec import extract as _extract
+        rc = _extract.run(args.target, fmt=args.format)
+        sys.exit(0 if rc == 0 else 1)
+
     elif args.command == "generate":
-        # Lazy import to avoid requiring anthropic unless generate is used
-        from agentspec import generate
-
-        # If requested, strip existing agentspec docs first (Python + JS/TS)
-        if getattr(args, "strip", False):
+        # If user asked for help implicitly, show Rich
+        if args.provider in ("-h", "--help"):
             try:
-                strip.run(args.target, mode="all", dry_run=args.dry_run)
-            except Exception as e:
-                print(f"⚠️  Pre-clean (strip) failed: {e}")
-
-        exit_code = generate.run(
-            args.target,
-            language=args.language,
+                _show_generate_rich_help(); sys.exit(0)
+            except Exception:
+                pass
+        from agentspec import generate as _gen
+        rc = _gen.run(
+            target=args.target,
+            language="auto",
             dry_run=args.dry_run,
             force_context=args.force_context,
             model=args.model,
@@ -883,17 +822,43 @@ def main():
             terse=args.terse,
             diff_summary=args.diff_summary,
         )
-    elif args.command == "strip":
-        exit_code = strip.run(
-            args.target,
-            mode=args.mode,
-            dry_run=args.dry_run,
-        )
-    else:
-        parser.print_help()
-        exit_code = 1
+        sys.exit(0 if rc == 0 else 1)
 
-    sys.exit(exit_code)
+    elif args.command == "strip":
+        from agentspec import strip as _strip
+        rc = _strip.run(target=args.target, mode=args.mode, dry_run=args.dry_run)
+        sys.exit(0 if rc == 0 else 1)
+
+    elif args.command == "prompts":
+        if getattr(args, "add_example", False):
+            # Allow positional path shorthand
+            target_file = args.file or args.path
+            if not target_file:
+                print("❌ --file (or positional <path>) is required when using --add-example", file=sys.stderr)
+                sys.exit(1)
+            from agentspec.tools.add_example import _main_impl as _add_example
+            _add_example(
+                file_path=target_file,
+                function_name=args.function,
+                subject_function=args.subject_function,
+                bad_output=args.bad_output,
+                good_output=args.good_output,
+                correction=args.correction,
+                require_ask_user=args.require_ask_user,
+                dry_run=args.dry_run,
+                strict_ratio=args.strict_ratio,
+            )
+            sys.exit(0)
+        try:
+            _show_prompts_rich_help(); sys.exit(0)
+        except Exception:
+            parser.print_help(); sys.exit(0)
+
+    else:
+        try:
+            _show_rich_help(); sys.exit(0)
+        except Exception:
+            parser.print_help(); sys.exit(0)
 
 
 if __name__ == "__main__":

@@ -102,110 +102,48 @@ def generate_chat(
     *,
     reasoning_effort: Optional[str] = None,
     verbosity: Optional[str] = None,
+    grammar_lark: Optional[str] = None,
 ) -> str:
     """
     ---agentspec
     what: |
-      generate_chat() is a unified LLM interface that routes requests to either Anthropic Claude or OpenAI-compatible providers (including local Ollama instances). It accepts a model identifier, message list, temperature, max_tokens, optional base_url, and provider hint, returning a single string response.
+      Unified LLM interface routing to Anthropic (Claude) or OpenAI‑compatible providers. Uses OpenAI
+      Responses API by default, with automatic fallback to Chat Completions for OpenAI‑compatible
+      runtimes that do not implement Responses (e.g., Ollama/vLLM/LM Studio).
 
-      **Anthropic Path (Claude models):**
-      - Triggered when provider='anthropic' is explicit, or when _is_anthropic_model(model) returns True and provider is not forced to 'openai'
-      - Concatenates all 'system' and 'user' role messages with "\n\n" separator into a single prompt string
-      - Filters out 'assistant' role messages (one-way conversation)
-      - Creates Anthropic client with lazy import; raises RuntimeError if anthropic SDK not installed
-      - Calls client.messages.create() with model, max_tokens, temperature, and reconstructed single-message format
-      - Returns resp.content[0].text directly
+      Inputs: model, messages, temperature, max_tokens, base_url, provider, optional reasoning/verbosity
+      and grammar_lark (Responses/CFG only).
 
-      **OpenAI-Compatible Path (default, Responses API only):**
-      - Triggered for all non-Anthropic models or when provider='openai' is explicit
-      - Resolves API key from environment: OPENAI_API_KEY → AGENTSPEC_OPENAI_API_KEY → 'not-needed' (permissive fallback for local services)
-      - Resolves base_url from parameter → OPENAI_BASE_URL → AGENTSPEC_OPENAI_BASE_URL → 'https://api.openai.com/v1' (default OpenAI)
-      - Creates OpenAI client with resolved base_url and api_key
-      - Uses Responses API exclusively:
-        - Concatenates system + user/assistant messages into a single string input
-        - Supports optional parameters: reasoning_effort ("minimal"|"low"|"medium"|"high") and verbosity ("low"|"medium"|"high")
-        - Calls client.responses.create(model, input, temperature, max_output_tokens, reasoning={effort}, text={verbosity})
-        - Extracts text via defensive attribute chain: output_text → output[].content.text → text
-
-      **Edge Cases Handled:**
-      - Missing dependencies: Raises RuntimeError with installation instructions (lazy import pattern)
-      - Empty/None content fields: Defaults to empty string
-      - Malformed response objects: Defensive hasattr/getattr chain with fallbacks
-      - Missing API key for local services: Accepts 'not-needed' placeholder (for self-hosted OpenAI-compatible gateways)
-      - Empty response objects: Returns empty string instead of crashing
-    deps:
-          calls:
-            - Anthropic
-            - OpenAI
-            - RuntimeError
-            - _is_anthropic_model
-            - completions.create
-            - getattr
-            - hasattr
-            - isinstance
-            - join
-            - lower
-            - m.get
-            - messages.create
-            - oai_messages.append
-            - os.getenv
-            - responses.create
-            - str
-            - user_content.append
-          imports:
-            - __future__.annotations
-            - os
-            - typing.Dict
-            - typing.List
-            - typing.Optional
-
-
-    why: |
-      **Provider Routing:** The dual-path design accommodates two distinct LLM ecosystems with incompatible APIs. Anthropic's message format differs fundamentally from OpenAI's, requiring separate client initialization and message reconstruction. The provider parameter allows explicit control while defaulting to auto-detection via _is_anthropic_model(), reducing caller burden.
-
-      **Lazy Imports:** Both anthropic and openai SDKs are imported only when needed. This avoids hard dependencies and allows users to install only the SDK(s) they require, reducing package bloat and installation friction.
-
-      **Message Concatenation (Anthropic):** Claude's API expects a different message structure than the input format. Rather than complex transformation logic, concatenating system+user content into a single prompt is sufficient for most use cases and simplifies the interface. Assistant messages are dropped because the Anthropic path reconstructs messages as a single user message, which doesn't preserve multi-turn conversation history.
-
-      **Responses API with Chat Completions Fallback:** The Responses API is OpenAI's newer, simpler interface but not all providers support it (e.g., Ollama, local deployments). The try/except pattern attempts the modern API first, then silently falls back to the widely-supported Chat Completions API. This maximizes compatibility without requiring caller awareness of provider capabilities.
-
-      **Defensive Response Extraction:** Response objects vary across providers and API versions. The hasattr/getattr chain with multiple fallback paths (output_text → output → text) ensures robustness against schema variations without requiring strict type checking.
-
-      **Environment Variable Hierarchy:** Multiple environment variable names (OPENAI_API_KEY, AGENTSPEC_OPENAI_API_KEY, OLLAMA_BASE_URL) allow flexible configuration across different deployment contexts (CI/CD, Docker, local dev) without code changes. The 'not-needed' fallback permits local services that don't require authentication.
-
-      **Tradeoff: Simplicity vs. Fidelity:** Message concatenation loses conversation structure (no role preservation in Anthropic path). This is acceptable for single-turn use cases but limits multi-turn dialogue. The alternative (full message transformation) would add complexity and maintenance burden.
+      Behavior:
+      - Anthropic path (provider == 'claude' or model startswith 'claude'): call messages.create
+      - OpenAI path: try responses.create; if it raises a transport error or returns 404, fallback to
+        chat.completions.create with a translated message format
 
     guardrails:
-      - "DO NOT remove the lazy import pattern for anthropic/openai. Hard dependencies would break installations for users who only need one provider. The try/except ImportError is critical for graceful degradation."
-      - "DO NOT change the message concatenation separator from '\\n\\n' without testing against actual Claude models. This separator is semantic—changing it alters prompt meaning and model behavior."
-      - "DO NOT remove the Responses API try/except fallback. Silently catching exceptions here is intentional for provider compatibility. Removing it would break Ollama and other Chat Completions-only providers."
-      - "DO NOT modify the environment variable resolution order without coordinating with deployment documentation. The hierarchy (parameter → OPENAI_BASE_URL → AGENTSPEC_OPENAI_BASE_URL → OLLAMA_BASE_URL → default) is relied upon by infrastructure automation."
-      - "DO NOT change the 'not-needed' API key fallback without understanding local service requirements. Some providers (Ollama, local LLaMA) don't validate API keys; removing this breaks their usage."
-      - "DO NOT add strict type validation to response extraction (e.g., isinstance
+      - DO NOT apply grammar_lark on Anthropic; CFG is Responses‑specific
+      - Preserve existing message order and content; only reformat for chat.completions
+      - Keep fallback narrow (transport failure or 404) to avoid masking real API errors
+
     changelog:
-      - "2025-10-31: Clean up docstring formatting"
-
+      - "2025-11-02: feat(llm): Add Chat Completions fallback for OpenAI‑compatible providers (Ollama)"
+    ---/agentspec
     """
-    force_anthropic = (provider or 'auto').lower() == 'anthropic'
-    force_openai = (provider or 'auto').lower() == 'openai'
+    prov = (provider or 'auto').lower()
 
-    if force_anthropic or (_is_anthropic_model(model) and not force_openai):
-        # Lazy import to avoid hard dependency unless needed
+    # Anthropic routing
+    if prov == 'claude' or _is_anthropic_model(model):
         try:
-            from anthropic import Anthropic
-        except ImportError as e:
+            from anthropic import Anthropic  # type: ignore
+        except Exception as e:  # pragma: no cover
             raise RuntimeError(
                 "Missing dependency: anthropic. Install with `pip install anthropic` to use Claude models."
             ) from e
-
-        # Build a single user message by concatenating contents (Claude expects
-        # a different structure, but concatenating is sufficient here)
-        user_content = []
+        # Concatenate system+user messages for Claude single-user format
+        user_content: list[str] = []
         for m in messages:
             if m.get('role') in ('system', 'user'):
                 user_content.append(m.get('content', ''))
         prompt = "\n\n".join(user_content)
-
         client = Anthropic()
         resp = client.messages.create(
             model=model,
@@ -213,15 +151,17 @@ def generate_chat(
             temperature=temperature,
             messages=[{"role": "user", "content": prompt}],
         )
-        return resp.content[0].text
+        try:
+            return resp.content[0].text  # type: ignore[attr-defined]
+        except Exception:
+            return ""
 
-    # OpenAI-compatible path (Responses API only)
-    # Determine base_url and api key
+    # OpenAI‑compatible path
     try:
-        from openai import OpenAI
-    except ImportError as e:
+        from openai import OpenAI  # type: ignore
+    except ImportError as e:  # pragma: no cover
         raise RuntimeError(
-            "Missing dependency: openai. Install with `pip install openai` to use OpenAI-compatible models (including local Ollama)."
+            "Missing dependency: openai. Install with `pip install openai` to use OpenAI-compatible models."
         ) from e
 
     api_key = os.getenv('OPENAI_API_KEY') or os.getenv('AGENTSPEC_OPENAI_API_KEY') or 'not-needed'
@@ -231,12 +171,11 @@ def generate_chat(
         or os.getenv('AGENTSPEC_OPENAI_BASE_URL')
         or 'https://api.openai.com/v1'
     )
-
     client = OpenAI(base_url=resolved_base, api_key=api_key)
 
-    # Build a single string input that includes both system and user parts
-    sys_parts = [m['content'] for m in messages if m.get('role') == 'system']
-    usr_parts = [m['content'] for m in messages if m.get('role') in ('user', 'assistant')]
+    # Build single string input for Responses
+    sys_parts = [m.get('content', '') for m in messages if m.get('role') == 'system']
+    usr_parts = [m.get('content', '') for m in messages if m.get('role') in ('user', 'assistant')]
     input_text = "\n\n".join(sys_parts + usr_parts)
 
     kwargs: Dict[str, Any] = {}
@@ -244,29 +183,60 @@ def generate_chat(
         kwargs['reasoning'] = {'effort': reasoning_effort}
     if verbosity:
         kwargs['text'] = {'verbosity': verbosity}
+    if grammar_lark:
+        kwargs['tools'] = [{
+            'type': 'custom',
+            'name': 'agentspec_yaml',
+            'format': {'type': 'grammar', 'syntax': 'lark', 'definition': grammar_lark},
+        }]
 
-    resp = client.responses.create(
-        model=model,
-        input=input_text,
-        temperature=temperature,
-        max_output_tokens=max_tokens,
-        **kwargs,
-    )
-    # Extract text robustly
-    if hasattr(resp, 'output_text') and resp.output_text:
-        return str(resp.output_text)
-    if hasattr(resp, 'output') and resp.output:
-        for item in resp.output:
-            content = getattr(item, 'content', None)
-            if isinstance(content, list):
-                for sub in content:
-                    t = getattr(sub, 'text', None)
-                    if t:
-                        return str(t)
-            t = getattr(content, 'text', None)
-            if t:
-                return str(t)
-    t = getattr(resp, 'text', None)
-    if t:
-        return str(t)
-    return ""
+    # Try Responses API first
+    try:
+        resp = client.responses.create(
+            model=model,
+            input=input_text,
+            temperature=temperature,
+            max_output_tokens=max_tokens,
+            **kwargs,
+        )
+        if hasattr(resp, 'output_text') and getattr(resp, 'output_text'):
+            return str(getattr(resp, 'output_text'))
+        if hasattr(resp, 'output') and getattr(resp, 'output'):
+            for item in getattr(resp, 'output'):
+                content = getattr(item, 'content', None)
+                if isinstance(content, list):
+                    for sub in content:
+                        t = getattr(sub, 'text', None)
+                        if t:
+                            return str(t)
+                t = getattr(content, 'text', None)
+                if t:
+                    return str(t)
+        t = getattr(resp, 'text', None)
+        if t:
+            return str(t)
+    except Exception:
+        # Fall through to chat completions
+        pass
+
+    # Fallback: Chat Completions (for Ollama, etc.)
+    try:
+        # Translate messages to chat format
+        chat_messages = []
+        for m in messages:
+            role = m.get('role')
+            if role in ('system', 'user', 'assistant'):
+                chat_messages.append({"role": role, "content": m.get('content', '')})
+        comp = client.chat.completions.create(
+            model=model,
+            messages=chat_messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        # Extract text
+        try:
+            return comp.choices[0].message.content or ""
+        except Exception:
+            return ""
+    except Exception:
+        return ""

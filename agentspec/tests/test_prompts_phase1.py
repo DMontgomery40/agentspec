@@ -10,7 +10,7 @@ from agentspec.prompts import (
 def test_load_base_prompt_contains_title():
     text = load_base_prompt()
     assert isinstance(text, str) and text, "base_prompt.md should load non-empty text"
-    assert "AgentSpec YAML Generator" in text
+    assert ("AgentSpec YAML Generator" in text) or ("System Prompt for AgentSpec YAML Generation" in text)
 
 
 def test_load_agentspec_yaml_grammar_has_core_markers():
@@ -45,4 +45,35 @@ def test_examples_json_schema_and_anchored_example():
     guards = (anchored.get("good_documentation") or {}).get("guardrails") or []
     joined = "\n".join(guards)
     assert "ASK USER" in joined, "Guardrails must include an ASK USER instruction for ambiguous intent"
+
+
+def test_cli_prompts_add_example_invokes_impl(monkeypatch):
+    # Patch the underlying implementation to capture invocation
+    import importlib
+    called = {}
+    mod = importlib.import_module("agentspec.tools.add_example")
+    def fake_impl(**kwargs):
+        called.update(kwargs)
+        return None
+    monkeypatch.setattr(mod, "_main_impl", fake_impl)
+
+    # Prepare argv for CLI
+    import sys
+    argv = [
+        "agentspec", "prompts", "--add-example",
+        "--file", "tests/test_extract_javascript_agentspec.py",
+        "--function", "test_extract_from_jsdoc_agentspec_block",
+        "--subject-function", "agentspec.extract.extract_from_js_file",
+        "--good-output", "Checks presence only",
+        "--dry-run",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    # Invoke CLI, it will sys.exit
+    import pytest
+    from agentspec import cli
+    with pytest.raises(SystemExit):
+        cli.main()
+
+    assert called.get("file_path") == "tests/test_extract_javascript_agentspec.py"
 

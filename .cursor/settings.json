@@ -1,0 +1,22 @@
+{
+  "git.autofetch": false,
+  "git.autorefresh": false,
+  "git.confirmSync": true,
+  "git.enableWorktrees": false,
+  "workbench.editor.enablePreview": false,
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 1000,
+  "git.alwaysShowStagedChangesResourceGroup": true,
+  "scm.alwaysShowActions": true,
+  "scm.alwaysShowRepositories": true,
+  "git.branchProtection": ["main", "master"],
+  "git.confirmNoVerifyCommit": true,
+  "git.confirmForcePush": true,
+  "git.confirmEmptyCommits": false,
+  "git.openRepositoryInParentFolders": "never",
+  "git.allowNoVerifyCommit": false,
+  "extensions.autoUpdate": false,
+  "update.mode": "manual",
+  "workbench.startupEditor": "none"
+}
+

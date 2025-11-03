@@ -51,3 +51,4 @@ def test_collect_metadata_for_javascript_function():
     assert isinstance(changelog, list)
     assert changelog  # fallback should still supply at least one entry
 
+

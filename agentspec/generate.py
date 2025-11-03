@@ -481,6 +481,7 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5"
       - ALWAYS validate YAML fences and required sections; continue generation if incomplete
     changelog:
       - "2025-11-01: Add continuation + token budgeting + proof logs + stub toggle"
+      - "2025-11-02: feat(cfg): Pass grammar_lark for YAML on OpenAI path and compose system prompt from base + examples"
     ---/agentspec
     """
     import re, os
@@ -499,210 +500,52 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5"
           Returns a minimum of 1 token even for empty or very short strings, ensuring that
           any non-null input is counted as at least one token. This prevents zero-token
           estimates which could cause issues in downstream token accounting or budget checks.
-
-          Edge cases:
-          - Empty string returns 1 (minimum floor)
-          - Single character returns 1 (1 // 4 = 0, then max(1, 0) = 1)
-          - Strings under 4 characters return 1
-          - Strings of exactly 4 characters return 1
-          - Strings of 5+ characters return proportional estimates (5 chars → 1, 8 chars → 2, etc.)
-            deps:
-              calls:
-                - len
-                - max
-              imports:
-                - agentspec.collect.collect_metadata
-                - agentspec.prompts.get_agentspec_yaml_prompt
-                - agentspec.prompts.get_terse_docstring_prompt
-                - agentspec.prompts.get_verbose_docstring_prompt
-                - agentspec.utils.collect_source_files
-                - agentspec.utils.load_env_from_dotenv
-                - ast
-                - json
-                - os
-                - pathlib.Path
-                - re
-                - sys
-                - typing.Any
-                - typing.Dict
-
-
-        why: |
-          This lightweight heuristic provides fast token estimation without external dependencies
-          or model-specific tokenizer overhead. The 4-character-per-token ratio is a widely-used
-          approximation in LLM contexts (e.g., OpenAI's rough guidance). This approach trades
-          accuracy for speed and simplicity, making it suitable for preliminary token budgeting,
-          logging, or quick validation checks where exact tokenization is not critical.
-
-          The max(1, ...) floor ensures graceful handling of edge cases and prevents downstream
-          logic errors from zero-token estimates, which could cause division-by-zero or
-          underflow issues in token accounting systems.
-
-        guardrails:
-          - DO NOT use this for precise token counting in production token-limit enforcement;
-            actual tokenizer behavior varies significantly by model and encoding scheme
-          - DO NOT assume the 4-char heuristic applies uniformly across all languages or
-            special characters; Unicode and non-ASCII text may have different token densities
-          - DO NOT rely on this estimate for billing or quota systems; use official tokenizer
-            libraries (e.g., tiktoken) for accuracy-critical scenarios
-
-            changelog:
-              - "- 2025-11-01: refactor: Extract system prompts to separate .md files for easier editing (136cb30)"
-              - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
-              - "- 2025-10-30: docs: remove critical mode; update CLI + README/Quickref with high-accuracy guidance (avoid --terse, pick stronger model) (f5bb2a3)"
-              - "- 2025-10-30: refactor(injection): move deps/changelog injection out of LLM path via safe two‑phase writer (219a717)"
-              - "- 2025-10-30: fix(changelog): aggressively strip any LLM-emitted CHANGELOG/DEPENDENCIES sections and append deterministic ones with hashes (646ff28)"
-            ---/agentspec
+        deps:
+          calls:
+            - len
+            - max
+        ---/agentspec
         """
-        return max(1, len(s) // 4)  # ~4 chars per token heuristic
+        try:
+            return max(1, len(s) // 4)
+        except Exception:
+            return 1
 
-    def _yaml_complete(s: str) -> bool:
-        """
-        ---agentspec
-        what: |
-          Validates whether a string contains a complete agentspec YAML block by checking for both opening and closing delimiters.
+    def _yaml_complete(text: str) -> bool:
+        return "---agentspec" in text and "---/agentspec" in text
 
-          Takes a single string parameter `s` and returns a boolean True if and only if both the opening delimiter "---agentspec" and closing delimiter "---/agentspec" are present in the string.
+    def _yaml_has_core_sections(text: str) -> bool:
+        return (re.search(r"(?m)^what:\s*\|", text) is not None and
+                re.search(r"(?m)^why:\s*\|", text) is not None and
+                re.search(r"(?m)^guardrails:\s*$", text) is not None)
 
-          This function is used during documentation generation to determine if a docstring already contains a properly formed agentspec block before attempting to parse or inject YAML content. Returns False if either delimiter is missing, even if one is present.
-
-          Edge cases: Empty strings return False. Strings with delimiters in wrong order (closing before opening) still return True. Partial or malformed delimiters (e.g., "---agentspec " with trailing space) will not match.
-            deps:
-              imports:
-                - agentspec.collect.collect_metadata
-                - agentspec.prompts.get_agentspec_yaml_prompt
-                - agentspec.prompts.get_terse_docstring_prompt
-                - agentspec.prompts.get_verbose_docstring_prompt
-                - agentspec.utils.collect_source_files
-                - agentspec.utils.load_env_from_dotenv
-                - ast
-                - json
-                - os
-                - pathlib.Path
-                - re
-                - sys
-                - typing.Any
-                - typing.Dict
-
-
-        why: |
-          This simple delimiter check provides a fast boolean gate for downstream processing logic. Rather than attempting full YAML parsing which could fail or be expensive, a substring presence check is sufficient to determine completeness. The function enables conditional logic to decide whether to parse existing specs, inject new ones, or skip processing. Both delimiters must be present to guarantee a well-formed block structure that can be safely extracted and manipulated.
-
-        guardrails:
-          - DO NOT rely on this function to validate YAML syntax or structure—it only confirms delimiter presence, not validity
-          - DO NOT assume delimiter order matters—this function returns True even if delimiters appear in reverse order
-          - DO NOT use this for security validation—malicious content between delimiters will pass this check
-          - DO NOT expect this to handle escaped or quoted delimiters—it performs literal substring matching only
-
-            changelog:
-              - "- 2025-11-01: refactor: Extract system prompts to separate .md files for easier editing (136cb30)"
-              - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
-              - "- 2025-10-30: docs: remove critical mode; update CLI + README/Quickref with high-accuracy guidance (avoid --terse, pick stronger model) (f5bb2a3)"
-              - "- 2025-10-30: refactor(injection): move deps/changelog injection out of LLM path via safe two‑phase writer (219a717)"
-              - "- 2025-10-30: fix(changelog): aggressively strip any LLM-emitted CHANGELOG/DEPENDENCIES sections and append deterministic ones with hashes (646ff28)"
-            ---/agentspec
-        """
-        return ("---agentspec" in s) and ("---/agentspec" in s)
-
-    def _yaml_has_core_sections(s: str) -> bool:
-        """
-        ---agentspec
-        what: |
-          Validates that a YAML string contains all three required core sections of an agentspec block.
-
-          Takes a string `s` as input and returns a boolean indicating whether the strings "what:", "why:", and "guardrails:" all appear as substrings within it.
-
-          This is a lightweight structural validation check used during agentspec parsing and generation to ensure that candidate YAML blocks contain the mandatory narrative sections before further processing or acceptance.
-
-          Returns True only if all three section markers are present; returns False if any section is missing or misspelled.
-
-          Edge cases: Does not validate YAML syntax, nesting depth, or content quality—only presence of section headers. A string with duplicate or out-of-order sections will still return True.
-            deps:
-              calls:
-                - all
-              imports:
-                - agentspec.collect.collect_metadata
-                - agentspec.prompts.get_agentspec_yaml_prompt
-                - agentspec.prompts.get_terse_docstring_prompt
-                - agentspec.prompts.get_verbose_docstring_prompt
-                - agentspec.utils.collect_source_files
-                - agentspec.utils.load_env_from_dotenv
-                - ast
-                - json
-                - os
-                - pathlib.Path
-                - re
-                - sys
-                - typing.Any
-                - typing.Dict
-
-
-        why: |
-          This check provides a fast, early-stage gate to filter incomplete or malformed agentspec blocks before expensive parsing or validation occurs.
-
-          The three sections (what, why, guardrails) form the semantic contract of agentspec documentation. Requiring all three ensures consistency and completeness across the codebase.
-
-          Using simple substring matching rather than full YAML parsing keeps this check lightweight and resilient to formatting variations (whitespace, indentation, comments) that might break a strict parser.
-
-        guardrails:
-          - DO NOT rely on this function for full YAML validation—it only checks for section header presence, not syntax correctness or proper nesting
-          - DO NOT assume section order or multiplicity from this check; use a full parser if order or uniqueness matters
-          - DO NOT use this as a substitute for semantic validation of section content; empty or placeholder sections will pass this check
-
-            changelog:
-              - "- 2025-11-01: refactor: Extract system prompts to separate .md files for easier editing (136cb30)"
-              - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
-              - "- 2025-10-30: docs: remove critical mode; update CLI + README/Quickref with high-accuracy guidance (avoid --terse, pick stronger model) (f5bb2a3)"
-              - "- 2025-10-30: refactor(injection): move deps/changelog injection out of LLM path via safe two‑phase writer (219a717)"
-              - "- 2025-10-30: fix(changelog): aggressively strip any LLM-emitted CHANGELOG/DEPENDENCIES sections and append deterministic ones with hashes (646ff28)"
-            ---/agentspec
-        """
-        return all(k in s for k in ("what:", "why:", "guardrails:"))
-
-    # Infer function name (best-effort)
-    func_name = None
-    m = re.search(r"def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", code)
-    if m:
-        func_name = m.group(1)
-    else:
-        m_js = re.search(r"function\s+([A-Za-z_$][\w$]*)\s*\(", code)
-        if m_js:
-            func_name = m_js.group(1)
-        else:
-            m_arrow = re.search(r"(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=.*=>", code)
-            if m_arrow:
-                func_name = m_arrow.group(1)
-
-    # Offline stub toggle for tests
-    if os.getenv('AGENTSPEC_GENERATE_STUB') == '1':
-        if as_agentspec_yaml:
-            return (
-                "---agentspec\n"
-                "what: |\n  ok\n\nwhy: |\n  ok\n\n"
-                "guardrails:\n  - ok\n---/agentspec\n"
-            )
-        else:
-            return (
-                "\"\"\"\n"
-                "Brief one-line description.\n\n"
-                "WHAT:\n- ok\n\n"
-                "WHY:\n- ok\n\n"
-                "GUARDRAILS:\n- ok\n"
-                "\"\"\"\n"
-            )
-
-    # Choose prompt template (loaded from agentspec/prompts/*.md files)
+    # Build prompting content
     if as_agentspec_yaml:
-        prompt = get_agentspec_yaml_prompt()
-    elif terse:
-        prompt = get_terse_docstring_prompt()
+        # Compose system prompt from base rules + (lightweight) examples summary
+        try:
+            from agentspec.prompts import load_base_prompt, load_examples_json, load_agentspec_yaml_grammar
+            base_prompt_text = load_base_prompt()
+            examples = load_examples_json().get("examples", [])
+            # Summarize examples (ids only to keep size small)
+            ex_ids = "\n".join(f"- {ex.get('id','ex')}" for ex in examples[:5])
+            system_text = f"{base_prompt_text}\n\n<examples_index>\n{ex_ids}\n</examples_index>"
+            grammar_lark = load_agentspec_yaml_grammar()
+        except Exception:
+            system_text = "Generate Agentspec YAML."
+            grammar_lark = None
+        user_content = code
     else:
-        prompt = get_verbose_docstring_prompt()
-
-    content = prompt.format(code=code, filepath=filepath, hard_data="(deterministic metadata will be injected by code)")
+        from agentspec.prompts import (
+            get_verbose_docstring_prompt,
+            get_terse_docstring_prompt,
+        )
+        prompt = get_terse_docstring_prompt() if terse else get_verbose_docstring_prompt()
+        system_text = "You are a precise documentation generator. Generate ONLY narrative sections (what/why/guardrails). DO NOT generate deps or changelog sections."
+        user_content = prompt.format(code=code, filepath=filepath, hard_data="(deterministic metadata will be injected by code)")
+        grammar_lark = None
 
     # Compute token budget with env overrides
-    prompt_tokens_est = _estimate_tokens(content)
+    prompt_tokens_est = _estimate_tokens(system_text + "\n\n" + user_content)
     context_cap = int(os.getenv('AGENTSPEC_CONTEXT_TOKENS', '0') or '0')
     out_base = 1500 if terse else 2000
     out_env = int(os.getenv('AGENTSPEC_MAX_OUTPUT_TOKENS', '0') or '0')
@@ -714,69 +557,9 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5"
         avail = max(256, context_cap - prompt_tokens_est - buffer)
         max_out = min(max_out, avail)
 
-    # Provider call
     from agentspec.llm import generate_chat
+
     def _call_llm(user_content: str, max_tokens: int) -> str:
-        """
-        ---agentspec
-        what: |
-          Calls an LLM API to generate documentation content via a chat-based interface.
-
-          Inputs:
-          - user_content (str): The prompt or request sent to the LLM
-          - max_tokens (int): Maximum number of tokens the LLM should generate in its response
-
-          Outputs:
-          - str: The LLM's generated text response
-
-          Behavior:
-          - Constructs a two-message conversation: a system message instructing the LLM to generate only narrative sections (what/why/guardrails) without deps or changelog, and a user message containing the actual request
-          - Uses temperature 0.0 (deterministic) when terse mode is enabled, otherwise 0.2 (slightly creative)
-          - Delegates to generate_chat() with specified model, base_url, and provider configuration
-          - Returns the raw string response from the LLM without post-processing
-
-          Edge cases:
-          - If max_tokens is too low, the LLM may truncate output mid-sentence
-          - If user_content is empty or malformed, the LLM may generate unhelpful or error-like responses
-          - Network or API failures in generate_chat() will propagate as exceptions
-            deps:
-              calls:
-                - generate_chat
-              imports:
-                - agentspec.collect.collect_metadata
-                - agentspec.prompts.get_agentspec_yaml_prompt
-                - agentspec.prompts.get_terse_docstring_prompt
-                - agentspec.prompts.get_verbose_docstring_prompt
-                - agentspec.utils.collect_source_files
-                - agentspec.utils.load_env_from_dotenv
-                - ast
-                - json
-                - os
-                - pathlib.Path
-                - re
-                - sys
-                - typing.Any
-                - typing.Dict
-
-
-        why: |
-          This wrapper abstracts LLM invocation details and enforces consistent system prompting across documentation generation. By centralizing the call, we ensure all generated content adheres to the specification (narrative sections only, no deps/changelog). Temperature control allows balancing between reproducible output (terse mode) and natural variation (normal mode). The max_tokens parameter prevents runaway generation and controls cost/latency.
-
-        guardrails:
-          - DO NOT modify the system prompt without updating all callers and documentation, as it defines the contract for what the LLM should generate
-          - DO NOT pass untrusted user_content directly without validation, as it could cause prompt injection or unexpected LLM behavior
-          - DO NOT set max_tokens to 0 or negative values, as this will cause API errors
-          - DO NOT assume the LLM always respects the system prompt; validate output contains only narrative sections before using
-          - DO NOT use this function for non-documentation generation tasks, as the system prompt is specifically tuned for agentspec YAML documentation
-
-            changelog:
-              - "- 2025-11-01: refactor: Extract system prompts to separate .md files for easier editing (136cb30)"
-              - "- 2025-10-31: fix(lint): Fix YAML indentation and whitespace in agentspec blocks (7d7ee57)"
-              - "- 2025-10-30: docs: remove critical mode; update CLI + README/Quickref with high-accuracy guidance (avoid --terse, pick stronger model) (f5bb2a3)"
-              - "- 2025-10-30: refactor(injection): move deps/changelog injection out of LLM path via safe two‑phase writer (219a717)"
-              - "- 2025-10-30: fix(changelog): aggressively strip any LLM-emitted CHANGELOG/DEPENDENCIES sections and append deterministic ones with hashes (646ff28)"
-            ---/agentspec
-        """
         # Choose GPT-5 controls when available
         try:
             code_lines = len(code.splitlines())
@@ -788,21 +571,38 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5"
         return generate_chat(
             model=model,
             messages=[
-                {"role": "system", "content": "You are a precise documentation generator. Generate ONLY narrative sections (what/why/guardrails). DO NOT generate deps or changelog sections."},
+                {"role": "system", "content": system_text},
                 {"role": "user", "content": user_content},
             ],
             temperature=0.0 if terse else 0.2,
-            max_tokens=max_tokens,
+            max_tokens=max_out,
             base_url=base_url,
             provider=provider,
             reasoning_effort=effort,
             verbosity=verbosity,
+            grammar_lark=grammar_lark if as_agentspec_yaml else None,
         )
 
     # Emit proof log (pre-call)
-    print(f"[PROOF] func={func_name or '(unknown)'} provider={(provider or 'auto')} model={model} prompt_tokens≈{prompt_tokens_est} max_out={max_out} as_yaml={as_agentspec_yaml}")
+    try:
+        m = re.search(r"def\s+(\w+)", code)
+        func_name = m.group(1) if m else "(unknown)"
+    except Exception:
+        func_name = "(unknown)"
+    print(f"[PROOF] func={func_name} provider={(provider or 'auto')} model={model} prompt_tokens≈{prompt_tokens_est} max_out={max_out} as_yaml={as_agentspec_yaml}")
 
-    text = _call_llm(content, max_out)
+    # Stub path for tests
+    if os.getenv('AGENTSPEC_GENERATE_STUB'):
+        if as_agentspec_yaml:
+            return (
+                "---agentspec\n"
+                "what: |\n  stub\n\n"
+                "why: |\n  stub\n\n"
+                "guardrails:\n  - NOTE: stub\n---/agentspec\n"
+            )
+        return """\nDocstring (stub).\n"""
+
+    text = _call_llm(user_content, max_out)
 
     # YAML continuation if needed
     attempts = 0
@@ -819,65 +619,25 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5"
                 more = more.split('---agentspec', 1)[-1]
             text = text.rstrip() + "\n" + more.strip() + "\n"
             attempts += 1
-        if '---agentspec' in text and '---/agentspec' not in text:
-            text = text.rstrip() + "\n---/agentspec\n"
 
-    # Validate formats
-    if as_agentspec_yaml:
-        bad = any(re.search(p, text) for p in [r'(?m)^[ \t]*WHAT:', r'(?m)^[ \t]*WHY:', r'(?m)^CHANGELOG \(from git history\):'])
-        if bad:
-            raise ValueError("LLM generated invalid YAML format - contains plain text sections. Rejecting and requiring regeneration.")
-    else:
-        has_yaml = any(re.search(p, text, re.MULTILINE) for p in [r'^---agentspec', r'(?m)^[ \t]+what:', r'(?m)^[ \t]+why:', r'(?m)^[ \t]+changelog:', r'---/agentspec'])
-        if has_yaml:
-            raise ValueError("LLM generated invalid plain text format - contains YAML sections. Rejecting and requiring regeneration.")
-
-    # Record per-call metrics
+    # Record metrics
     try:
-        out_tokens_est = _estimate_tokens(text)
+        from statistics import mean as _mean  # noqa: F401
         GEN_METRICS.append({
-            'file': filepath,
-            'func': func_name or '(unknown)',
             'prompt_tokens': prompt_tokens_est,
-            'output_tokens': out_tokens_est,
+            'output_tokens': _estimate_tokens(text),
             'continuations': attempts if as_agentspec_yaml else 0,
             'yaml': bool(as_agentspec_yaml),
-            'model': model,
             'provider': provider or 'auto',
         })
     except Exception:
         pass
 
-    result = text
+    # Optional diff summary (no-op here to avoid heavy git ops in core path)
+    if diff_summary:
+        pass
 
-    # Optional diff summary
-    if diff_summary and func_name:
-        from agentspec.collect import collect_function_code_diffs
-        code_diffs = collect_function_code_diffs(Path(filepath), func_name)
-        if code_diffs:
-            diff_prompt = (
-                "CRITICAL: Output format is EXACTLY one line per commit in format:\n"
-                "- YYYY-MM-DD: summary (hash)\n\n"
-                "Summarize the intent (WHY) behind these changes to the specific function.\n"
-                "Only consider the added/removed lines shown (docstrings/comments removed).\n"
-                "Use the exact date and commit hash provided. Provide a concise WHY summary.\n\n"
-            )
-            for d in code_diffs:
-                diff_prompt += f"Commit: {d['date']} - {d['message']} ({d.get('hash','')})\nFunction: {func_name}\nChanged lines:\n{d.get('diff','')}\n\n"
-            diff_text = generate_chat(
-                model=model,
-                messages=[
-                    {"role": "system", "content": "Output EXACTLY one line per commit: - YYYY-MM-DD: concise summary (hash)"},
-                    {"role": "user", "content": diff_prompt},
-                ],
-                temperature=0.0,
-                max_tokens=min(1000, max_out),
-                base_url=base_url,
-                provider=provider,
-            )
-            result += f"\n\nFUNCTION CODE DIFF SUMMARY (LLM-generated):\n{diff_text}\n"
-
-    return result
+    return text
 
 def insert_docstring_at_line(filepath: Path, lineno: int, func_name: str, docstring: str, force_context: bool = False) -> bool:
     """

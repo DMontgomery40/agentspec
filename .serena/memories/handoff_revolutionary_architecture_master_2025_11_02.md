@@ -1,5 +1,5 @@
 # HANDOFF MASTER: Revolutionary AgentSpec Architecture (Consolidated, Context-Rich)
-
+refer to @/HANDOFF_PROMPT_REVOLUTIONARY_ARCHITECTURE.md
 Purpose
 - This master document consolidates prior updates and the exhaustive recovery plan into a single, context-rich source. It removes outdated/ambiguous guidance, aligns provider semantics, and documents end-to-end steps to implement, validate, and operate the new architecture.
 

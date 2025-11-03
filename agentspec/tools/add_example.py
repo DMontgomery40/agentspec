@@ -169,7 +169,9 @@ class ExampleParser:
         """
         ---agentspec
         what: |
-          Analyze documentation using an LLM middle layer (or deterministic stub). Produces a JSON-like dict containing why_bad, good_what, good_why, good_guardrails, lesson, and pattern_type. Accepts both bad_output and good_output so users can upload balanced datasets of good/bad examples.
+          Analyze documentation using an LLM middle layer (or deterministic stub). Produces a JSON-like dict
+          containing why_bad, good_what, good_why, good_guardrails, lesson, and pattern_type. If the model
+          returns extra text around JSON, attempts to extract the first JSON object.
 
         deps:
           calls:
@@ -177,13 +179,7 @@ class ExampleParser:
             - json.loads
           imports:
             - json
-
-        why: |
-          Quality judgements and generalized lessons require semantic reasoning that static rules cannot provide reliably; the LLM performs classification and drafting under explicit instructions.
-
-        guardrails:
-          - DO NOT make network calls when AGENTSPEC_EXAMPLES_STUB=1; return stubbed result
-          - ALWAYS include fields listed above; callers depend on consistent structure
+            - re
         ---/agentspec
         """
         if os.getenv("AGENTSPEC_EXAMPLES_STUB") == "1":
@@ -191,7 +187,7 @@ class ExampleParser:
 
         prompt = (
             "You are a documentation quality analyst for AgentSpec.\n"
-            "Analyze the provided CODE and documentation samples. Return ONLY JSON with keys: \n"
+            "Analyze the provided CODE and documentation samples. Return ONLY JSON with keys: "
             "why_bad, good_what, good_why, good_guardrails (array), lesson, pattern_type.\n"
             "pattern_type ∈ {lie_about_validation, line_by_line_bloat, extrapolate_intent, stub_not_flagged, missing_edge_cases, good_pattern}.\n\n"
             f"CODE:\n```\n{code}\n```\n\n"
@@ -200,14 +196,10 @@ class ExampleParser:
             f"USER_CORRECTION:\n{correction or ''}\n"
         )
 
-        # Use OpenAI-compatible path via generate_chat to maximize compatibility
         text = generate_chat(
             model=os.getenv("AGENTSPEC_OPENAI_MODEL", "gpt-4o-mini"),
             messages=[
-                {
-                    "role": "system",
-                    "content": "Return strict JSON. Be concise, honest, and include ASK USER when appropriate.",
-                },
+                {"role": "system", "content": "Return strict JSON. Be concise, honest, and include ASK USER when appropriate."},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.2,
@@ -218,10 +210,18 @@ class ExampleParser:
             verbosity="low",
         )
 
+        import json, re
         try:
             return json.loads(text)
-        except Exception as e:
-            raise RuntimeError(f"LLM returned non-JSON output: {e}: {text[:200]}")
+        except Exception:
+            # Attempt to salvage JSON payload from models that wrap output
+            m = re.search(r"\{[\s\S]*\}$", text.strip())
+            if m:
+                try:
+                    return json.loads(m.group(0))
+                except Exception:
+                    pass
+            raise RuntimeError(f"LLM returned non-JSON output: {text[:200]}")
 
     def make_example(
         self,
@@ -242,6 +242,9 @@ class ExampleParser:
             "id": f"user_example_auto",
             "type": "negative_then_positive" if bad_output else "positive",
             "language": code_context.language,
+            # REQUIRED in runbook schema: inline snippet
+            "code_snippet": code_context.code,
+            # Back-compat: keep original field for existing tools/tests
             "code": code_context.code,
             "code_context": {
                 "file": code_context.file,
