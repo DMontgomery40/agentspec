@@ -34,5 +34,17 @@ I need you to help create examples to be appended to your system prompt. I will 
 }
 ```
 
-NOW, I'm going to give you an agentspec string inside a function or class, and tell you if it's a good example, bad example, and why. You will return the dataset formatted JSON, exactly in the same format that I just showed you.
+NOW, I'm going to give you CODE and a CRITIQUE. You will return the dataset formatted JSON, exactly in the same format shown above.
+
+## CRITICAL: Understanding the Format
+
+**"bad_documentation"** = What a LAZY/WRONG agent would write (vague, overclaims, misleading)
+- Example from above: "Assertion confirms JSDoc parsing correctly identified and extracted the AgentSpec YAML/structured data"
+- This SOUNDS good but actually overclaims what the code does
+
+**"good_documentation"** = What the documentation SHOULD actually say (accurate, warnings, guardrails)
+- Example from above: "Checks presence of the 'what' key in parsed_data dict. WARNING: This does not validate agentspec content quality..."
+- This is ACCURATE about what the code actually does
+
+**Your job:** Show what BAD documentation would claim vs what GOOD documentation should accurately say about the code.
 

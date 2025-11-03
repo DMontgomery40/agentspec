@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "last_updated": "2025-11-02",
+  "last_updated": "2025-11-03",
   "examples": [
     {
       "id": "weak_test_assertion_jsdoc_extract",
@@ -26,6 +26,83 @@
         ]
       },
       "lesson": "Do not infer semantic validation from key-existence assertions; document the actual check and add an ASK USER guardrail for ambiguous intent."
+    },
+    {
+      "id": "agent_downgrades_to_chat_completions",
+      "type": "negative_then_positive",
+      "language": "python",
+      "code": "client.chat.completions.create(model=\"gpt-4o-mini\", max_tokens=2000, messages=[...])",
+      "code_context": {
+        "file": "src/llm_utils.py",
+        "function": "generate_documentation",
+        "subject_function": "openai.OpenAI.chat.completions.create"
+      },
+      "bad_documentation": {
+        "what": "This function correctly generates documentation using the OpenAI API with optimal parameters and model selection",
+        "why_bad": "Overstates the accuracy of the implementation; it uses deprecated API calls, incorrect model, and wrong token parameter"
+      },
+      "good_documentation": {
+        "what": "Uses deprecated OpenAI Chat Completions API (chat.completions.create) instead of Responses API (responses.create). Uses gpt-4o-mini model and max_tokens parameter. WARNING: For gpt-5 models, must use responses.create with max_output_tokens to enable CFG/deterministic generation.",
+        "why": "This function uses an older OpenAI endpoint that lacks support for Responses API features like context-free grammar (CFG) and deterministic structured output generation required by gpt-5.",
+        "guardrails": [
+          "ASK USER: Confirm if this function should be updated to use client.responses.create() with gpt-5 model",
+          "DO NOT change to responses.create without user confirmation; gpt-4o-mini does not support Responses API",
+          "DO NOT change max_tokens to max_output_tokens unless switching to Responses API",
+          "NEVER assume chat.completions.create is always wrong; it's correct for non-gpt-5 models"
+        ]
+      },
+      "lesson": "Do not assume API integrations are correct just because they compile. The Responses API (responses.create, max_output_tokens, gpt-5) is the current standard for CFG. Always ASK USER before API changes."
+    },
+    {
+      "id": "agent_uses_wrong_claude_model",
+      "type": "negative_then_positive",
+      "language": "python",
+      "code": "client.messages.create(model=\"claude-3-5-sonnet-20241022\", max_tokens=2000, messages=[...])",
+      "code_context": {
+        "file": "src/llm_caller.py",
+        "function": "call_claude",
+        "subject_function": "anthropic.Anthropic.messages.create"
+      },
+      "bad_documentation": {
+        "what": "Uses the latest and most capable Claude model for optimal performance and accuracy",
+        "why_bad": "Incorrectly assumes claude-3-5-sonnet-20241022 is the latest or best model; actually only claude-haiku-4-5 is allowed as a foundation model"
+      },
+      "good_documentation": {
+        "what": "Calls Claude API using model claude-3-5-sonnet-20241022. WARNING: This is NOT an allowed foundation model. Only claude-haiku-4-5 or gpt-5 are permitted as foundation models in agentspec.",
+        "why": "This function uses an outdated model naming convention. The current standard for agentspec documentation generation is claude-haiku-4-5.",
+        "guardrails": [
+          "ASK USER: Confirm that the model name being used is an approved foundation model before deployment",
+          "DO NOT use claude-3-5-sonnet-20241022 or any other non-approved model",
+          "NEVER assume dated model names are more current than claude-haiku-4-5",
+          "ONLY use claude-haiku-4-5 or gpt-5 as foundation models"
+        ]
+      },
+      "lesson": "Only two foundation models are allowed: gpt-5 and claude-haiku-4-5. Agents often 'update' to dated model names thinking they're newer. Always ASK USER before changing model names."
+    },
+    {
+      "id": "agent_uses_wrong_gpt_model",
+      "type": "negative_then_positive",
+      "language": "python",
+      "code": "client.responses.create(model=\"gpt-4o\", max_output_tokens=2000, input=...)",
+      "code_context": {
+        "file": "src/doc_generator.py",
+        "function": "generate_docs",
+        "subject_function": "openai.OpenAI.responses.create"
+      },
+      "bad_documentation": {
+        "what": "Function uses the latest GPT model correctly to generate documentation",
+        "why_bad": "Incorrectly claims gpt-4o is the latest/correct model when only gpt-5 is allowed as the foundation model"
+      },
+      "good_documentation": {
+        "what": "Uses Responses API with gpt-4o model. WARNING: gpt-4o is NOT the allowed foundation model. Only gpt-5 is permitted for agentspec documentation generation.",
+        "why": "This function uses the correct Responses API endpoint but with the wrong model. The gpt-5 model is required for CFG/deterministic generation capabilities.",
+        "guardrails": [
+          "ASK USER: Confirm whether the intent is to use gpt-5 as the foundation model",
+          "DO NOT use gpt-4o in production; only gpt-5 is allowed for documentation generation",
+          "NEVER assume newer-sounding model names are better; verify against project standards"
+        ]
+      },
+      "lesson": "Only gpt-5 and claude-haiku-4-5 are allowed as foundation models. Agents constantly 'fix' gpt-5 to gpt-4o thinking it's newer. Always ASK USER before changing model names."
     }
   ]
 }
