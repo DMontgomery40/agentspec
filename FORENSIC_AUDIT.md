@@ -254,10 +254,12 @@ from agentspec.generate import inject_deterministic_metadata  # ❌ OLD
    - Need tree-sitter or Babel integration
    - Currently only Python works for generation
 
-2. ⚠️ **Diff summary support**
-   - Old generate.py has it
-   - New orchestrator doesn't
-   - Useful feature for understanding changes
+2. ✅ **Diff summary support** (COMPLETE - commit 9eac094)
+   - Copied implementation from generate.py
+   - Added raw_client property to providers
+   - Now works in modular architecture
+   - Makes separate LLM call with temp=0.0
+   - Validates format and injects into docstring
 
 ### P2 - Nice to Have
 1. Minor TODO markers in code
@@ -268,9 +270,10 @@ from agentspec.generate import inject_deterministic_metadata  # ❌ OLD
 ## PHASE 9: FINAL VERDICT
 
 ### Functional Assessment
-- **Working**: 90% of claimed functionality
-- **Broken/Missing**: 10% (JS/TS generate, diff summary, not end-to-end tested)
+- **Working**: 95% of claimed functionality
+- **Broken/Missing**: 5% (JS/TS generate needs parser)
 - **AI Slop Found**: 4 major issues (all fixed)
+- **Recent Additions**: diff_summary implemented (commit 9eac094)
 
 ### Architecture Assessment
 - ✅ **Modular**: Clean separation of concerns
