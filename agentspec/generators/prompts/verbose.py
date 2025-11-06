@@ -40,12 +40,9 @@ deps:
 
 from __future__ import annotations
 
-from typing import Dict, Any, Optional, TYPE_CHECKING
+from typing import Dict, Any, Optional
 
 from agentspec.generators.prompts.base import BasePrompt
-
-if TYPE_CHECKING:
-    from agentspec.collectors.base import CollectedMetadata
 
 
 class VerbosePrompt(BasePrompt):
@@ -106,12 +103,7 @@ Generate a structured JSON object with these fields (this will be converted to a
     "DO NOT change X because Y (be specific)",
     "ALWAYS preserve Z (explain why)",
     "DO NOT remove W without checking V (explain consequences)"
-  ],
-  "dependencies": {{
-    "calls": ["function.name", "module.function"],
-    "called_by": ["where.this.is.used"],
-    "imports": ["module.name"]
-  }}
+  ]
 }}
 
 CRITICAL REQUIREMENTS:
@@ -135,11 +127,6 @@ CRITICAL REQUIREMENTS:
    - Explain edge cases and error handling
    - Document input validation and assumptions
    - Describe output format in detail
-
-4. **Dependencies**:
-   - List all functions this code calls
-   - List what calls this code (if known)
-   - List all imports used
 
 EXAMPLES OF GOOD GUARDRAILS:
 ✅ "DO NOT change the retry limit from 3 to higher without load testing - this prevents cascade failures during outages"
@@ -165,36 +152,33 @@ Generate detailed, specific, actionable documentation that prevents AI agents fr
         self,
         code: str,
         function_name: str,
-        context: Optional[Dict[str, Any]] = None,
-        metadata: Optional["CollectedMetadata"] = None
+        context: Optional[Dict[str, Any]] = None
     ) -> str:
         """
         Build user prompt with code to document.
 
         ---agentspec
         what: |
-          Constructs the user-facing prompt that includes:
+          Constructs the user-facing prompt with:
           - Function identification (name, file, class)
           - Source code
-          - Collected metadata (signatures, exceptions, dependencies, etc.)
           - Generation instructions
 
-          If metadata is provided, includes deterministic facts extracted by collectors
-          to reduce LLM hallucination and improve accuracy.
+          CRITICAL: Does NOT include deterministic metadata (dependencies, changelog, git history).
+          That data is collected separately and injected AFTER LLM generation.
 
         why: |
-          Separating metadata from prompt construction allows:
-          - Collectors to run independently
-          - Prompts to work with or without metadata
-          - Easy testing of prompt templates
+          Two-phase architecture:
+          1. LLM generates: summary, description, rationale, guardrails
+          2. Post-processor injects: dependencies, changelog, git data
 
-          Including metadata in prompts improves output quality by giving LLM
-          concrete facts instead of asking it to infer everything.
+          Telling LLM about dependencies/changelog makes it MORE likely to hallucinate them.
+          Never mention deterministic data in prompts.
 
         guardrails:
-          - ALWAYS handle metadata=None case (backwards compatibility)
-          - DO NOT require metadata (prompts must work without collectors)
-          - ALWAYS format metadata clearly (LLM needs structured input)
+          - DO NOT add metadata/dependencies/changelog to this prompt
+          - DO NOT tell LLM about deterministic data (even negatively)
+          - ALWAYS keep prompt focused on: what, why, guardrails only
         ---/agentspec
         """
 
@@ -214,69 +198,6 @@ Generate detailed, specific, actionable documentation that prevents AI agents fr
         if existing_docstring:
             prompt_parts.append(f"\nExisting docstring (update this):\n{existing_docstring}")
 
-        # Include collected metadata if available
-        if metadata:
-            prompt_parts.append("\n=== COLLECTED METADATA (Use these facts) ===")
-
-            # Code analysis
-            if metadata.code_analysis:
-                prompt_parts.append("\nCode Analysis:")
-
-                if "signature" in metadata.code_analysis:
-                    sig = metadata.code_analysis["signature"]
-                    params = sig.get("parameters", [])
-                    prompt_parts.append(f"  Parameters: {len(params)} detected")
-                    for p in params:
-                        prompt_parts.append(f"    - {p.get('name')}: {p.get('type', 'Any')} {f'= {p.get(\"default\")}' if p.get('default') else ''}")
-                    prompt_parts.append(f"  Return type: {sig.get('return_type', 'None')}")
-
-                if "exceptions" in metadata.code_analysis:
-                    exceptions = metadata.code_analysis["exceptions"]
-                    if exceptions:
-                        prompt_parts.append(f"  Exceptions raised: {len(exceptions)}")
-                        for exc in exceptions:
-                            prompt_parts.append(f"    - {exc.get('type')}: {exc.get('message', 'No message')}")
-
-                if "decorators" in metadata.code_analysis:
-                    decorators = metadata.code_analysis["decorators"]
-                    if decorators:
-                        prompt_parts.append(f"  Decorators: {', '.join(d.get('full') for d in decorators)}")
-
-                if "complexity" in metadata.code_analysis:
-                    comp = metadata.code_analysis["complexity"]
-                    prompt_parts.append(f"  Complexity: {comp.get('cyclomatic_complexity')} (cyclomatic), {comp.get('lines_of_code')} LOC")
-
-                if "type_analysis" in metadata.code_analysis:
-                    types = metadata.code_analysis["type_analysis"]
-                    prompt_parts.append(f"  Type coverage: {types.get('parameter_coverage_percent')}%")
-
-                if "dependencies" in metadata.code_analysis:
-                    deps = metadata.code_analysis["dependencies"]
-                    calls = deps.get("calls", [])
-                    imports = deps.get("imports", [])
-                    if calls:
-                        prompt_parts.append(f"  Calls: {', '.join(calls[:10])}{' ...' if len(calls) > 10 else ''}")
-                    if imports:
-                        prompt_parts.append(f"  Imports: {', '.join(imports[:10])}{' ...' if len(imports) > 10 else ''}")
-
-            # Git analysis
-            if metadata.git_analysis:
-                prompt_parts.append("\nGit History:")
-
-                if "blame" in metadata.git_analysis:
-                    blame = metadata.git_analysis["blame"]
-                    prompt_parts.append(f"  Primary author: {blame.get('primary_author', {}).get('name', 'Unknown')}")
-
-                if "commit_history" in metadata.git_analysis:
-                    history = metadata.git_analysis["commit_history"]
-                    commits = history.get("commits", [])
-                    if commits:
-                        prompt_parts.append(f"  Recent commits: {len(commits)}")
-                        for commit in commits[:3]:
-                            prompt_parts.append(f"    - {commit.get('date')}: {commit.get('message', '')[:60]}")
-
-            prompt_parts.append("=== END METADATA ===\n")
-
         prompt_parts.append(f"\nSource code:\n```\n{code}\n```")
 
         prompt_parts.append("\nGenerate a comprehensive docstring with:")
@@ -284,9 +205,5 @@ Generate detailed, specific, actionable documentation that prevents AI agents fr
         prompt_parts.append("- Detailed rationale (WHY this approach)")
         prompt_parts.append("- At least 3 specific, actionable guardrails")
         prompt_parts.append("- Complete argument and return documentation")
-        prompt_parts.append("- Dependency tracking (what this calls, what calls this)")
-
-        if metadata:
-            prompt_parts.append("\nIMPORTANT: Use the metadata above as facts. Don't contradict it.")
 
         return "\n".join(prompt_parts)

@@ -39,12 +39,9 @@ deps:
 
 from __future__ import annotations
 
-from typing import Dict, Any, Optional, TYPE_CHECKING
+from typing import Dict, Any, Optional
 
 from agentspec.generators.prompts.base import BasePrompt
-
-if TYPE_CHECKING:
-    from agentspec.collectors.base import CollectedMetadata
 
 
 class TersePrompt(BasePrompt):
@@ -131,8 +128,7 @@ Generate focused, concise documentation that captures critical safety informatio
         self,
         code: str,
         function_name: str,
-        context: Optional[Dict[str, Any]] = None,
-        metadata: Optional["CollectedMetadata"] = None
+        context: Optional[Dict[str, Any]] = None
     ) -> str:
         """
         Build concise user prompt.
@@ -142,17 +138,19 @@ Generate focused, concise documentation that captures critical safety informatio
           Constructs terse user prompt with essential information only:
           - Function identification
           - Source code
-          - Key metadata (if available, formatted concisely)
           - Generation instructions
 
+          CRITICAL: Does NOT include deterministic metadata.
+          Metadata is collected separately and injected after LLM generation.
+
         why: |
-          Terse mode optimizes for token efficiency while maintaining quality.
-          Metadata still included but more concisely formatted than verbose mode.
+          Terse mode optimizes for token efficiency.
+          Two-phase architecture: LLM generates content, post-processor injects metadata.
 
         guardrails:
-          - ALWAYS handle metadata=None case (backwards compatibility)
-          - DO NOT include verbose metadata formatting (defeats terse purpose)
-          - ALWAYS include essential facts (params, exceptions, complexity)
+          - DO NOT add metadata/dependencies/changelog to this prompt
+          - DO NOT tell LLM about deterministic data
+          - ALWAYS keep prompt concise and focused
         ---/agentspec
         """
 
@@ -163,30 +161,6 @@ Generate focused, concise documentation that captures critical safety informatio
             f"Function: {function_name}",
             f"File: {file_path}",
         ]
-
-        # Include metadata concisely if available
-        if metadata and metadata.code_analysis:
-            facts = []
-
-            if "signature" in metadata.code_analysis:
-                sig = metadata.code_analysis["signature"]
-                params = sig.get("parameters", [])
-                facts.append(f"{len(params)} params")
-                if sig.get("return_type"):
-                    facts.append(f"returns {sig['return_type']}")
-
-            if "exceptions" in metadata.code_analysis:
-                exceptions = metadata.code_analysis["exceptions"]
-                if exceptions:
-                    exc_types = [e.get("type") for e in exceptions]
-                    facts.append(f"raises {', '.join(exc_types)}")
-
-            if "complexity" in metadata.code_analysis:
-                comp = metadata.code_analysis["complexity"]
-                facts.append(f"complexity {comp.get('cyclomatic_complexity')}")
-
-            if facts:
-                prompt_parts.append(f"Facts: {' | '.join(facts)}")
 
         prompt_parts.append(f"\nCode:\n```\n{code}\n```")
 

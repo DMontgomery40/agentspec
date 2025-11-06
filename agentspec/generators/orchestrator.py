@@ -423,8 +423,9 @@ class Orchestrator:
             user_prompt = self.prompt.build_user_prompt(
                 code=code,
                 function_name=function_name,
-                context=context,
-                metadata=metadata  # Pass collected metadata to prompt
+                context=context
+                # NOTE: metadata is NOT passed to LLM (two-phase architecture)
+                # It will be injected into the final docstring after LLM generation
             )
 
             result.messages.append(f"Built prompts for {function_name}")
@@ -443,6 +444,17 @@ class Orchestrator:
             docstring = self.formatter.format(agent_spec)
 
             result.messages.append(f"Formatted as {self.config.style} docstring")
+
+            # TODO: INJECT DETERMINISTIC METADATA HERE (two-phase architecture)
+            # This is where we should inject:
+            # - dependencies (from metadata.code_analysis["dependencies"])
+            # - changelog (from metadata.git_analysis["commit_history"])
+            # - git blame data (from metadata.git_analysis["blame"])
+            #
+            # The injection should NEVER be visible to the LLM.
+            # See existing code in agentspec/generate.py for injection logic.
+            #
+            # For now, collectors run but metadata is not injected (saved for later PR)
 
             # Validate output
             self.formatter.validate_output(docstring)
