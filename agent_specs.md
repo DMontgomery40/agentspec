@@ -4,41 +4,29 @@
 
 ---
 
-## test.ts:3
+## test.js:3
 
-**Location:** `/tmp/test.ts:3`
+**Location:** `/tmp/test.js:3`
 
 ### What This Does
 
-Test TypeScript function with multi-line what section
-
-
-### Dependencies
-
-**Calls:**
-- `console.log`
+Adds two numbers
 
 ### Why This Approach
 
-Testing TS extraction
+Basic arithmetic
 
 ### ⚠️ Guardrails (CRITICAL)
 
-- **DO NOT remove type safety**
-- **ALWAYS validate inputs**
+- **DO NOT change signature**
 
 ### Raw YAML Block
 
 ```yaml
-what: |
-  Test TypeScript function with multi-line what section
-why: Testing TS extraction
+what: Adds two numbers
+why: Basic arithmetic
 guardrails:
-  - DO NOT remove type safety
-  - ALWAYS validate inputs
-deps:
-  calls: [console.log]
-  imports: []
+  - DO NOT change signature
 ```
 
 ---
