@@ -745,21 +745,56 @@ def check_js_file(filepath: Path, min_lines: int = 10) -> Tuple[List[Tuple[int, 
         yml = _extract_agentspec_from_text(cleaned)
         if not yml:
             continue
+        block_line = text[:m.start()].count("\n") + 1
         try:
             data = yaml.safe_load(yml)
         except Exception:
-            errors.append((text[:m.start()].count("\n") + 1, "Invalid YAML in agentspec block"))
+            errors.append((block_line, "Invalid YAML in agentspec block"))
             continue
         if not isinstance(data, dict):
-            errors.append((text[:m.start()].count("\n") + 1, "Agentspec block must parse to a mapping"))
+            errors.append((block_line, "Agentspec block must parse to a mapping"))
             continue
         # Minimum size check
         if len(yml.splitlines()) < min_lines:
-            warnings.append((text[:m.start()].count("\n") + 1, f"Agentspec block under {min_lines} lines"))
+            warnings.append((block_line, f"Agentspec block under {min_lines} lines"))
         # Required keys
         for k in REQUIRED_KEYS:
             if k not in data:
-                errors.append((text[:m.start()].count("\n") + 1, f"Missing required key: {k}"))
+                errors.append((block_line, f"Missing required key: {k}"))
+
+        # Content quality checks for JS/TS agentspec blocks
+        # 1) 'deps' nested erroneously under 'what'
+        what_text = str(data.get('what', '') or '')
+        if re.search(r"(?m)^\s*deps\s*:\s*$", what_text):
+            errors.append((block_line, "'deps' appears nested inside 'what' (top-level key expected)"))
+
+        # 2) Validate deps structure
+        deps = data.get('deps', {}) if isinstance(data.get('deps', {}), dict) else None
+        if deps is None:
+            errors.append((block_line, "'deps' must be a mapping with 'calls'/'imports'"))
+        else:
+            # calls list sanity
+            calls = deps.get('calls')
+            if calls is not None and not isinstance(calls, list):
+                errors.append((block_line, "'deps.calls' must be a list of strings"))
+            # imports list quality
+            imports = deps.get('imports')
+            if imports is not None and not isinstance(imports, list):
+                errors.append((block_line, "'deps.imports' must be a list of strings"))
+            elif isinstance(imports, list):
+                seen = set()
+                for imp in imports:
+                    if not isinstance(imp, str):
+                        errors.append((block_line, "'deps.imports' entries must be strings"))
+                        continue
+                    s = imp.strip()
+                    # Heuristics: disallow code-like entries
+                    if ("import " in s) or (" from " in s) or s.startswith(('{','}','export ')) or ('\n' in s) or s.endswith(';'):
+                        errors.append((block_line, "'deps.imports' contains code-like entries; use module identifiers only"))
+                        break
+                    if s in seen:
+                        warnings.append((block_line, "Duplicate entry in 'deps.imports'"))
+                    seen.add(s)
 
     return errors, warnings
 

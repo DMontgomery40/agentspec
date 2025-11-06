@@ -943,6 +943,8 @@ def main():
     lint_parser.add_argument("target", help="File or directory to lint")
     lint_parser.add_argument("--min-lines", dest="min_lines", type=int, default=10)
     lint_parser.add_argument("--strict", action="store_true", help="Treat warnings as errors")
+    # Accept --language for CLI parity; currently advisory/no-op for Python linter
+    lint_parser.add_argument("--language", dest="language", default=None)
 
     # extract
     extract_parser = subparsers.add_parser("extract", help="Extract agentspec blocks")
@@ -952,6 +954,8 @@ def main():
         choices=["markdown", "json", "agent-context"],
         default="markdown",
     )
+    # Accept --language for CLI parity; currently advisory/no-op
+    extract_parser.add_argument("--language", dest="language", default=None)
 
     # generate
     generate_parser = subparsers.add_parser("generate", help="Generate agentspec documentation")
@@ -965,6 +969,8 @@ def main():
     generate_parser.add_argument("--update-existing", action="store_true")
     generate_parser.add_argument("--terse", action="store_true")
     generate_parser.add_argument("--diff-summary", dest="diff_summary", action="store_true")
+    generate_parser.add_argument("--language", dest="language", choices=["auto","py","js"], default="auto")
+    generate_parser.add_argument("--strip", dest="strip", action="store_true")
 
     # strip
     strip_parser = subparsers.add_parser("strip", help="Remove agentspec blocks")
@@ -1025,7 +1031,7 @@ def main():
         from agentspec import generate as _gen
         rc = _gen.run(
             target=args.target,
-            language="auto",
+            language=args.language,
             dry_run=args.dry_run,
             force_context=args.force_context,
             model=args.model,
@@ -1035,6 +1041,7 @@ def main():
             update_existing=args.update_existing,
             terse=args.terse,
             diff_summary=args.diff_summary,
+            pre_strip=args.strip,
         )
         sys.exit(0 if rc == 0 else 1)
 

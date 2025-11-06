@@ -1,204 +1,78 @@
-# V2 Prompts Complete - Ready for Your Review
+ End-to-End Flow
 
-## Summary
+  - Entry: agentspec/generate.py:2340 loads .env, sets prov based on --provider and model, falls back to openai with local base URL if no API key.
+  - File loop: agentspec/generate.py:2391 iterates files, calls process_file (Python) or process_js_file (JS/TS).
+  - Per-function doc generation: agentspec/generate.py:1141 builds system prompt + examples and (if YAML mode) loads the Lark grammar. Calls llm.generate_chat with messages=[{'role':'system'},
+    {'role':'user'}].
+  - LLM router:
+      - Anthropic path: agentspec/llm.py:134 uses messages.create but concatenates system+user into a single user message and does not pass system=. No CFG.
+      - OpenAI-compatible path: agentspec/llm.py:193 tries Responses API first with max_output_tokens, reasoning, text.verbosity, and CFG tools if grammar_lark is provided. If that raises, it falls
+        back to chat.completions.create (no CFG) at agentspec/llm.py:200+.
+  - Post-process: Generation code intentionally does not strip model content and forcibly injects deterministic metadata (deps, changelog, diff) into whatever the model returned (see “NEVER TRY TO
+    STRIP LLM CONTENT” in agentspec/generate.py:2328 context).
 
-I've created clean v2 versions of all three generation prompts following your requirements:
+  Why Prompt/Echo Leakage Happens
 
-1. ✅ **NO metadata mentions** - Completely removed all references to `{hard_data}`, deps.calls/imports, changelog, or any deterministic data
-2. ✅ **Extensive bug-catching examples** - 7 detailed examples in each prompt showing common bug patterns
-3. ✅ **Anthropic best practices** - Used Context7 to get official docs, applied XML tags, few-shot prompting, clear structure
-4. ✅ **Anti-hallucination instructions** - "CRITICAL: DO NOT ASSUME THE CODE IS CORRECT" prominently placed
+  - Full examples are now included in the system prompt on YAML runs: agentspec/generate.py:1149–1170. They contain actual YAML bodies and even “bcrypt” guardrails from earlier mistakes. This was
+    intentional and useful for Responses+CFG.
+  - Anthropic path has no CFG and is not using system=. It collapses system+user into user content (agentspec/llm.py:141–152). That makes echoing example content into outputs more likely.
+  - Local/Ollama/Qwen uses the Chat Completions fallback (no CFG). Same echo risk if Responses is unavailable or errors.
+  - Because we never strip content and only inject deterministic sections, if the model emits multiple fenced YAML blocks or pasted prompt text, those land in docstrings as-is. You can
+    see “I’m ready to generate AgentSpec…” strings that were emitted previously and are now baked into the code: agentspec/generate.py:1472, agentspec/generate.py:1256, agentspec/tests/
+    test_diff_summary_wiring.py:49.
 
-## Files Created
+  Provider Expectations vs Current Behavior
 
-```
-agentspec/prompts/
-├── verbose_docstring_v2.md      ✅ 14,855 chars (9x larger than v1)
-├── terse_docstring_v2.md        ✅ 5,928 chars (12x larger than v1)
-└── agentspec_yaml_v2.md         ✅ 9,100 chars (7x larger than v1)
-```
+  - OpenAI GPT‑5: Should use Responses API with CFG, FFC, reasoning/verbosity. Current code does this on the first path (agentspec/llm.py:193–201), and tests verify CFG injection: agentspec/tests/
+    test_generate_responses_controls.py:94–118.
+  - Ollama/local: Must use Chat Completions. Current fallback does that — but no CFG, so prompt echo risk is real.
+  - Anthropic (Claude): Must use Messages API with proper system=. Current code does not use system= and concatenates system+user into one user prompt (agentspec/llm.py:141–152). Reference for
+    correct form is in your docs: docs/CLAUDE_PROMPT_GUIDES/give-claude-a-role.md:30.
 
-## Loading Functions Added to prompts.py
+  System vs User placement for examples
 
-```python
-from agentspec.prompts import (
-    # V1 prompts (existing - have metadata leakage)
-    get_verbose_docstring_prompt,
-    get_terse_docstring_prompt,
-    get_agentspec_yaml_prompt,
+  - Responses path collapses system+user into a single input string anyway, so moving examples from “system” to “user” won’t change much there. CFG is the real safety net for OpenAI.
+  - Anthropic and Chat fallback do distinguish roles. Moving examples out of system can reduce their “authority” and may slightly reduce echoing, but it won’t eliminate it without either:
+      - Using system= correctly for Anthropic, and
+      - Adding output validation/selection logic for non‑Responses paths.
 
-    # V2 prompts (new - clean, no metadata leakage)
-    get_verbose_docstring_prompt_v2,
-    get_terse_docstring_prompt_v2,
-    get_agentspec_yaml_prompt_v2,
-)
-```
+  Your “examples → lints” idea
 
-## What Changed from V1
+  - This is strong. Instead of relying on the model to internalize examples, compile them into deterministic lint rules that block bad generations from being written.
+  - Today’s linter (agentspec/lint.py) validates YAML shape/keys/length, but not:
+      - Multiple ---agentspec blocks,
+      - Prompt-echo phrases (“I’m ready…”, “Please share the code…”),
+      - Provider API specifics (e.g., banning max_tokens for Responses docs).
+  - It already has helpers and structure to extend: see extraction and YAML checks (agentspec/lint.py:560–604, agentspec/lint.py:300–420). A JSON-driven lint rules file produced by your notebook
+    would let you add new, precise checks without touching prompt content. This directly enforces precision at commit time.
 
-### REMOVED (Metadata Leakage):
-- ❌ All `{hard_data}` placeholders
-- ❌ "Use deps.calls/imports directly when present" instructions
-- ❌ "Deterministic metadata collected from repository" mentions
-- ❌ Any awareness that metadata will be injected later
+  What changed “recently” that increased leakage
 
-### ADDED (Bug Detection):
-- ✅ "CRITICAL: DO NOT ASSUME THE CODE IS CORRECT" warning at top
-- ✅ 7 bug pattern examples per prompt:
-  1. Division by zero
-  2. Off-by-one in range()
-  3. Wrong comparison operator (== vs >=)
-  4. Missing await on async
-  5. Silent error swallowing (try/except pass)
-  6. Boundary conditions (>= vs >)
-  7. Hardcoded returns ignoring params
-- ✅ Each example shows ✅ GOOD vs ❌ BAD documentation
-- ✅ Explicit line number referencing requirements
-- ✅ XML tags: `<code>`, `<filepath>` for data separation
+  - Inclusion of FULL examples into the system prompt (agentspec/generate.py:1157–1170) → more raw content in context to be echoed.
+  - Router enhancements added Responses + CFG but only for OpenAI-compatible providers; Anthropic and fallback remain unconstrained.
+  - Anthropic path lost the system separation, which degrades instruction hygiene.
 
-## Bug Patterns Coverage
+  Recommendations (research-backed, no code yet)
 
-The v2 prompts specifically target the bugs that v1 missed in hallucination tests:
+  - Per-provider base prompts:
+      - base_prompt_openai_responses.md: minimal, rely on CFG; avoid embedding full example bodies — they’re redundant when CFG is strong.
+      - base_prompt_anthropic.md: optimized for Anthropic with a concise role prompt in system= and only meta-lessons/guardrails (not full YAML bodies) to reduce echo. Use separate user message
+        for code.
+      - base_prompt_chat_local.md: minimal, and add strict output validation on our side (see below).
+  - Anthropic messages: switch to passing system= (see docs/CLAUDE_PROMPT_GUIDES/give-claude-a-role.md:30) and send only one user message with code. Stop concatenating system into user.
+  - Validation for non‑Responses paths:
+      - Parse output and extract exactly one agentspec block by validating against the Lark grammar. If multiple appear, pick the one that parses and passes lints, else retry or fail with explicit
+        diagnostics. This is not “first block wins”; it’s grammar-validated selection.
+  - Turn examples into lint rules:
+      - Extend agentspec/lint.py to error out on:
+          - Multiple agentspec fenced blocks in a single docstring.
+          - Presence of “prompt echo” phrases (configurable list from a rules JSON).
+          - Provider/API‑specific mistakes you’ve observed (e.g., forbidden fields, duplicated sections).
+      - Let your notebook export agentspec/prompts/lint_rules.json so adding a new bad pattern is a one-liner update in the notebook.
 
-| Bug Type | V1 Result | V2 Coverage |
-|----------|-----------|-------------|
-| Phone `>= 10` boundary | ❌ Missed | ✅ Example 6 (boundary conditions) |
-| Cache TTL `age >= ttl` | ❌ Missed | ✅ Example 6 (exact match) |
-| Silent try/except pass | ⚠️ Partial | ✅ Example 5 (explicit) |
-| Division by zero | ✅ Caught | ✅ Example 1 (reinforced) |
-| HTTP == 400 | ✅ Caught | ✅ Example 3 (reinforced) |
+  Why this is safer and more precise
 
-## Two-Pass Architecture (Now Clean)
-
-### Before (V1 - Metadata Leakage):
-```python
-# LLM knew about metadata structure
-prompt = get_agentspec_yaml_prompt()  # contained {hard_data}
-content = prompt.format(code=code, filepath=filepath, hard_data=deps_json)
-llm_response = call_llm(content)
-# LLM tried to align narrative with metadata structure
-```
-
-### After (V2 - Clean):
-```python
-# Pass 1: LLM generates pure narrative (blind to metadata)
-prompt = get_agentspec_yaml_prompt_v2()  # NO {hard_data}!
-content = prompt.format(code=code, filepath=filepath)  # NO hard_data param!
-llm_response = call_llm(content)
-# LLM describes what it sees in the code, nothing more
-
-# Pass 2: Code mechanically injects deterministic metadata
-parsed = parse_agentspec(llm_response)
-parsed['deps'] = extract_deps_from_ast(code)  # deterministic from AST
-parsed['changelog'] = get_relevant_commits(filepath)  # deterministic from git
-```
-
-## Example: Before/After on Buggy Code
-
-### Input Code:
-```python
-def success_rate(self) -> float:
-    return (len(self.successful) / self.total_items) * 100
-```
-
-### V1 Prompt (Would Likely Say):
-```
-Calculates success rate as a percentage of completed items.
-Handles total_items safely.
-```
-(Hallucination - no zero check exists)
-
-### V2 Prompt (Should Say):
-```
-Calculates success rate as a percentage.
-
-WHAT: Divides successful count by total_items, multiplies by 100.
-BUG L2: No check for total_items==0, raises ZeroDivisionError on empty batches.
-
-WHY: Simple percentage calc. Assumes total_items always positive (invalid assumption).
-
-GUARDRAILS:
-- DO NOT call when total_items might be 0 (crashes)
-- ALWAYS add zero-check before division
-```
-(Accurate - catches the bug explicitly)
-
-## How to Use V2 Prompts
-
-### Option 1: Swap V1 with V2 (Testing)
-```bash
-# Temporarily use v2 for testing
-mv agentspec/prompts/agentspec_yaml.md agentspec/prompts/agentspec_yaml_v1.md
-mv agentspec/prompts/agentspec_yaml_v2.md agentspec/prompts/agentspec_yaml.md
-
-agentspec generate tests/fixtures/python/buggy_code.py --agentspec-yaml
-
-# Swap back
-mv agentspec/prompts/agentspec_yaml.md agentspec/prompts/agentspec_yaml_v2.md
-mv agentspec/prompts/agentspec_yaml_v1.md agentspec/prompts/agentspec_yaml.md
-```
-
-### Option 2: Add --use-v2 Flag (Future)
-```python
-# In generate.py, add flag:
-if use_v2:
-    prompt = get_agentspec_yaml_prompt_v2()
-else:
-    prompt = get_agentspec_yaml_prompt()
-```
-
-### Option 3: Replace V1 Entirely (After Testing)
-```bash
-# When ready to commit to v2
-mv agentspec/prompts/verbose_docstring.md agentspec/prompts/verbose_docstring_v1_deprecated.md
-mv agentspec/prompts/verbose_docstring_v2.md agentspec/prompts/verbose_docstring.md
-# Repeat for terse and agentspec_yaml
-```
-
-## Verification
-
-All v2 prompts tested and loading correctly:
-
-```bash
-$ python3 -c "from agentspec.prompts import get_verbose_docstring_prompt_v2; print(len(get_verbose_docstring_prompt_v2()))"
-14855  # chars loaded successfully
-
-$ python3 -c "from agentspec.prompts import get_terse_docstring_prompt_v2; print(len(get_terse_docstring_prompt_v2()))"
-5928  # chars loaded successfully
-
-$ python3 -c "from agentspec.prompts import get_agentspec_yaml_prompt_v2; print(len(get_agentspec_yaml_prompt_v2()))"
-9100  # chars loaded successfully
-```
-
-## Token Budget
-
-You mentioned: "claude can take max input tokens up to 25k, openai a bit more, qwen3 32B can take even more, so i'm not going to be shy about SHIT TONS of examples"
-
-Current v2 prompt sizes:
-- verbose_docstring_v2.md: ~14.8KB ≈ 4,000 tokens (well under 25k)
-- terse_docstring_v2.md: ~5.9KB ≈ 1,600 tokens
-- agentspec_yaml_v2.md: ~9.1KB ≈ 2,500 tokens
-
-**Even the largest v2 prompt (verbose) uses only ~16% of Claude's 25k context window.**
-
-## Next Steps (Your Call)
-
-1. **Review and heavily edit** the v2 prompts (you said "i'll obviously HEAVILY edit")
-2. **Test v2 on hallucination examples** - Should now catch phone `>= 10` and cache TTL bugs
-3. **Compare v1 vs v2 outputs** side by side on buggy code
-4. **Decide on rollout strategy** - Flag, swap, or full replacement
-5. **Update generate.py** to remove {hard_data} parameter entirely if using v2
-
-## Files to Review
-
-- `agentspec/prompts/verbose_docstring_v2.md` - 14.8KB, 7 examples
-- `agentspec/prompts/terse_docstring_v2.md` - 5.9KB, 7 examples
-- `agentspec/prompts/agentspec_yaml_v2.md` - 9.1KB, 7 examples
-- `PROMPT_V2_SUMMARY.md` - Detailed analysis of changes
-- `.serena/memories/anthropic_prompt_engineering_best_practices.md` - Reference guide
-
----
-
-**Status: V2 prompts complete and ready for your review/editing.**
-
-**Key Achievement: Completely eliminated metadata leakage while adding extensive bug-catching examples following Anthropic best practices.**
+  - OpenAI Responses path stays precise by design (CFG/FFC/verbosity/reasoning). The base prompt can be slim.
+  - Anthropic path regains correct semantics via system= and leaner examples (role instructions + lessons, not raw YAML).
+  - Local/Chat fallback gets defensive selection and lint enforcement, preventing polluted outputs from landing in code.
+  - Lints turn your growing set of “bad cases” into deterministic, testable gates — and they scale better than inflating the prompt.
