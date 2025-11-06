@@ -58,6 +58,60 @@ import time
 from agentspec.collectors.base import BaseCollector, CollectedMetadata
 
 
+def find_repo_root(file_path: Path) -> Optional[Path]:
+    """
+    Find git repository root by walking up directory tree.
+
+    Args:
+        file_path: Path to a file within the repository
+
+    Returns:
+        Path to repository root (contains .git), or None if not in a git repo
+
+    ---agentspec
+    what: |
+      Walks up directory tree from file_path looking for .git folder.
+
+      Algorithm:
+      1. Start with file's parent directory
+      2. Check if .git exists in current directory
+      3. If yes, return current directory as repo root
+      4. If no, move up one level
+      5. Stop at filesystem root
+
+      Returns None if no .git folder found (file not in git repo).
+
+    why: |
+      Git collectors (blame, commit history) need accurate repo root to run
+      git commands correctly. Using file_path.parent is wrong for nested files.
+
+      Walking up tree is the standard way to find git repo root (same as git itself).
+
+    guardrails:
+      - ALWAYS check for .git directory (not file)
+      - DO NOT assume file is in repo (return None if not found)
+      - ALWAYS stop at filesystem root (prevent infinite loop)
+      - DO NOT follow symlinks (use resolve() carefully)
+    ---/agentspec
+    """
+    # Start with the file's directory
+    current = file_path if file_path.is_dir() else file_path.parent
+
+    # Walk up directory tree
+    while True:
+        git_dir = current / ".git"
+        if git_dir.exists() and git_dir.is_dir():
+            return current
+
+        # Check if we've reached the filesystem root
+        parent = current.parent
+        if parent == current:
+            # Reached root without finding .git
+            return None
+
+        current = parent
+
+
 class CollectorOrchestrator:
     """
     Orchestrates execution of all metadata collectors.
@@ -243,9 +297,15 @@ class CollectorOrchestrator:
         """
         results = {}
 
+        # Find actual git repository root
+        repo_root = find_repo_root(file_path)
+        if repo_root is None:
+            # Not in a git repo, use file's parent as fallback
+            repo_root = file_path.parent
+
         context = {
             "file_path": file_path,
-            "repo_root": file_path.parent,  # TODO: Find actual repo root
+            "repo_root": repo_root,
         }
 
         for func_node in function_nodes:

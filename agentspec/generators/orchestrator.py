@@ -55,6 +55,7 @@ deps:
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -83,6 +84,21 @@ from agentspec.generators.formatters.python import (
 
 # Prompts
 from agentspec.generators.prompts import BasePrompt, VerbosePrompt, TersePrompt
+
+# Collectors
+from agentspec.collectors import CollectorOrchestrator
+from agentspec.collectors.code_analysis import (
+    SignatureCollector,
+    ExceptionCollector,
+    DecoratorCollector,
+    ComplexityCollector,
+    TypeAnalysisCollector,
+    DependencyCollector,
+)
+from agentspec.collectors.git_analysis import (
+    CommitHistoryCollector,
+    GitBlameCollector,
+)
 
 
 class Orchestrator:
@@ -249,6 +265,60 @@ class Orchestrator:
         else:
             return VerbosePrompt()
 
+    def _detect_language(self, file_path: Path) -> str:
+        """
+        Detect programming language from file extension.
+
+        Args:
+            file_path: Path to source file
+
+        Returns:
+            Language identifier (python, javascript, typescript, etc.)
+
+        ---agentspec
+        what: |
+          Maps file extensions to language identifiers for:
+          - Parser selection
+          - Prompt customization
+          - Formatter selection
+
+          Supported extensions:
+          - .py, .pyw → python
+          - .js, .jsx, .mjs, .cjs → javascript
+          - .ts, .tsx → typescript
+
+          Defaults to "python" for unknown extensions (backwards compatibility).
+
+        why: |
+          Language detection is required because:
+          - Different languages have different parsers (PythonParser vs JSParser)
+          - Prompts need language-specific instructions
+          - Formatters produce different output (docstrings vs JSDoc)
+
+          File extension is the most reliable signal (faster than parsing).
+
+        guardrails:
+          - ALWAYS use suffix (not full path) for detection
+          - DO NOT fail on unknown extensions (default to python)
+          - ALWAYS lowercase extension for comparison
+          - DO NOT parse file content (too slow for detection)
+        ---/agentspec
+        """
+        suffix = file_path.suffix.lower()
+
+        language_map = {
+            ".py": "python",
+            ".pyw": "python",
+            ".js": "javascript",
+            ".jsx": "javascript",
+            ".mjs": "javascript",
+            ".cjs": "javascript",
+            ".ts": "typescript",
+            ".tsx": "typescript",
+        }
+
+        return language_map.get(suffix, "python")
+
     def generate_docstring(
         self,
         code: str,
@@ -295,16 +365,66 @@ class Orchestrator:
         )
 
         try:
+            # Run collectors to extract deterministic metadata
+            metadata = None
+            try:
+                # Parse code to get AST node
+                tree = ast.parse(code)
+                function_node = None
+
+                # Find the function definition in the AST
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.FunctionDef) and node.name == function_name:
+                        function_node = node
+                        break
+
+                if function_node:
+                    # Create and configure collector orchestrator
+                    collector_orch = CollectorOrchestrator()
+
+                    # Register all available collectors
+                    collector_orch.register(SignatureCollector())
+                    collector_orch.register(ExceptionCollector())
+                    collector_orch.register(DecoratorCollector())
+                    collector_orch.register(ComplexityCollector())
+                    collector_orch.register(TypeAnalysisCollector())
+                    collector_orch.register(DependencyCollector())
+
+                    # Register git collectors (may fail if not in git repo)
+                    try:
+                        collector_orch.register(GitBlameCollector())
+                        collector_orch.register(CommitHistoryCollector())
+                    except Exception:
+                        # Git collectors optional (file may not be in git)
+                        pass
+
+                    # Collect all metadata
+                    collector_context = {
+                        "function_name": function_name,
+                        "file_path": file_path,
+                    }
+                    metadata = collector_orch.collect_all(function_node, collector_context)
+
+                    result.messages.append(f"Collected metadata: {len(metadata.code_analysis)} code analysis items")
+
+            except Exception as e:
+                # Collectors are best-effort; continue without metadata if they fail
+                result.messages.append(f"Warning: Collector error (continuing without metadata): {str(e)}")
+
+            # Detect language from file extension
+            language = self._detect_language(Path(file_path))
+
             # Build prompts
             system_prompt = self.prompt.build_system_prompt(
-                language="python",  # TODO: Detect from file extension
+                language=language,
                 style=self.config.style
             )
 
             user_prompt = self.prompt.build_user_prompt(
                 code=code,
                 function_name=function_name,
-                context=context
+                context=context,
+                metadata=metadata  # Pass collected metadata to prompt
             )
 
             result.messages.append(f"Built prompts for {function_name}")
@@ -358,8 +478,17 @@ class Orchestrator:
             - ALWAYS continue processing remaining functions
             - ALWAYS return results for all functions (even failures)
         """
-        # Initialize parser for this language
-        parser = PythonParser()  # TODO: Detect language from extension
+        # Detect language and initialize appropriate parser
+        language = self._detect_language(file_path)
+
+        if language == "python":
+            parser = PythonParser()
+        else:
+            # JavaScript/TypeScript parsers not yet implemented
+            raise NotImplementedError(
+                f"Language '{language}' detected but parser not yet implemented. "
+                f"Currently only Python (.py) files are supported."
+            )
 
         if not parser.can_parse(file_path):
             raise ValueError(f"Cannot parse file: {file_path}")

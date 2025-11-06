@@ -39,9 +39,12 @@ deps:
 
 from __future__ import annotations
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, TYPE_CHECKING
 
 from agentspec.generators.prompts.base import BasePrompt
+
+if TYPE_CHECKING:
+    from agentspec.collectors.base import CollectedMetadata
 
 
 class TersePrompt(BasePrompt):
@@ -128,25 +131,69 @@ Generate focused, concise documentation that captures critical safety informatio
         self,
         code: str,
         function_name: str,
-        context: Optional[Dict[str, Any]] = None
+        context: Optional[Dict[str, Any]] = None,
+        metadata: Optional["CollectedMetadata"] = None
     ) -> str:
-        """Build concise user prompt."""
+        """
+        Build concise user prompt.
+
+        ---agentspec
+        what: |
+          Constructs terse user prompt with essential information only:
+          - Function identification
+          - Source code
+          - Key metadata (if available, formatted concisely)
+          - Generation instructions
+
+        why: |
+          Terse mode optimizes for token efficiency while maintaining quality.
+          Metadata still included but more concisely formatted than verbose mode.
+
+        guardrails:
+          - ALWAYS handle metadata=None case (backwards compatibility)
+          - DO NOT include verbose metadata formatting (defeats terse purpose)
+          - ALWAYS include essential facts (params, exceptions, complexity)
+        ---/agentspec
+        """
 
         context = context or {}
         file_path = context.get("file_path", "unknown")
 
-        prompt = f"""Function: {function_name}
-File: {file_path}
+        prompt_parts = [
+            f"Function: {function_name}",
+            f"File: {file_path}",
+        ]
 
-Code:
-```
-{code}
-```
+        # Include metadata concisely if available
+        if metadata and metadata.code_analysis:
+            facts = []
 
-Generate concise docstring with:
-- Brief description
-- Key rationale (WHY this approach)
-- 2+ specific guardrails
-- Args/Returns documentation"""
+            if "signature" in metadata.code_analysis:
+                sig = metadata.code_analysis["signature"]
+                params = sig.get("parameters", [])
+                facts.append(f"{len(params)} params")
+                if sig.get("return_type"):
+                    facts.append(f"returns {sig['return_type']}")
 
-        return prompt
+            if "exceptions" in metadata.code_analysis:
+                exceptions = metadata.code_analysis["exceptions"]
+                if exceptions:
+                    exc_types = [e.get("type") for e in exceptions]
+                    facts.append(f"raises {', '.join(exc_types)}")
+
+            if "complexity" in metadata.code_analysis:
+                comp = metadata.code_analysis["complexity"]
+                facts.append(f"complexity {comp.get('cyclomatic_complexity')}")
+
+            if facts:
+                prompt_parts.append(f"Facts: {' | '.join(facts)}")
+
+        prompt_parts.append(f"\nCode:\n```\n{code}\n```")
+
+        prompt_parts.append("\nGenerate concise docstring with:")
+        prompt_parts.append("- Brief description")
+        prompt_parts.append("- Key rationale (WHY this approach)")
+        prompt_parts.append("- 2+ specific guardrails")
+        prompt_parts.append("- Args/Returns documentation")
+
+        return "\n".join(prompt_parts)
