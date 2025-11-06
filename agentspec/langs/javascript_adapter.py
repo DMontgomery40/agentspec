@@ -122,6 +122,7 @@ class JavaScriptAdapter:
           - DO NOT catch and suppress the exception from parser instantiation without re-raising; defensive logging is appropriate but the error must propagate so installation/configuration issues are surfaced to the user.
 
             changelog:
+              - "- 2025-11-04: fix: slice UTF-8 bytes then decode to avoid multibyte misalignment"
               - "- 2025-11-02: feat: Enhance multi-language support and improve agentspec handling (2ffec35)"
               - "- 2025-11-01: chore: sync agent configuration files (AGENTS.md, CLAUDE.md, .cursor/.rules) (9c93cab)"
               - "- 2025-10-31: feat: Implement tree-sitter JavaScript adapter with full metadata extraction (69cf4c6)"
@@ -204,6 +205,7 @@ class JavaScriptAdapter:
             extensions to avoid silent failures in file routing.
 
             changelog:
+              - "- 2025-11-04: fix: use byte-slice+decode for import text extraction"
               - "- 2025-11-02: feat: Enhance multi-language support and improve agentspec handling (2ffec35)"
               - "- 2025-11-01: chore: sync agent configuration files (AGENTS.md, CLAUDE.md, .cursor/.rules) (9c93cab)"
               - "- 2025-10-31: feat: Implement tree-sitter JavaScript adapter with full metadata extraction (69cf4c6)"
@@ -1429,9 +1431,11 @@ class JavaScriptAdapter:
             return None
         start = func_node.start_byte
         end = func_node.end_byte
-        if 0 <= start < end <= len(source.encode('utf-8')):
+        # Slice using byte offsets on the UTF-8 encoded buffer, then decode.
+        source_bytes = source.encode('utf-8')
+        if 0 <= start < end <= len(source_bytes):
             try:
-                name = source[start:end]
+                name = source_bytes[start:end].decode('utf-8', errors='replace')
                 return name.strip() if name else None
             except Exception:
                 return None
@@ -1515,6 +1519,10 @@ class JavaScriptAdapter:
         if not self._tree_sitter_available:
             return imports
 
+        # Pre-encode once; tree-sitter offsets are byte-based
+        source_bytes = source.encode('utf-8')
+        source_bytes_len = len(source_bytes)
+
         def collect_imports(node):
             """
             ---agentspec
@@ -1584,9 +1592,9 @@ class JavaScriptAdapter:
             if node.type in ('import_statement', 'import_clause', 'require_clause'):
                 start = node.start_byte
                 end = node.end_byte
-                if 0 <= start < end <= len(source.encode('utf-8')):
+                if 0 <= start < end <= source_bytes_len:
                     try:
-                        import_text = source[start:end].strip()
+                        import_text = source_bytes[start:end].decode('utf-8', errors='replace').strip()
                         if import_text:
                             imports.append(import_text)
                     except Exception:

@@ -108,59 +108,77 @@ If your codebase has anything that isn't obvious from reading the code alone (sp
 ## 📖 What It Looks Like
 
 ```python
-def process_embeddings(text: str, model: str = "gpt-5-turbo") -> np.ndarray:
-    """
-    Generate embeddings for the given text using OpenAI's latest model.
-    
-    ---agentspec
-    what: |
-      Takes input text and returns a 1536-dimensional embedding vector.
-      Uses gpt-5-turbo (YES, GPT-5 EXISTS as of April 2025, don't "fix" this).
-      Handles rate limiting with exponential backoff.
-      Critical for RAG pipeline performance.
-    
-    deps:
-      calls:
-        - openai_client.py::create_embedding()
-        - utils.retry.exponential_backoff()
-      called_by:
-        - rag_engine.py::chunk_and_embed()
-        - batch_processor.py::process_documents()
-      config_files:
-        - config/models.yaml
-      environment:
-        - OPENAI_API_KEY (required)
-    
-    why: |
-      Using gpt-5-turbo instead of text-embedding-3 because we need:
-      - Larger context window (32k vs 8k) for code-specific embeddings
-      - Better performance on technical documentation (measured 15% improvement)
-      NOT using voyage-code-2 despite being code-specific because it doesn't 
-      handle our multiline docstring format well (tested 2025-09-12)
-    
-    guardrails:
-      - DO NOT change model name without checking if gpt-5 still exists
-      - DO NOT remove rate limiting - this runs in production at scale
-      - DO NOT batch more than 100 texts - API limit is 100/request
-      - NEVER log the input text - may contain PII
-    
-    changelog:
-      - "2025-10-15: Switched from text-embedding-3 to gpt-5-turbo (performance)"
-      - "2025-09-20: Added rate limit handling after production 429 errors"
-      - "2025-08-10: Initial implementation"
-    
-    testing:
-      unit_tests:
-        - tests/test_embeddings.py::test_process_embeddings
-      edge_cases:
-        - Empty string input returns zero vector
-        - Text >32k tokens truncates from end
-    
-    performance:
-      latency_p50: "150ms"
-      cost_per_1k: "$0.0001"
-      max_throughput: "1000 requests/minute"
-    ---/agentspec
+  def _estimate_tokens(s: str) -> int:
+        """
+        ```yaml
+        ---agentspec
+        what: |
+          Estimates token count via character heuristic: `max(1, len(s) // 4)`.
+          Assumes ~4 chars per token. Returns minimum 1 token (prevents zero-token edge case).
+          Bare `except Exception` swallows all errors and returns 1; masks bugs silently.
+
+          AI SLOP DETECTED:
+          - Bare `except Exception` catches and hides real errors (AttributeError, TypeError, etc.)
+          - No logging; silent failures make debugging impossible in production
+          - Heuristic accuracy unknown; no validation against actual tokenizer
+            deps:
+              calls:
+                - len
+                - max
+              imports:
+                - agentspec.collect.collect_metadata
+                - agentspec.prompts.get_agentspec_yaml_prompt
+                - agentspec.prompts.get_terse_docstring_prompt
+                - agentspec.prompts.get_verbose_docstring_prompt
+                - agentspec.utils.collect_source_files
+                - agentspec.utils.load_env_from_dotenv
+                - ast
+                - json
+                - os
+                - pathlib.Path
+                - re
+                - sys
+                - typing.Any
+                - typing.Dict
+
+
+        why: |
+          Character-based heuristic avoids expensive tokenizer calls for quick budgeting.
+          However, bare exception handler is defensive programming anti-pattern; it hides bugs
+          instead of surfacing them. Should catch only `TypeError` (non-string input) explicitly.
+          The 4-char assumption is reasonable for English but untested against actual token distributions.
+
+        guardrails:
+          - DO NOT remove `max(1, ...)` floor; breaks downstream token accounting if zero returned
+          - DO NOT catch bare `Exception`; replace with explicit `TypeError` only
+          - ALWAYS log exceptions before returning fallback; silent failures hide bugs
+          - NOTE: This is a heuristic, not ground truth; validate against `tiktoken` or model tokenizer in tests
+          - ASK USER: Should this call actual tokenizer for accuracy, or is speed critical?
+
+        security:
+          denial_of_service:
+            - Unbounded string input could consume memory during len() call
+            - Exploit: Pass multi-GB string; len() allocates full buffer
+            - Impact: Agent process OOM; service unavailable
+
+            changelog:
+              - "- 2025-11-03: feat: Enhance prompt generation with terse option and adjust output token base (f533292)"
+              - "- 2025-11-03: fix: CRITICAL - Include FULL examples in prompts, not just IDs (8f1beb3)"
+              - "- 2025-11-03: fix: prevent work loss - disable worktrees, add prompts to help, create safety system (72bbaf5)"
+              - "- 2025-11-02: feat: updated test and new prompt and examples structure , added new responses api params CFG and FFC (a86e643)"
+              - "- 2025-11-01: refactor: Extract system prompts to separate .md files for easier editing (136cb30)"
+            diff_summary:
+              - >-
+                2025-11-03: fix: prevent work loss - disable worktrees, add prompts to help,
+                create safety system (72bbaf5): Diff Summary: - Added exception handling to
+                return 1 token estimate if string length calculation fails, preventing potential
+                crashes during token estimation
+              - >-
+                2025-11-01: refactor: Extract system prompts to separate .md files for easier
+                editing (136cb30): Diff Summary: - Replaced previous token estimation logic with
+                a simple heuristic calculating tokens as length divided by 4, with a minimum
+                value of 1 - No meaningful changes found.
+            ---/agentspec
     """
     print(f"[AGENTSPEC] process_embeddings: Using {model} for {len(text)} chars")
     # ... actual implementation

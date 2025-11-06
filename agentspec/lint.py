@@ -341,7 +341,21 @@ class AgentSpecLinter(ast.NodeVisitor):
             self.errors.append((node.lineno, f"❌ {node.name} missing agentspec fenced block"))
             return
 
-        # Extract fenced section
+        # Multiple block detection and forbidden phrase scan
+        try:
+            rules = load_lint_rules()
+        except Exception:
+            rules = {"forbidden_phrases": [], "max_blocks": 1}
+        blocks = doc.count("---agentspec")
+        max_blocks = int(rules.get("max_blocks", 1) or 1)
+        if blocks > max_blocks:
+            self.errors.append((node.lineno, f"❌ {getattr(node,'name','<func>')} contains {blocks} agentspec blocks (max {max_blocks})"))
+        doc_lower = doc.lower()
+        for phrase in (rules.get("forbidden_phrases") or []):
+            if phrase and phrase.lower() in doc_lower:
+                self.errors.append((node.lineno, f"❌ forbidden phrase detected in agentspec: '{phrase}'"))
+
+        # Extract first fenced section
         start = doc.find("---agentspec") + len("---agentspec")
         end = doc.find("---/agentspec")
         fenced = doc[start:end].strip()

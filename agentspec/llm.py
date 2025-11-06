@@ -131,26 +131,36 @@ def generate_chat(
     prov = (provider or 'auto').lower()
 
     # Anthropic routing
-    if prov == 'claude' or _is_anthropic_model(model):
+    if prov in ('claude', 'anthropic') or _is_anthropic_model(model):
         try:
             from anthropic import Anthropic  # type: ignore
         except Exception as e:  # pragma: no cover
             raise RuntimeError(
                 "Missing dependency: anthropic. Install with `pip install anthropic` to use Claude models."
             ) from e
-        # Concatenate system+user messages for Claude single-user format
-        user_content: list[str] = []
+        # Extract system and non-system turns
+        sys_parts: list[str] = []
+        conv: list[Dict[str, str]] = []
         for m in messages:
-            if m.get('role') in ('system', 'user'):
-                user_content.append(m.get('content', ''))
-        prompt = "\n\n".join(user_content)
+            role = (m.get('role') or '').lower()
+            content = m.get('content', '')
+            if role == 'system':
+                if content:
+                    sys_parts.append(content)
+            elif role in ('user', 'assistant'):
+                conv.append({"role": role, "content": content})
+        system_text = "\n\n".join(sys_parts) if sys_parts else None
+        # If assistant turns exist, keep them; otherwise pass only user
         client = Anthropic()
-        resp = client.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        kwargs: Dict[str, Any] = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": conv or [{"role": "user", "content": ""}],
+        }
+        if system_text:
+            kwargs["system"] = system_text
+        resp = client.messages.create(**kwargs)
         try:
             return resp.content[0].text  # type: ignore[attr-defined]
         except Exception:

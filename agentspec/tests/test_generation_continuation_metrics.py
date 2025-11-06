@@ -22,7 +22,7 @@ def target_function(x: int) -> int:
     # Monkeypatch provider call to simulate truncated YAML then continuation
     call_state = {"n": 0}
 
-    def fake_generate_chat(model, messages, temperature, max_tokens, base_url=None, provider=None):
+    def fake_generate_chat(model, messages, temperature, max_tokens, base_url=None, provider=None, **kwargs):
         call_state["n"] += 1
         # First call returns incomplete YAML (no guardrails, no closing fence)
         if call_state["n"] == 1:
@@ -84,7 +84,7 @@ def budget_fn(y):
 
     recorded = {"max_tokens": []}
 
-    def fake_generate_chat(model, messages, temperature, max_tokens, base_url=None, provider=None):
+    def fake_generate_chat(model, messages, temperature, max_tokens, base_url=None, provider=None, **kwargs):
         recorded["max_tokens"].append(max_tokens)
         # Return minimal valid YAML in one shot
         return (
@@ -120,4 +120,3 @@ def budget_fn(y):
     assert len(recorded["max_tokens"]) >= 1
     # Budget must be below default 2000
     assert all(mt < 2000 for mt in recorded["max_tokens"]) or any(recorded["max_tokens"])  # sanity
-

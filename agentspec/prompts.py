@@ -6,7 +6,7 @@ All system prompts are stored as .md files in agentspec/prompts/
 for easy editing and iteration.
 """
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 # Directory containing all prompt templates
 PROMPTS_DIR = Path(__file__).parent / "prompts"
@@ -83,6 +83,97 @@ def load_base_prompt() -> str:
     ---/agentspec
     """
     return (PROMPTS_DIR / "base_prompt.md").read_text(encoding="utf-8")
+
+
+def load_provider_base_prompt(provider: Optional[str] = None, terse: bool = False) -> str:
+    """
+    ---agentspec
+    what: |
+      Select and load a provider-specific base prompt file for agentspec YAML generation.
+
+      Mapping:
+      - provider 'openai' → 'base_prompt_openai_responses.md' (Responses API + CFG)
+      - provider 'claude' or 'anthropic' → 'base_prompt_anthropic.md' (Claude Messages API, uses system=)
+      - provider 'local' → 'base_prompt_chat_local.md' (OpenAI-compatible Chat Completions / Ollama)
+      - fallback → 'base_prompt.md'
+
+      The `terse` flag is accepted for signature parity but currently uses the same provider file.
+
+    deps:
+      calls:
+        - PROMPTS_DIR.joinpath
+        - read_text
+      imports:
+        - pathlib.Path
+        - typing.Optional
+
+    why: |
+      Different providers have different API semantics and reliability characteristics.
+      Responses+CFG benefits from a minimal prompt (grammar enforces structure),
+      Anthropic should use a concise role prompt in `system=`, and Chat fallback needs
+      conservative instructions to reduce prompt echo.
+
+    guardrails:
+      - DO NOT include full example bodies in Anthropic or Chat fallback prompts; risk of echo.
+      - KEEP mapping stable; changes alter generation behavior across providers.
+      - If a file is missing, fall back to 'base_prompt.md' rather than crashing.
+
+    changelog:
+      - "2025-11-04: feat(prompts): add provider-specific base prompt loader"
+    ---/agentspec
+    """
+    prov = (provider or "").lower().strip()
+    fname = None
+    if prov == "openai":
+      fname = "base_prompt_openai_responses.md"
+    elif prov in ("claude", "anthropic"):
+      fname = "base_prompt_anthropic.md"
+    elif prov == "local":
+      fname = "base_prompt_chat_local.md"
+    else:
+      # fallback
+      fname = "base_prompt.md"
+    p = PROMPTS_DIR / fname
+    if not p.exists():
+      # final fallback to legacy base prompt
+      return (PROMPTS_DIR / "base_prompt.md").read_text(encoding="utf-8")
+    return p.read_text(encoding="utf-8")
+
+
+def load_lint_rules() -> Dict[str, Any]:
+    """
+    ---agentspec
+    what: |
+      Load lint rules used to validate generated agentspec blocks and prevent prompt echo/slop.
+      Returns a dict read from 'agentspec/prompts/lint_rules.json'. If file is missing,
+      returns a conservative default with an empty rule set.
+
+    deps:
+      calls:
+        - read_text
+      imports:
+        - json
+
+    why: |
+      Converting bad example patterns into deterministic lint rules allows the pipeline to reject
+      polluted outputs before writing to source code, especially on non-Responses paths.
+
+    guardrails:
+      - DO NOT hard-fail on missing file; return defaults to avoid blocking workflows.
+      - Keep schema simple (forbidden_phrases, max_blocks) to minimize coupling.
+
+    changelog:
+      - "2025-11-04: feat(lint): add lint rules loader"
+    ---/agentspec
+    """
+    import json
+    rules_path = PROMPTS_DIR / "lint_rules.json"
+    if not rules_path.exists():
+        return {"forbidden_phrases": [], "max_blocks": 1}
+    try:
+        return json.loads(rules_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"forbidden_phrases": [], "max_blocks": 1}
 
 
 def load_examples_json() -> Dict[str, Any]:
@@ -435,6 +526,25 @@ def get_agentspec_yaml_prompt_v2() -> str:
     """
     return load_prompt("agentspec_yaml_v2")
 
+
+def get_diff_summary_prompt() -> str:
+    """
+    ---agentspec
+    what: |
+      Loads the diff summary prompt used to instruct an LLM to summarize
+      function-scoped git diffs into a short, human-readable changelog.
+
+      Inputs: none
+      Outputs: string contents of `agentspec/prompts/diff_summary.md` (UTF-8)
+
+    guardrails:
+      - DO NOT embed file paths or raw diffs here; callers provide them as user content
+      - ALWAYS keep this prompt brief; summaries should be concise (<= 8 bullets)
+    changelog:
+      - "2025-11-04: Add diff summary prompt loader"
+    ---/agentspec
+    """
+    return load_prompt("diff_summary")
 
 def format_prompt(template: str, **kwargs: Any) -> str:
     """

@@ -1,0 +1,10 @@
+{
+  "forbidden_phrases": [
+    "I'm ready to generate AgentSpec",
+    "Please share the code you'd like me to document",
+    "Ready when you are.",
+    "I don't see any code provided yet"
+  ],
+  "max_blocks": 1
+}
+

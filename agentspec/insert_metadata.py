@@ -87,7 +87,7 @@ def apply_docstring_with_metadata(
     *,
     as_agentspec_yaml: bool = False,
     force_context: bool = False,
-    diff_summary_text: Optional[str] = None,
+    diff_summary_lines: Optional[list[str]] = None,
 ) -> bool:
     """
     ---agentspec
@@ -138,9 +138,12 @@ def apply_docstring_with_metadata(
         return False
 
     # Build the complete docstring FIRST (narrative + deterministic metadata)
-    doc_with_meta = inject_deterministic_metadata(narrative, metadata, as_agentspec_yaml)
-    if diff_summary_text:
-        doc_with_meta = doc_with_meta.rstrip() + "\n\n" + diff_summary_text.strip() + "\n"
+    doc_with_meta = inject_deterministic_metadata(
+        narrative,
+        metadata,
+        as_agentspec_yaml,
+        diff_summary_lines=diff_summary_lines,
+    )
 
     # Prepare tmp copy
     with open(src, "r", encoding="utf-8") as f:
