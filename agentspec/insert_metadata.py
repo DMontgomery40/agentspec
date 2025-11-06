@@ -13,6 +13,116 @@ from typing import Dict, Any, Optional
 import os
 import tempfile
 import py_compile
+import re
+
+
+def inject_deterministic_metadata(llm_output: str, metadata: Dict[str, Any], as_agentspec_yaml: bool) -> str:
+    """
+    Inject deterministic metadata (dependencies and changelog) into docstrings.
+
+    This is the MODULAR version extracted from generate.py.
+    Does NOT call any LLM - pure string manipulation.
+
+    Args:
+        llm_output: Formatted docstring from LLM
+        metadata: Dict with 'deps' and 'changelog' keys
+        as_agentspec_yaml: True for YAML format, False for plain text
+
+    Returns:
+        Docstring with injected metadata sections
+    """
+    if not metadata:
+        return llm_output
+
+    deps_data = metadata.get('deps', {})
+    changelog_data = metadata.get('changelog', [])
+
+    if as_agentspec_yaml:
+        # YAML format: inject deps and changelog sections
+        deps_yaml = "\n    deps:\n"
+        if deps_data.get('calls'):
+            deps_yaml += "      calls:\n"
+            for call in deps_data['calls']:
+                deps_yaml += f"        - {call}\n"
+        if deps_data.get('imports'):
+            deps_yaml += "      imports:\n"
+            for imp in deps_data['imports']:
+                deps_yaml += f"        - {imp}\n"
+
+        changelog_yaml = "\n    changelog:\n"
+        if changelog_data:
+            for entry in changelog_data:
+                changelog_yaml += f"      - \"{entry}\"\n"
+        else:
+            changelog_yaml += "      - \"No git history available\"\n"
+
+        # Inject deps before "why:" section
+        if "why:" in llm_output or "why |" in llm_output:
+            output = re.sub(
+                r'(\n\s*why[:\|])',
+                deps_yaml + r'\1',
+                llm_output,
+                count=1
+            )
+        else:
+            output = re.sub(
+                r'(\n\s*what:.*?\n(?:\s+.*\n)*)',
+                r'\1' + deps_yaml,
+                llm_output,
+                count=1,
+                flags=re.DOTALL
+            )
+
+        # Inject changelog before closing tag
+        if "---/agentspec" in output:
+            if "changelog:" in output:
+                output = re.sub(
+                    r'changelog:.*?(?=---/agentspec)',
+                    changelog_yaml.strip(),
+                    output,
+                    flags=re.DOTALL
+                )
+            else:
+                last_pos = output.rfind("---/agentspec")
+                output = output[:last_pos] + changelog_yaml + "    " + output[last_pos:]
+        else:
+            output += changelog_yaml
+
+        return output
+    else:
+        # Plain text format: append deterministic sections
+        changelog_content = "CHANGELOG (from git history):\n"
+        if changelog_data:
+            for entry in changelog_data:
+                changelog_content += f"{entry}\n"
+        else:
+            changelog_content += "No git history available\n"
+
+        # Strip any LLM-emitted CHANGELOG/DEPENDENCIES sections
+        llm_output = re.sub(
+            r'(?ms)^\s*CHANGELOG \(from git history\):\s*\n.*?(?=^(?:FUNCTION CODE DIFF SUMMARY|DEPENDENCIES \(from code analysis\):|WHAT:|WHY:)|\Z)',
+            '',
+            llm_output,
+        )
+        llm_output = re.sub(
+            r'(?ms)^\s*DEPENDENCIES \(from code analysis\):\s*\n.*?(?=^(?:CHANGELOG \(from git history\):|FUNCTION CODE DIFF SUMMARY|WHAT:|WHY:)|\Z)',
+            '',
+            llm_output,
+        )
+
+        # Build deterministic deps section
+        deps_text = "DEPENDENCIES (from code analysis):\n"
+        if deps_data.get('calls'):
+            deps_text += "Calls: " + ", ".join(deps_data['calls']) + "\n"
+        if deps_data.get('imports'):
+            deps_text += "Imports: " + ", ".join(deps_data['imports']) + "\n"
+
+        # Append deterministic sections
+        if not llm_output.endswith("\n"):
+            llm_output += "\n"
+        llm_output += "\n" + deps_text + "\n" + changelog_content
+
+        return llm_output
 
 
 def _compile_ok(path: Path) -> bool:

@@ -101,8 +101,8 @@ from agentspec.collectors.git_analysis import (
     GitBlameCollector,
 )
 
-# Import existing injection function (DO NOT duplicate it)
-from agentspec.generate import inject_deterministic_metadata
+# Import modular injection function (NOT from monolithic generate.py)
+from agentspec.insert_metadata import inject_deterministic_metadata
 
 
 class Orchestrator:
