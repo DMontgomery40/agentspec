@@ -56,6 +56,7 @@ deps:
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -99,6 +100,83 @@ from agentspec.collectors.git_analysis import (
     CommitHistoryCollector,
     GitBlameCollector,
 )
+
+
+def inject_deterministic_metadata(llm_output: str, metadata: Dict[str, Any]) -> str:
+    """
+    Inject deterministic metadata (dependencies, changelog) into formatted docstring.
+
+    This happens AFTER LLM generation and formatting.
+    The LLM NEVER sees this data.
+
+    Args:
+        llm_output: Formatted docstring from formatter
+        metadata: Dict with 'deps' and 'changelog' keys
+
+    Returns:
+        Docstring with injected metadata sections
+
+    ---agentspec
+    what: |
+      Injects deterministic facts into docstrings using regex-based insertion.
+
+      For Google/NumPy/Sphinx docstrings:
+      - Injects "Dependencies:" section with calls/imports
+      - Injects "Changelog:" section with git history
+
+      Uses simple text append (not YAML injection like old generate.py)
+      because new architecture outputs PEP 257 docstrings, not YAML blocks.
+
+    why: |
+      Two-phase architecture: LLM generates subjective content (what/why/guardrails),
+      then we inject objective facts (dependencies/changelog).
+
+      Separation ensures LLM cannot hallucinate dependencies or changelog.
+
+    guardrails:
+      - DO NOT pass metadata to LLM prompts
+      - ALWAYS inject after formatting (not before)
+      - DO NOT fail if metadata is empty (graceful degradation)
+    ---/agentspec
+    """
+    if not metadata:
+        return llm_output
+
+    deps_data = metadata.get('deps', {})
+    changelog_data = metadata.get('changelog', [])
+
+    # Build dependency section
+    deps_lines = []
+    if deps_data.get('calls'):
+        deps_lines.append(f"    Calls: {', '.join(deps_data['calls'])}")
+    if deps_data.get('imports'):
+        deps_lines.append(f"    Imports: {', '.join(deps_data['imports'])}")
+
+    # Build changelog section
+    changelog_lines = []
+    if changelog_data:
+        for entry in changelog_data:
+            changelog_lines.append(f"    - {entry}")
+    else:
+        changelog_lines.append("    - No git history available")
+
+    # Inject into docstring (before closing quotes)
+    # Find the closing triple quotes
+    if '"""' in llm_output:
+        # Google/NumPy style
+        close_pos = llm_output.rfind('"""')
+
+        injection = "\n"
+        if deps_lines:
+            injection += "\n    Dependencies:\n" + "\n".join(deps_lines) + "\n"
+        if changelog_lines:
+            injection += "\n    Changelog:\n" + "\n".join(changelog_lines) + "\n"
+
+        result = llm_output[:close_pos] + injection + llm_output[close_pos:]
+        return result
+
+    # If no closing quotes found, just append
+    return llm_output
 
 
 class Orchestrator:
@@ -445,16 +523,35 @@ class Orchestrator:
 
             result.messages.append(f"Formatted as {self.config.style} docstring")
 
-            # TODO: INJECT DETERMINISTIC METADATA HERE (two-phase architecture)
-            # This is where we should inject:
-            # - dependencies (from metadata.code_analysis["dependencies"])
-            # - changelog (from metadata.git_analysis["commit_history"])
-            # - git blame data (from metadata.git_analysis["blame"])
-            #
-            # The injection should NEVER be visible to the LLM.
-            # See existing code in agentspec/generate.py for injection logic.
-            #
-            # For now, collectors run but metadata is not injected (saved for later PR)
+            # INJECT DETERMINISTIC METADATA (two-phase architecture)
+            # This happens AFTER LLM generation and formatting
+            # The LLM never saw this data
+            if metadata:
+                # Convert CollectedMetadata to dict format for injection
+                injection_data = {}
+
+                # Extract dependencies
+                if "dependencies" in metadata.code_analysis:
+                    deps = metadata.code_analysis["dependencies"]
+                    injection_data['deps'] = {
+                        'calls': deps.get('calls', []),
+                        'imports': deps.get('imports', [])
+                    }
+
+                # Extract changelog from git history
+                if "commit_history" in metadata.git_analysis:
+                    commits = metadata.git_analysis["commit_history"].get('commits', [])
+                    # Format as changelog entries
+                    changelog_entries = []
+                    for commit in commits[:10]:  # Limit to 10 most recent
+                        date = commit.get('date', '')
+                        msg = commit.get('message', '')
+                        changelog_entries.append(f"{date}: {msg}")
+                    injection_data['changelog'] = changelog_entries
+
+                # Inject into docstring
+                docstring = inject_deterministic_metadata(docstring, injection_data)
+                result.messages.append("Injected deterministic metadata (dependencies, changelog)")
 
             # Validate output
             self.formatter.validate_output(docstring)
