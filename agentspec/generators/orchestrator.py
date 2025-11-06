@@ -101,82 +101,8 @@ from agentspec.collectors.git_analysis import (
     GitBlameCollector,
 )
 
-
-def inject_deterministic_metadata(llm_output: str, metadata: Dict[str, Any]) -> str:
-    """
-    Inject deterministic metadata (dependencies, changelog) into formatted docstring.
-
-    This happens AFTER LLM generation and formatting.
-    The LLM NEVER sees this data.
-
-    Args:
-        llm_output: Formatted docstring from formatter
-        metadata: Dict with 'deps' and 'changelog' keys
-
-    Returns:
-        Docstring with injected metadata sections
-
-    ---agentspec
-    what: |
-      Injects deterministic facts into docstrings using regex-based insertion.
-
-      For Google/NumPy/Sphinx docstrings:
-      - Injects "Dependencies:" section with calls/imports
-      - Injects "Changelog:" section with git history
-
-      Uses simple text append (not YAML injection like old generate.py)
-      because new architecture outputs PEP 257 docstrings, not YAML blocks.
-
-    why: |
-      Two-phase architecture: LLM generates subjective content (what/why/guardrails),
-      then we inject objective facts (dependencies/changelog).
-
-      Separation ensures LLM cannot hallucinate dependencies or changelog.
-
-    guardrails:
-      - DO NOT pass metadata to LLM prompts
-      - ALWAYS inject after formatting (not before)
-      - DO NOT fail if metadata is empty (graceful degradation)
-    ---/agentspec
-    """
-    if not metadata:
-        return llm_output
-
-    deps_data = metadata.get('deps', {})
-    changelog_data = metadata.get('changelog', [])
-
-    # Build dependency section
-    deps_lines = []
-    if deps_data.get('calls'):
-        deps_lines.append(f"    Calls: {', '.join(deps_data['calls'])}")
-    if deps_data.get('imports'):
-        deps_lines.append(f"    Imports: {', '.join(deps_data['imports'])}")
-
-    # Build changelog section
-    changelog_lines = []
-    if changelog_data:
-        for entry in changelog_data:
-            changelog_lines.append(f"    - {entry}")
-    else:
-        changelog_lines.append("    - No git history available")
-
-    # Inject into docstring (before closing quotes)
-    # Find the closing triple quotes
-    if '"""' in llm_output:
-        # Google/NumPy style
-        close_pos = llm_output.rfind('"""')
-
-        injection = "\n"
-        if deps_lines:
-            injection += "\n    Dependencies:\n" + "\n".join(deps_lines) + "\n"
-        if changelog_lines:
-            injection += "\n    Changelog:\n" + "\n".join(changelog_lines) + "\n"
-
-        result = llm_output[:close_pos] + injection + llm_output[close_pos:]
-        return result
-
-    # If no closing quotes found, just append
-    return llm_output
+# Import existing injection function (DO NOT duplicate it)
+from agentspec.generate import inject_deterministic_metadata
 
 
 class Orchestrator:
@@ -549,8 +475,9 @@ class Orchestrator:
                         changelog_entries.append(f"{date}: {msg}")
                     injection_data['changelog'] = changelog_entries
 
-                # Inject into docstring
-                docstring = inject_deterministic_metadata(docstring, injection_data)
+                # Inject into docstring using existing generate.py function
+                # as_agentspec_yaml=False because new architecture generates PEP 257 docstrings
+                docstring = inject_deterministic_metadata(docstring, injection_data, as_agentspec_yaml=False)
                 result.messages.append("Injected deterministic metadata (dependencies, changelog)")
 
             # Validate output
