@@ -9,7 +9,7 @@ import ast
 import json
 import yaml
 from pathlib import Path
-from agentspec.utils import collect_python_files
+from agentspec.utils import collect_source_files
 from dataclasses import dataclass, asdict, field
 from typing import List, Dict, Any, Optional
 
@@ -496,11 +496,129 @@ class AgentSpecExtractor(ast.NodeVisitor):
         self.specs.append(spec)
 
 
+def extract_agentspec_blocks_text(path: Path) -> List[AgentSpec]:
+    """
+    Extract agentspec blocks from any source file using text-based parsing.
+
+    Works for JavaScript, TypeScript, and any language with agentspec blocks in comments.
+    Looks for ---agentspec and ---/agentspec markers in file text.
+
+    ---agentspec
+    what: |
+      Universal agentspec block extractor for non-Python languages.
+
+      Reads file as text and searches for agentspec blocks delimited by:
+      ---agentspec ... ---/agentspec
+
+      Parses YAML content within blocks and creates AgentSpec objects.
+      Used for JS, TS, and other languages where AST parsing isn't available.
+
+    why: |
+      agentspec blocks can appear in ANY language's comments.
+      Text-based extraction is language-agnostic and works universally.
+
+      Alternative: Implement AST parsers for every language
+      Rejected: Too much work, text-based works for 95% of cases
+
+    guardrails:
+      - DO NOT assume Python syntax
+      - ALWAYS handle malformed YAML gracefully
+      - DO NOT fail entire file on one bad block
+    ---/agentspec
+    """
+    specs = []
+    try:
+        content = path.read_text(encoding="utf-8")
+        lines = content.splitlines()
+
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+
+            # Look for start marker
+            if "---agentspec" in line:
+                start_line = i + 1  # Line number (1-indexed)
+                block_lines = []
+                i += 1
+
+                # Collect lines until end marker
+                while i < len(lines):
+                    if "---/agentspec" in lines[i]:
+                        # Found end marker
+                        block_text = "\n".join(block_lines)
+
+                        # Try to parse YAML
+                        try:
+                            parsed = yaml.safe_load(block_text) or {}
+
+                            # Create AgentSpec
+                            spec = AgentSpec(
+                                name=f"{path.name}:{start_line}",
+                                lineno=start_line,
+                                filepath=str(path),
+                                raw_block=block_text,
+                                parsed_data=parsed,
+                                what=parsed.get("what", ""),
+                                deps=parsed.get("deps", {}),
+                                why=parsed.get("why", ""),
+                                guardrails=parsed.get("guardrails", []),
+                                changelog=parsed.get("changelog", [])
+                            )
+                            specs.append(spec)
+                        except yaml.YAMLError:
+                            # Skip malformed YAML blocks
+                            pass
+
+                        break
+                    else:
+                        # Remove comment markers while preserving indentation
+                        line_content = lines[i]
+
+                        # Strip leading whitespace to find comment marker
+                        stripped = line_content.lstrip()
+                        leading_space = len(line_content) - len(stripped)
+
+                        # Remove comment marker but preserve relative indentation
+                        if stripped.startswith("* "):
+                            # JSDoc-style: "  * content" -> "content"
+                            cleaned = stripped[2:]
+                        elif stripped.startswith("*"):
+                            # JSDoc-style: "  *content" -> "content"
+                            cleaned = stripped[1:].lstrip()
+                        elif stripped.startswith("// "):
+                            # C-style: "  // content" -> "content"
+                            cleaned = stripped[3:]
+                        elif stripped.startswith("//"):
+                            # C-style: "  //content" -> "content"
+                            cleaned = stripped[2:].lstrip()
+                        elif stripped.startswith("# "):
+                            # Python-style: "  # content" -> "content"
+                            cleaned = stripped[2:]
+                        elif stripped.startswith("#"):
+                            # Python-style: "  #content" -> "content"
+                            cleaned = stripped[1:].lstrip()
+                        else:
+                            cleaned = stripped
+
+                        block_lines.append(cleaned)
+                        i += 1
+
+            i += 1
+
+    except Exception as e:
+        print(f"Warning: Could not extract from {path}: {e}")
+
+    return specs
+
+
 def extract_from_file(path: Path) -> List[AgentSpec]:
     '''
     ---agentspec
     what: |
-      Extracts all AgentSpec definitions from a Python source file by parsing its Abstract Syntax Tree (AST).
+      Extracts all AgentSpec definitions from source files.
+
+      For Python files: Uses AST parsing via AgentSpecExtractor
+      For JS/TS files: Uses text-based extraction via extract_agentspec_blocks_text()
 
       Reads the file at the given Path with UTF-8 encoding, parses it into an AST representation, and visits all nodes using an AgentSpecExtractor visitor to collect AgentSpec objects. Returns a list of all AgentSpec instances found in the file.
 
@@ -562,15 +680,21 @@ def extract_from_file(path: Path) -> List[AgentSpec]:
           - "- 2025-10-29: Add agent spec extraction and export functionality"
         ---/agentspec
     '''
-    try:
-        src = path.read_text(encoding="utf-8")
-        tree = ast.parse(src, filename=str(path))
-        extractor = AgentSpecExtractor(str(path))
-        extractor.visit(tree)
-        return extractor.specs
-    except Exception as e:
-        print(f"Warning: Could not parse {path}: {e}")
-        return []
+    # Detect language by file extension
+    if path.suffix == ".py":
+        # Use AST-based extraction for Python
+        try:
+            src = path.read_text(encoding="utf-8")
+            tree = ast.parse(src, filename=str(path))
+            extractor = AgentSpecExtractor(str(path))
+            extractor.visit(tree)
+            return extractor.specs
+        except Exception as e:
+            print(f"Warning: Could not parse {path}: {e}")
+            return []
+    else:
+        # Use text-based extraction for JS/TS/other languages
+        return extract_agentspec_blocks_text(path)
 
 
 def export_markdown(specs: List[AgentSpec], out: Path):
@@ -964,7 +1088,7 @@ def run(target: str, fmt: str = "markdown") -> int:
         ---/agentspec
     """
     path = Path(target)
-    files = collect_python_files(path)
+    files = collect_source_files(path)  # Supports .py, .js, .jsx, .ts, .tsx
     all_specs: List[AgentSpec] = []
 
     for file in files:

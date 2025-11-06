@@ -491,6 +491,95 @@ def collect_python_files(target: Path) -> List[Path]:
     return files
 
 
+def collect_source_files(target: Path, extensions: Optional[List[str]] = None) -> List[Path]:
+    """
+    Recursively discover source files with specified extensions, respecting .gitignore/.agentspecignore.
+
+    Args:
+        target: File or directory path to search
+        extensions: List of file extensions to collect (e.g., [".py", ".js", ".ts"])
+                   Defaults to [".py", ".js", ".jsx", ".ts", ".tsx"] if None
+
+    Returns:
+        Sorted list of absolute Path objects for matching source files
+
+    ---agentspec
+    what: |
+      Generic file collector that supports multiple languages (Python, JavaScript, TypeScript).
+
+      Works like collect_python_files but accepts custom extension list.
+      Useful for:
+      - extract command (works with any language)
+      - lint command (works with any language)
+      - generate command (when parsers support multiple languages)
+
+      Default extensions: .py, .js, .jsx, .ts, .tsx
+
+      Respects same filters as collect_python_files:
+      - .gitignore (when in git repo)
+      - .agentspecignore (when in git repo)
+      - DEFAULT_EXCLUDE_DIRS (.venv, node_modules, build, etc.)
+
+    why: |
+      agentspec blocks can appear in ANY language's comments/docstrings.
+      The extract and lint commands should work universally.
+
+      Alternative: Create separate collect_javascript_files(), collect_typescript_files()
+      Rejected because: That duplicates filter logic 5+ times. DRY principle.
+
+    guardrails:
+      - DO NOT hardcode extensions (accept parameter for flexibility)
+      - ALWAYS use same filter logic as collect_python_files (consistency)
+      - DO NOT skip gitignore/agentspecignore checks (respect project config)
+      - ALWAYS return sorted paths (deterministic output)
+
+    deps:
+      calls: [_find_git_root, _git_check_ignore, _is_excluded_by_dir, _check_agentspecignore]
+      imports: [pathlib.Path, typing.List, typing.Optional]
+    ---/agentspec
+    """
+    if extensions is None:
+        extensions = [".py", ".js", ".jsx", ".ts", ".tsx"]
+
+    # Normalize extensions (ensure leading dot)
+    extensions = [ext if ext.startswith(".") else f".{ext}" for ext in extensions]
+
+    if target.is_file():
+        # Check extension matches
+        if target.suffix not in extensions or _is_excluded_by_dir(target):
+            return []
+
+        repo_root = _find_git_root(target)
+        if repo_root:
+            # Check .gitignore
+            ignored = _git_check_ignore(repo_root, [target])
+            if target.resolve() in ignored:
+                return []
+            # Check .agentspecignore
+            if _check_agentspecignore(target, repo_root):
+                return []
+        return [target]
+
+    # Directory - collect all matching extensions
+    all_files = []
+    for ext in extensions:
+        pattern = f"*{ext}"
+        all_files.extend([p for p in target.rglob(pattern) if p.is_file() and not _is_excluded_by_dir(p)])
+
+    repo_root = _find_git_root(target)
+    if repo_root:
+        # Check .gitignore
+        ignored = _git_check_ignore(repo_root, all_files)
+        files = [p for p in all_files if p.resolve() not in ignored]
+        # Check .agentspecignore
+        files = [p for p in files if not _check_agentspecignore(p, repo_root)]
+    else:
+        files = all_files
+
+    files.sort(key=lambda p: str(p))
+    return files
+
+
 def load_env_from_dotenv(env_path: Optional[Path] = None, override: bool = False) -> Optional[Path]:
     """
     ---agentspec

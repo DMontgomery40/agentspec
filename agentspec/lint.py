@@ -10,7 +10,7 @@ import ast
 import sys
 import yaml
 from pathlib import Path
-from agentspec.utils import collect_python_files
+from agentspec.utils import collect_source_files
 from typing import List, Tuple, Dict, Any
 
 
@@ -430,7 +430,10 @@ def check_file(filepath: Path, min_lines: int = 10) -> Tuple[List[Tuple[int, str
     '''
     ---agentspec
     what: |
-      Validates a single Python file for AgentSpec compliance by parsing its AST and running a linter visitor.
+      Validates source files for AgentSpec compliance.
+
+      For Python files: Uses AST parsing and visitor pattern
+      For JS/TS files: Skips AST checks (text-based validation could be added later)
 
       Inputs:
       - filepath: Path object pointing to a Python file to validate
@@ -502,6 +505,11 @@ def check_file(filepath: Path, min_lines: int = 10) -> Tuple[List[Tuple[int, str
           - "- 2025-10-29: Add agent spec linter for Python files"
         ---/agentspec
     '''
+    # For non-Python files, skip AST linting for now
+    if filepath.suffix not in [".py", ".pyw"]:
+        # JS/TS files: skip for now (could add text-based linting later)
+        return [], []
+
     try:
         src = filepath.read_text(encoding="utf-8")
         tree = ast.parse(src, filename=str(filepath))
@@ -564,7 +572,7 @@ def run(target: str, min_lines: int = 10, strict: bool = False) -> int:
         ---/agentspec
     '''
     path = Path(target)
-    files = collect_python_files(path)
+    files = collect_source_files(path)  # Supports .py, .js, .jsx, .ts, .tsx
 
     total_errors = 0
     total_warnings = 0

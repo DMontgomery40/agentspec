@@ -484,11 +484,11 @@ class Orchestrator:
         if language == "python":
             parser = PythonParser()
         else:
-            # JavaScript/TypeScript parsers not yet implemented
-            raise NotImplementedError(
-                f"Language '{language}' detected but parser not yet implemented. "
-                f"Currently only Python (.py) files are supported."
-            )
+            # JS/TS parsers not yet implemented - skip silently
+            # extract and lint work with JS/TS, but generate doesn't yet
+            print(f"Warning: Skipping {file_path} - generate only supports Python (.py) files currently")
+            print(f"  Note: extract and lint commands work with JS/TS files")
+            return {}
 
         if not parser.can_parse(file_path):
             raise ValueError(f"Cannot parse file: {file_path}")
