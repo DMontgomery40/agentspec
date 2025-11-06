@@ -480,6 +480,105 @@ class Orchestrator:
                 docstring = inject_deterministic_metadata(docstring, injection_data, as_agentspec_yaml=False)
                 result.messages.append("Injected deterministic metadata (dependencies, changelog)")
 
+            # If diff_summary requested, make separate LLM call to summarize function-scoped code diffs (excluding docstrings/comments)
+            if self.config.diff_summary and function_name and isinstance(file_path, Path):
+                try:
+                    from agentspec.collect import collect_function_code_diffs
+                    code_diffs = collect_function_code_diffs(Path(file_path), function_name)
+
+                    if code_diffs:
+                        # Build prompt for LLM: infer the WHY from the code changes and commit messages
+                        diff_prompt = (
+                            "CRITICAL: Output format is EXACTLY one line per commit in format:\n"
+                            "- YYYY-MM-DD: summary (hash)\n\n"
+                            "Summarize the intent (WHY) behind these changes to the specific function.\n"
+                            "Only consider the added/removed lines shown (docstrings/comments removed).\n"
+                            "Use the exact date and commit hash provided. Provide a concise WHY summary in <=15 words.\n\n"
+                        )
+                        for d in code_diffs:
+                            commit_hash = d.get('hash', 'unknown')
+                            diff_prompt += f"Commit: {d['date']} - {d['message']} ({commit_hash})\n"
+                            diff_prompt += f"Function: {function_name}\n"
+                            diff_prompt += f"Changed lines:\n{d['diff']}\n\n"
+
+                        # Separate API call for diff summaries
+                        summary_system_prompt = (
+                            "CRITICAL: You are a precise code-change analyst. Output EXACTLY one line per commit in format:\n"
+                            "- YYYY-MM-DD: concise summary (hash)\n\n"
+                            "Infer WHY the function changed in <=10 words. Use exact date and hash provided."
+                            if self.config.terse else
+                            "CRITICAL: You are a precise code-change analyst. Output EXACTLY one line per commit in format:\n"
+                            "- YYYY-MM-DD: concise summary (hash)\n\n"
+                            "Explain WHY the function changed in <=15 words. Use exact date and hash provided."
+                        )
+
+                        # Create a custom AgentSpec model just for diff summary (plain text response)
+                        from pydantic import BaseModel
+
+                        class DiffSummaryResponse(BaseModel):
+                            summary: str
+
+                        # Make LLM call with lower temperature and fewer tokens
+                        try:
+                            # Use provider's raw client for plain text response (bypassing Instructor)
+                            # We need plain text, not structured AgentSpec
+                            raw_client = self.provider.raw_client
+
+                            # Get raw completion without Instructor parsing
+                            if self.provider.name == "AnthropicProvider":
+                                raw_response = raw_client.messages.create(
+                                    model=self.config.model,
+                                    max_tokens=500 if self.config.terse else 1000,
+                                    temperature=0.0,
+                                    messages=[
+                                        {"role": "user", "content": summary_system_prompt + "\n\n" + diff_prompt}
+                                    ]
+                                )
+                                diff_summaries_text = raw_response.content[0].text
+                            else:
+                                # OpenAI or compatible
+                                raw_response = raw_client.chat.completions.create(
+                                    model=self.config.model,
+                                    max_tokens=500 if self.config.terse else 1000,
+                                    temperature=0.0,
+                                    messages=[
+                                        {"role": "system", "content": summary_system_prompt},
+                                        {"role": "user", "content": diff_prompt}
+                                    ]
+                                )
+                                diff_summaries_text = raw_response.choices[0].message.content
+
+                            # Validate diff summary format
+                            expected_pattern = re.compile(r'^\s*-\s+\d{4}-\d{2}-\d{2}:\s+.+\([a-f0-9]{4,}\)\s*$', re.MULTILINE)
+                            lines = [line.strip() for line in diff_summaries_text.split('\n') if line.strip()]
+
+                            # Check if response follows the required format
+                            valid_lines = []
+                            for line in lines:
+                                if expected_pattern.match(line):
+                                    valid_lines.append(line)
+                                elif line and not line.startswith('#') and not line.startswith('```'):
+                                    # If line has content but doesn't match format, LLM ignored instructions
+                                    result.messages.append(f"Warning: Diff summary line doesn't match required format: {line[:50]}...")
+                                    break
+                            else:
+                                # All lines are valid or empty
+                                if not valid_lines:
+                                    result.messages.append("Warning: Diff summary is empty")
+                                else:
+                                    result.messages.append(f"Diff summary format validated ({len(valid_lines)} entries)")
+
+                            # Inject function-scoped diff summary section
+                            diff_summary_section = f"\n\nFUNCTION CODE DIFF SUMMARY (LLM-generated):\n{diff_summaries_text}\n"
+                            docstring += diff_summary_section
+                            result.messages.append("Injected diff summary")
+
+                        except Exception as e:
+                            result.messages.append(f"Warning: Failed to generate diff summary: {str(e)}")
+
+                except Exception as e:
+                    result.messages.append(f"Warning: Failed to collect code diffs: {str(e)}")
+
             # Validate output
             self.formatter.validate_output(docstring)
 

@@ -104,6 +104,12 @@ class AnthropicProvider(BaseProvider):
         self._client = None
         self._instructor_client = None
 
+    @property
+    def raw_client(self):
+        """Access raw Anthropic client for custom operations."""
+        self._ensure_client()
+        return self._client
+
     def _ensure_client(self):
         """Lazy initialize Anthropic client."""
         if self._client is not None:

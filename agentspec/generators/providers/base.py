@@ -213,3 +213,32 @@ class BaseProvider(ABC):
     def name(self) -> str:
         """Provider name (for logging/debugging)."""
         return self.__class__.__name__
+
+    @property
+    def raw_client(self) -> Any:
+        """
+        Access to raw API client for custom operations.
+
+        ---agentspec
+        what: |
+          Exposes the underlying API client (e.g., anthropic.Anthropic, openai.OpenAI)
+          for operations that need direct access without Instructor wrapping.
+
+          Use cases:
+          - Generating plain text responses (diff summaries, commit messages)
+          - Custom streaming responses
+          - Operations not supported by structured generation
+
+        why: |
+          Some operations (like diff_summary) need plain text responses without
+          Pydantic validation. Rather than duplicating client initialization logic,
+          expose the raw client through a property.
+
+        guardrails:
+          - DO NOT use this for normal docstring generation (use generate() instead)
+          - ALWAYS call _ensure_client() first in subclass implementations
+          - DO NOT modify client state (read-only access)
+        ---/agentspec
+        """
+        # Subclasses should override and return their _client
+        raise NotImplementedError(f"{self.__class__.__name__} does not expose raw_client")
