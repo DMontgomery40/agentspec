@@ -153,8 +153,12 @@ def apply_docstring_with_metadata(
     - This function deliberately avoids exposing metadata to any LLM.
     - Works by writing to a temporary copy, then replacing the original file.
     """
-    # Lazy import to avoid circulars
-    from agentspec.generate import insert_docstring_at_line, inject_deterministic_metadata
+    # Import insert_docstring_at_line from monolithic generate.py
+    # TODO: Move insert_docstring_at_line to its own modular location
+    # For now, this is the ONLY acceptable import from generate.py because
+    # insert_docstring_at_line handles complex AST manipulation that
+    # hasn't been modularized yet
+    from agentspec.generate import insert_docstring_at_line
 
     src = Path(filepath)
     if not src.exists():
@@ -176,6 +180,7 @@ def apply_docstring_with_metadata(
             return False
 
         # Phase 2: deterministic metadata (never shown to LLM)
+        # Use LOCAL inject_deterministic_metadata (not from generate.py)
         doc_with_meta = inject_deterministic_metadata(narrative, metadata, as_agentspec_yaml)
         if diff_summary_text:
             # Append diff summary as a separate section after metadata
