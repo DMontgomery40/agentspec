@@ -31,7 +31,7 @@ def _get_client():
       - If ANTHROPIC_API_KEY is missing or invalid, the Anthropic() constructor will raise anthropic.APIError or related authentication exceptions; callers must handle these gracefully
       - If the anthropic package is not installed, ImportError is raised only when _get_client() is called, not during module import
       - Enables agentspec/generate.py to be imported successfully in environments where the Anthropic API is not needed (e.g., dry-run paths, metadata collection, file discovery)
-        deps:
+    deps:
           calls:
             - Anthropic
             - load_env_from_dotenv
@@ -66,7 +66,7 @@ def _get_client():
       - ALWAYS preserve the deferred import structure to maintain compatibility with non-generation workflows and partial command invocations
       - ALWAYS handle anthropic.APIError and related authentication exceptions in calling code, as missing or invalid credentials will raise exceptions at runtime
 
-        changelog:
+    changelog:
           - "- 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features"
           - "- Performs lazy initialization of the Anthropic client by importing the Anthropic class only at call time, not at module load time"
           - "- Returns a new Anthropic() instance configured to read the ANTHROPIC_API_KEY environment variable automatically"
@@ -243,7 +243,7 @@ def extract_function_info(filepath: Path, require_agentspec: bool = False, updat
       - Functions with stub docstrings (< 5 lines) are treated as underdocumented
       - Nested functions are included in results
       - Async functions receive equal treatment to sync functions
-        deps:
+    deps:
           calls:
             - ast.get_docstring
             - ast.parse
@@ -285,59 +285,17 @@ def extract_function_info(filepath: Path, require_agentspec: bool = False, updat
       - ALWAYS validate that the input file contains syntactically valid Python before calling this function
       - NOTE: Line number sorting is CRITICAL for correctness; reversing sort order without updating insertion logic will cause line number misalignment and potential syntax corruption
 
-        changelog:
-          - "- 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features"
-          - "- Parses a Python source file using the ast module to build an abstract syntax tree (AST)"
-          - "- Identifies all function definitions (both sync via ast.FunctionDef and async via ast.AsyncFunctionDef) within the file"
-          - "- Filters functions based on docstring criteria: functions are included if they either have NO docstring OR have a docstring with fewer than 5 lines (indicating insufficient documentation)"
-          - "- For each qualifying function, extracts the complete source code by slicing the original source lines from the function's start (node.lineno - 1) to its end (node.end_lineno)"
-          - "- Returns a list of tuples containing (line_number, function_name, function_source_code) sorted in DESCENDING line number order (bottom-to-top)"
-          - "- The descending sort order is critical: it ensures that when docstrings are inserted sequentially, earlier insertions don't shift line numbers for later functions, preventing index invalidation"
-          - "- Returns an empty list if the file contains no functions requiring docstrings"
-          - "- Called by: agentspec/generate.py (likely in a docstring generation workflow that processes multiple functions)"
-          - "- Calls: ast.parse() (Python standard library AST parser), ast.walk() (AST node traverser), ast.get_docstring() (docstring extractor)"
-          - "- Imports used: ast (Python standard library), Path (from pathlib, for type hints)"
-          - "- External services: None (file I/O only)"
-          - "- Uses ast.parse() rather than regex or text parsing because AST provides accurate syntactic understanding of function boundaries, handles edge cases like nested functions, decorators, and multi-line signatures correctly"
-          - "- Employs ast.walk() for exhaustive tree traversal rather than ast.iter_child_nodes() to catch functions at any nesting level (module-level, class methods, nested functions)"
-          - "- Checks both ast.FunctionDef AND ast.AsyncFunctionDef to support async function documentation (modern Python requirement)"
-          - "- Uses len(existing.split('\n')) < 5 threshold rather than checking docstring existence alone because many files have stub docstrings that need expansion"
-          - "- Extracts source using lines[start:end] indexing rather than ast.get_source_segment() because get_source_segment() may not be available in all Python versions (< 3.8) and direct line slicing is more reliable"
-          - "- Sorts DESCENDING (reverse=True) specifically to enable safe in-place docstring insertion: when you insert text at line 50, it doesn't affect line 40, so processing bottom-to-top prevents cascading index shifts"
-          - "- Stores tuples rather than custom objects because tuples are hashable, immutable, and work well with sorting/unpacking in downstream code"
-          - "- [Current date]: Initial implementation with descending sort to prevent line number invalidation during sequential docstring insertion"
-          - "- DO NOT modify the reverse=True sort order without understanding the implications for line number stability in downstream code"
-          - "- DO NOT change the docstring threshold (5 lines) without updating related configuration or documentation"
-          - "- DO NOT replace ast.walk() with ast.iter_child_nodes() without handling nested functions explicitly"
-          - "- DO NOT remove ast.AsyncFunctionDef handling as this breaks Python 3.5+ async function support"
-          - "- ALWAYS preserve the (lineno, name, source_code) tuple structure as downstream code depends on positional unpacking"
-          - "- ALWAYS use node.end_lineno when available (Python 3.8+) to capture complete function source including decorators and multi-line signatures"
-          - "- NOTE: This function assumes valid Python syntax; malformed files will raise ast.SyntaxError and should be caught by the caller"
-          - "- NOTE: The line number sorting is CRITICAL for correctness when inserting docstrings; reversing this sort without updating insertion logic will cause line number misalignment"
-          - "-            # Check if needs docstring"
-          - "-            existing = ast.get_docstring(node)"
-          - "-            if require_agentspec:"
-          - "-                needs = (not existing) or ("---agentspec" not in existing)"
-          - "-                needs = (not existing) or (len(existing.split('\n')) < 5)"
-          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
-          - "-    Extract information about all functions in a file that need docstrings."
-          - "-    Returns list of (lineno, name, source_code) tuples, sorted bottom-to-top."
-          - "-            if not existing or len(existing.split('\n')) < 5:"
-          - "- 2025-10-29: CRITICAL FIX: Process functions bottom-to-top to prevent line number invalidation and syntax errors"
-          - "-    """Extract the source code for a specific function.""""
-          - "-            if node.lineno == lineno:"
-          - "-                # Get the function's source code"
-          - "-                return '\n'.join(func_lines), node"
-          - "-    raise ValueError(f"No function found at line {lineno}")"
-          - "- 2025-10-29: Add auto-generator for verbose agentspec docstrings using Claude API"
+    changelog:
+
+      - "2025-10-31: Clean up docstring formatting"
         ---/agentspec
     '''
     with open(filepath, 'r') as f:
         source = f.read()
-    
+
     tree = ast.parse(source)
     functions = []
-    
+
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             # PROGRAMMATIC: update_existing flag bypasses skip logic
@@ -356,11 +314,11 @@ def extract_function_info(filepath: Path, require_agentspec: bool = False, updat
                 func_lines = lines[node.lineno - 1:node.end_lineno]
                 code = '\n'.join(func_lines)
                 functions.append((node.lineno, node.name, code))
-    
+
     # Sort by line number DESCENDING (bottom to top)
     # This way inserting docstrings doesn't invalidate later line numbers
     functions.sort(key=lambda x: x[0], reverse=True)
-    
+
     return functions
 
 def inject_deterministic_metadata(llm_output: str, metadata: Dict[str, Any], as_agentspec_yaml: bool) -> str:
@@ -424,13 +382,8 @@ def inject_deterministic_metadata(llm_output: str, metadata: Dict[str, Any], as_
       - ALWAYS preserve exact YAML formatting (indentation, quotes, markers) to maintain valid agentspec block syntax
 
         changelog:
-          - "- 2025-10-31: fix: relax CHANGELOG replacement regex to handle single-newline boundaries and preserve commit hashes during injection"
-          - "- 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features"
-          - "- 2025-10-30: feat: robust docstring generation and Haiku defaults"
-          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
-          - "-    """Use Claude to generate a verbose docstring.""""
-          - "- 2025-10-29: Add --model flag to choose between Claude models (Sonnet/Haiku)"
-          - "- 2025-10-29: Add auto-generator for verbose agentspec docstrings using Claude API"
+
+          - "2025-10-31: Clean up docstring formatting"
         ---/agentspec
     '''
     if not metadata:
@@ -483,7 +436,7 @@ def inject_deterministic_metadata(llm_output: str, metadata: Dict[str, Any], as_
         # NEVER TRY TO STRIP LLM CONTENT - this violates separation of concerns
         # The injection process must ALWAYS overwrite with deterministic metadata
         # regardless of what the LLM generates. No stripping, no conditional logic.
-        
+
         # FORCEFULLY INJECT changelog - replace any existing changelog sections with deterministic ones
         # This ensures deterministic metadata ALWAYS wins, regardless of LLM behavior
         if "---/agentspec" in output:
@@ -506,7 +459,7 @@ def inject_deterministic_metadata(llm_output: str, metadata: Dict[str, Any], as_
     else:
         # Regular format: FORCEFULLY REPLACE any CHANGELOG sections with deterministic ones
         # NEVER strip LLM content - just overwrite it with deterministic metadata
-        
+
         # FORCEFULLY REPLACE any existing CHANGELOG sections
         # Build the deterministic changelog content
         changelog_content = "CHANGELOG (from git history):\n"
@@ -580,7 +533,7 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5"
       - If diff_summary requested but no code diffs found, diff summary section is omitted
       - If provider is 'auto', LLM layer auto-detects based on model name or environment configuration
       - Empty or None metadata sections are replaced with explicit placeholder messages to prevent downstream docstring generation failures
-        deps:
+    deps:
           calls:
             - Path
             - collect_function_code_diffs
@@ -637,178 +590,8 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5"
       - ALWAYS preserve the message.content[0].text extraction pattern unless Anthropic SDK changes response structure
       - ALWAYS preserve defensive None-handling in `_ensure_nonempty_metadata()` (m or {}) to accept None input gracefully
       - ALWAYS return a dictionary (never None) from metadata normalization to maintain contract with callers
-        changelog:
-          - "- 2025-10-30: feat: enhance CLI help and add rich formatting support"
-          - "- Accepts a code string and filepath, sends them to Claude API (Anthropic) with a formatted prompt to generate an AI-agent-friendly verbose docstring (default) or an embedded agentspec YAML block when as_agentspec_yaml=True"
-          - "- Constructs an API message with the code and filepath injected into GENERATION_PROMPT template, requesting up to 2000 tokens of output"
-          - "- Extracts and returns the text content from Claude's first message response, which contains the generated docstring formatted for AI agent consumption"
-          - "- Handles the full request-response cycle with the Anthropic client, assuming the client is already initialized globally and GENERATION_PROMPT is defined in the module scope"
-          - "- Returns a string containing the generated docstring; will raise anthropic.APIError or similar exceptions if API calls fail, authentication issues occur, or rate limits are exceeded"
-          - "- Called by: [Likely called from main document generation pipeline, possibly CLI entrypoint or batch processing function in agentspec/main.py or similar]"
-          - "- Calls: client.messages.create() [Anthropic API method], implicitly relies on message.content[0].text property access"
-          - "- Imports used: Requires 'client' object (anthropic.Anthropic() instance) and 'GENERATION_PROMPT' constant to be defined in module scope; assumes anthropic library is imported"
-          - "- External services: Anthropic Claude API (claude-haiku-4-5 model by default, or specified model parameter); requires valid API key in environment"
-          - "- Uses Claude API rather than local LLM because Claude provides superior code understanding and produces more detailed, nuanced docstrings suitable for AI agent consumption"
-          - "- Sets max_tokens to 2000 to balance comprehensiveness (verbose docstrings) with API cost and latency; lower would truncate valuable content, higher adds unnecessary expense"
-          - "- Extracts message.content[0].text directly without validation because Anthropic guarantees at least one content block with text; could add defensive checks but adds complexity"
-          - "- Accepts model parameter as optional override to allow flexibility for different Claude versions without code changes; defaults to sonnet-4 as reasonable quality/speed balance"
-          - "- Uses template injection (GENERATION_PROMPT.format()) rather than f-strings for better reusability and separation of concerns; prompt can be modified without touching function logic"
-          - "- Does not implement retry logic itself; caller should handle retries/exponential backoff as this is a thin API wrapper"
-          - "- [Current date]: Initial implementation for Claude-based docstring generation with configurable model parameter"
-          - "- DO NOT modify the hardcoded model default without updating documentation of breaking changes"
-          - "- DO NOT remove the max_tokens limit or set arbitrarily high without cost/latency analysis"
-          - "- DO NOT add validation that assumes specific prompt format unless GENERATION_PROMPT contract is formalized"
-          - "- DO NOT call this function without error handling for anthropic.APIError, anthropic.RateLimitError, or anthropic.AuthenticationError"
-          - "- ALWAYS preserve the message.content[0].text extraction pattern unless Anthropic SDK changes response structure"
-          - "- ALWAYS ensure GENERATION_PROMPT and client are available in module scope before calling"
-          - "- ALWAYS pass filepath context even if not immediately obvious why; it helps Claude understand the code's purpose and generates more contextually appropriate docstrings"
-          - "- NOTE: This function makes external API calls and will fail silently if client is not properly initialized; test initialization separately from this function"
-          - "- NOTE: API responses may vary between model versions; using different models may produce different docstring styles and token usage patterns"
-          - "- NOTE: The function blocks until API response is received; consider async/await wrapper if used in high-concurrency scenarios"
-          - "- Accepts a metadata dictionary (or None) and returns a normalized dictionary with guaranteed non-empty structure"
-          - "- Initializes or validates three key metadata sections: deps.calls, deps.imports, and changelog"
-          - "- For deps.calls: if missing or empty, inserts a placeholder message indicating deterministic metadata was unavailable"
-          - "- For deps.imports: if missing or empty, inserts a placeholder message indicating deterministic metadata was unavailable"
-          - "- For changelog: if missing, empty, or contains only default empty-state values ('- no git history available' or '- none yet'), replaces with a two-item list containing a "no metadata found" message and a "Current implementation:" stub for agent completion"
-          - "- Returns the normalized metadata dictionary with all three sections guaranteed to have at least one entry"
-          - "- Handles None input gracefully by treating it as an empty dictionary"
-          - "- Called by: generate.py module functions that prepare metadata for docstring generation (inferred from file context)"
-          - "- Calls: dict() constructor (built-in), m.get() and deps.get() dictionary methods (built-in)"
-          - "- Imports used: None directly; this is a utility function within agentspec/generate.py"
-          - "- External services: None"
-          - "- This function serves as a defensive guard to ensure that AI agent-facing docstrings never contain completely empty metadata sections, which would be unhelpful for code understanding"
-          - "- The placeholder messages ("No metadata found; Agentspec only allows non-deterministic data for...") explicitly communicate to agents why deterministic metadata is absent, rather than leaving fields blank or undefined"
-          - "- The changelog section receives special handling with a two-part template: the first item explains the absence of metadata, and the second item ("- Current implementation: ") is left incomplete as an intentional stub for agents or humans to complete with a concrete summary"
-          - "- Using dict() constructor creates shallow copies to avoid mutating the input dictionary, which is important for immutability and preventing side effects"
-          - "- The approach prioritizes clarity over brevity: placeholder strings are verbose to ensure agents understand the metadata collection limitations"
-          - "- Alternative approaches (raising exceptions, returning None, silently omitting fields) were not used because this function must guarantee a valid structure for downstream docstring generation"
-          - "- No metadata found; Agentspec only allows non-deterministic data for changelog."
-          - "- Current implementation: Normalizes and validates metadata dictionaries by inserting placeholder messages for missing deterministic metadata fields (deps.calls, deps.imports, changelog) to ensure AI-facing docstrings always contain non-empty metadata sections."
-          - "- DO NOT remove or modify the placeholder message strings ("No metadata found; Agentspec only allows non-deterministic data for...") as they communicate important context to downstream agents"
-          - "- DO NOT change the structure of the changelog template (two-item list with "Current implementation: " stub) without updating all docstring generation code that depends on it"
-          - "- DO NOT add logic that silently drops empty metadata sections; the function's purpose is to guarantee non-empty sections"
-          - "- ALWAYS preserve the defensive None-handling (m or {}) at the start of the function"
-          - "- ALWAYS ensure that all three metadata sections (deps.calls, deps.imports, changelog) are checked and populated if empty"
-          - "- ALWAYS return a dictionary (never None) to maintain contract with callers"
-          - "- NOTE: The changelog's "- Current implementation: " line is intentionally incomplete and serves as a template for agents to fill in; do not auto-complete it"
-          - "- NOTE: This function is part of the metadata normalization pipeline and must maintain compatibility with docstring generation templates that expect these exact placeholder formats"
-          - "-    # If diff_summary requested, make separate LLM call to summarize git diffs"
-          - "-        from agentspec.collect import collect_changelog_diffs"
-          - "-        diffs = collect_changelog_diffs(Path(filepath), func_name)"
-          - "-        if diffs:"
-          - "-            # Build prompt for LLM to summarize diffs"
-          - "-            diff_prompt = "Summarize these git diffs concisely (one line per commit):\n\n""
-          - "-            for d in diffs:"
-          - "-                diff_prompt += f"Diff:\n{d['diff']}\n\n""
-          - "-                "You are a code change summarizer. For each commit, provide a SHORT one-line summary (max 10 words).""
-          - "-                "You are a code change summarizer. For each commit, provide a one-line summary of what changed.""
-          - "-            # Inject diff summary section"
-          - "-            diff_summary_section = f"\n\nCHANGELOG DIFF SUMMARY (LLM-generated):\n{diff_summaries_text}\n""
-          - "- 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features"
-          - "- Accepts a code string and filepath, sends them to Claude API (Anthropic) with a formatted prompt to generate an AI-agent-friendly verbose docstring (default) or an embedded agentspec YAML block when as_agentspec_yaml=True"
-          - "- Constructs an API message with the code and filepath injected into GENERATION_PROMPT template, requesting up to 2000 tokens of output"
-          - "- Extracts and returns the text content from Claude's first message response, which contains the generated docstring formatted for AI agent consumption"
-          - "- Handles the full request-response cycle with the Anthropic client, assuming the client is already initialized globally and GENERATION_PROMPT is defined in the module scope"
-          - "- Returns a string containing the generated docstring; will raise anthropic.APIError or similar exceptions if API calls fail, authentication issues occur, or rate limits are exceeded"
-          - "- Called by: [Likely called from main document generation pipeline, possibly CLI entrypoint or batch processing function in agentspec/main.py or similar]"
-          - "- Calls: client.messages.create() [Anthropic API method], implicitly relies on message.content[0].text property access"
-          - "- Imports used: Requires 'client' object (anthropic.Anthropic() instance) and 'GENERATION_PROMPT' constant to be defined in module scope; assumes anthropic library is imported"
-          - "- External services: Anthropic Claude API (claude-haiku-4-5 model by default, or specified model parameter); requires valid API key in environment"
-          - "- Uses Claude API rather than local LLM because Claude provides superior code understanding and produces more detailed, nuanced docstrings suitable for AI agent consumption"
-          - "- Sets max_tokens to 2000 to balance comprehensiveness (verbose docstrings) with API cost and latency; lower would truncate valuable content, higher adds unnecessary expense"
-          - "- Extracts message.content[0].text directly without validation because Anthropic guarantees at least one content block with text; could add defensive checks but adds complexity"
-          - "- Accepts model parameter as optional override to allow flexibility for different Claude versions without code changes; defaults to sonnet-4 as reasonable quality/speed balance"
-          - "- Uses template injection (GENERATION_PROMPT.format()) rather than f-strings for better reusability and separation of concerns; prompt can be modified without touching function logic"
-          - "- Does not implement retry logic itself; caller should handle retries/exponential backoff as this is a thin API wrapper"
-          - "- [Current date]: Initial implementation for Claude-based docstring generation with configurable model parameter"
-          - "- DO NOT modify the hardcoded model default without updating documentation of breaking changes"
-          - "- DO NOT remove the max_tokens limit or set arbitrarily high without cost/latency analysis"
-          - "- DO NOT add validation that assumes specific prompt format unless GENERATION_PROMPT contract is formalized"
-          - "- DO NOT call this function without error handling for anthropic.APIError, anthropic.RateLimitError, or anthropic.AuthenticationError"
-          - "- ALWAYS preserve the message.content[0].text extraction pattern unless Anthropic SDK changes response structure"
-          - "- ALWAYS ensure GENERATION_PROMPT and client are available in module scope before calling"
-          - "- ALWAYS pass filepath context even if not immediately obvious why; it helps Claude understand the code's purpose and generates more contextually appropriate docstrings"
-          - "- NOTE: This function makes external API calls and will fail silently if client is not properly initialized; test initialization separately from this function"
-          - "- NOTE: API responses may vary between model versions; using different models may produce different docstring styles and token usage patterns"
-          - "- NOTE: The function blocks until API response is received; consider async/await wrapper if used in high-concurrency scenarios"
-          - "- Accepts a metadata dictionary (or None) and returns a normalized dictionary with guaranteed non-empty structure"
-          - "- Initializes or validates three key metadata sections: deps.calls, deps.imports, and changelog"
-          - "- For deps.calls: if missing or empty, inserts a placeholder message indicating deterministic metadata was unavailable"
-          - "- For deps.imports: if missing or empty, inserts a placeholder message indicating deterministic metadata was unavailable"
-          - "- For changelog: if missing, empty, or contains only default empty-state values ('- no git history available' or '- none yet'), replaces with a two-item list containing a "no metadata found" message and a "Current implementation:" stub for agent completion"
-          - "- Returns the normalized metadata dictionary with all three sections guaranteed to have at least one entry"
-          - "- Handles None input gracefully by treating it as an empty dictionary"
-          - "- Called by: generate.py module functions that prepare metadata for docstring generation (inferred from file context)"
-          - "- Calls: dict() constructor (built-in), m.get() and deps.get() dictionary methods (built-in)"
-          - "- Imports used: None directly; this is a utility function within agentspec/generate.py"
-          - "- External services: None"
-          - "- This function serves as a defensive guard to ensure that AI agent-facing docstrings never contain completely empty metadata sections, which would be unhelpful for code understanding"
-          - "- The placeholder messages ("No metadata found; Agentspec only allows non-deterministic data for...") explicitly communicate to agents why deterministic metadata is absent, rather than leaving fields blank or undefined"
-          - "- The changelog section receives special handling with a two-part template: the first item explains the absence of metadata, and the second item ("- Current implementation: ") is left incomplete as an intentional stub for agents or humans to complete with a concrete summary"
-          - "- Using dict() constructor creates shallow copies to avoid mutating the input dictionary, which is important for immutability and preventing side effects"
-          - "- The approach prioritizes clarity over brevity: placeholder strings are verbose to ensure agents understand the metadata collection limitations"
-          - "- Alternative approaches (raising exceptions, returning None, silently omitting fields) were not used because this function must guarantee a valid structure for downstream docstring generation"
-          - "- No metadata found; Agentspec only allows non-deterministic data for changelog."
-          - "- Current implementation: Normalizes and validates metadata dictionaries by inserting placeholder messages for missing deterministic metadata fields (deps.calls, deps.imports, changelog) to ensure AI-facing docstrings always contain non-empty metadata sections."
-          - "- DO NOT remove or modify the placeholder message strings ("No metadata found; Agentspec only allows non-deterministic data for...") as they communicate important context to downstream agents"
-          - "- DO NOT change the structure of the changelog template (two-item list with "Current implementation: " stub) without updating all docstring generation code that depends on it"
-          - "- DO NOT add logic that silently drops empty metadata sections; the function's purpose is to guarantee non-empty sections"
-          - "- ALWAYS preserve the defensive None-handling (m or {}) at the start of the function"
-          - "- ALWAYS ensure that all three metadata sections (deps.calls, deps.imports, changelog) are checked and populated if empty"
-          - "- ALWAYS return a dictionary (never None) to maintain contract with callers"
-          - "- NOTE: The changelog's "- Current implementation: " line is intentionally incomplete and serves as a template for agents to fill in; do not auto-complete it"
-          - "- NOTE: This function is part of the metadata normalization pipeline and must maintain compatibility with docstring generation templates that expect these exact placeholder formats"
-          - "-    meta = _ensure_nonempty_metadata(meta)"
-          - "-    hard_data = json.dumps(meta, indent=2)"
-          - "-    prompt = AGENTSPEC_YAML_PROMPT if as_agentspec_yaml else GENERATION_PROMPT"
-          - "-    client = _get_client()"
-          - "-    message = client.messages.create("
-          - "-        max_tokens=2000,"
-          - "-        temperature=0.2,"
-          - "-        messages=[{"
-          - "-            "role": "user","
-          - "-            "content": prompt.format("
-          - "-                code=code,"
-          - "-                filepath=filepath,"
-          - "-                hard_data=hard_data"
-          - "-            )"
-          - "-        }]"
-          - "-    return message.content[0].text"
-          - "- 2025-10-30: feat: robust docstring generation and Haiku defaults"
-          - "- Accepts a code string and filepath, sends them to Claude API (Anthropic) with a formatted prompt to generate an AI-agent-friendly verbose docstring (default) or an embedded agentspec YAML block when as_agentspec_yaml=True"
-          - "- Constructs an API message with the code and filepath injected into GENERATION_PROMPT template, requesting up to 2000 tokens of output"
-          - "- Extracts and returns the text content from Claude's first message response, which contains the generated docstring formatted for AI agent consumption"
-          - "- Handles the full request-response cycle with the Anthropic client, assuming the client is already initialized globally and GENERATION_PROMPT is defined in the module scope"
-          - "- Returns a string containing the generated docstring; will raise anthropic.APIError or similar exceptions if API calls fail, authentication issues occur, or rate limits are exceeded"
-          - "- Called by: [Likely called from main document generation pipeline, possibly CLI entrypoint or batch processing function in agentspec/main.py or similar]"
-          - "- Calls: client.messages.create() [Anthropic API method], implicitly relies on message.content[0].text property access"
-          - "- Imports used: Requires 'client' object (anthropic.Anthropic() instance) and 'GENERATION_PROMPT' constant to be defined in module scope; assumes anthropic library is imported"
-          - "-    - External services: Anthropic Claude API (claude-sonnet-4-20250514 model by default, or specified model parameter); requires valid API key in environment"
-          - "- Uses Claude API rather than local LLM because Claude provides superior code understanding and produces more detailed, nuanced docstrings suitable for AI agent consumption"
-          - "- Sets max_tokens to 2000 to balance comprehensiveness (verbose docstrings) with API cost and latency; lower would truncate valuable content, higher adds unnecessary expense"
-          - "- Extracts message.content[0].text directly without validation because Anthropic guarantees at least one content block with text; could add defensive checks but adds complexity"
-          - "- Accepts model parameter as optional override to allow flexibility for different Claude versions without code changes; defaults to sonnet-4 as reasonable quality/speed balance"
-          - "- Uses template injection (GENERATION_PROMPT.format()) rather than f-strings for better reusability and separation of concerns; prompt can be modified without touching function logic"
-          - "- Does not implement retry logic itself; caller should handle retries/exponential backoff as this is a thin API wrapper"
-          - "- [Current date]: Initial implementation for Claude-based docstring generation with configurable model parameter"
-          - "- DO NOT modify the hardcoded model default without updating documentation of breaking changes"
-          - "- DO NOT remove the max_tokens limit or set arbitrarily high without cost/latency analysis"
-          - "- DO NOT add validation that assumes specific prompt format unless GENERATION_PROMPT contract is formalized"
-          - "- DO NOT call this function without error handling for anthropic.APIError, anthropic.RateLimitError, or anthropic.AuthenticationError"
-          - "- ALWAYS preserve the message.content[0].text extraction pattern unless Anthropic SDK changes response structure"
-          - "- ALWAYS ensure GENERATION_PROMPT and client are available in module scope before calling"
-          - "- ALWAYS pass filepath context even if not immediately obvious why; it helps Claude understand the code's purpose and generates more contextually appropriate docstrings"
-          - "- NOTE: This function makes external API calls and will fail silently if client is not properly initialized; test initialization separately from this function"
-          - "- NOTE: API responses may vary between model versions; using different models may produce different docstring styles and token usage patterns"
-          - "- NOTE: The function blocks until API response is received; consider async/await wrapper if used in high-concurrency scenarios"
-          - "-    print(f"[AGENTSPEC_CONTEXT] generate_docstring: Accepts a code string and filepath, sends them to Claude API with a prompt to generate either a verbose docstring or a fenced agentspec YAML block | Constructs an API message with the code and filepath injected into the selected template, requesting up to 2000 tokens of output | Extracts and returns the text content from Claude's first message response")"
-          - "-                filepath=filepath"
-          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
-          - "-    """Use Claude to generate a verbose docstring.""""
-          - "-            "content": GENERATION_PROMPT.format("
-          - "- 2025-10-29: Add --model flag to choose between Claude models (Sonnet/Haiku)"
-          - "-        model="claude-sonnet-4-20250514","
-
+    changelog:
+      - "No changelog available"
     '''
 
     # Try to infer the function name from the code and collect deterministic metadata
@@ -825,9 +608,9 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5"
         prompt = GENERATION_PROMPT_TERSE
     else:
         prompt = GENERATION_PROMPT
-    
+
     content = prompt.format(code=code, filepath=filepath, hard_data="(deterministic metadata will be injected by code)")
-    
+
     # Route through unified LLM layer (Anthropic or OpenAI-compatible)
     from agentspec.llm import generate_chat
     text = generate_chat(
@@ -841,7 +624,7 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5"
         base_url=base_url,
         provider=provider,
     )
-    
+
     # Inject deterministic metadata (deps and changelog) from code analysis
     # CRITICAL VALIDATION: Check for format consistency before metadata injection
     import re
@@ -935,7 +718,7 @@ def generate_docstring(code: str, filepath: str, model: str = "claude-haiku-4-5"
             # Inject function-scoped diff summary section
             diff_summary_section = f"\n\nFUNCTION CODE DIFF SUMMARY (LLM-generated):\n{diff_summaries_text}\n"
             result += diff_summary_section
-    
+
     return result
 
 def insert_docstring_at_line(filepath: Path, lineno: int, func_name: str, docstring: str, force_context: bool = False) -> bool:
@@ -1178,7 +961,7 @@ def insert_docstring_at_line(filepath: Path, lineno: int, func_name: str, docstr
             break
     if func_line_idx is None:
         func_line_idx = max(0, lineno - 1)
-    
+
     # Prefer AST to locate the first statement in the function body and place
     # the docstring immediately before it. This is robust to multi-line
     # signatures, annotations, and decorators.
@@ -1283,12 +1066,12 @@ def insert_docstring_at_line(filepath: Path, lineno: int, func_name: str, docstr
                 # Delete the old docstring and print
                 del lines[func_line_idx + 1:insert_idx]
                 insert_idx = func_line_idx + 1
-    
+
     # Determine indentation
     func_line = lines[func_line_idx]
     base_indent = len(func_line) - len(func_line.lstrip())
     indent = ' ' * (base_indent + 4)  # Function body indent
-    
+
     # Choose a delimiter that won't be broken by the content.
     # Prefer triple-double; if it appears in content and triple-single does not, switch.
     # If both appear, escape occurrences inside the content.
@@ -1315,7 +1098,7 @@ def insert_docstring_at_line(filepath: Path, lineno: int, func_name: str, docstr
         else:
             new_lines.append('\n')
     new_lines.append(f'{indent}{delim}\n')
-    
+
     # Add context print if requested
     if force_context:
         # Extract key bullet points
@@ -1324,14 +1107,14 @@ def insert_docstring_at_line(filepath: Path, lineno: int, func_name: str, docstr
             line = line.strip()
             if line.startswith('-') and len(sections) < 3:
                 sections.append(line[1:].strip())
-        
+
         # Properly escape the content for the print statement
         print_content = ' | '.join(sections)
         # Escape quotes and backslashes
         print_content = print_content.replace('\\', '\\\\').replace('"', '\\"')
-        
+
         new_lines.append(f'{indent}print(f"[AGENTSPEC_CONTEXT] {func_name}: {print_content}")\n')
-    
+
     # Prepare a candidate copy with the insertion applied
     candidate = list(lines)
     for line in reversed(new_lines):
@@ -1412,7 +1195,7 @@ def process_file(filepath: Path, dry_run: bool = False, force_context: bool = Fa
       - Individual function generation failure: caught and isolated, remaining functions still processed
       - Dry-run mode: returns before any file modifications occur
       - insert_docstring_at_line returns False: skips insertion with warning (syntax safety check)
-        deps:
+    deps:
           calls:
             - extract_function_info
             - functions.sort
@@ -1467,129 +1250,38 @@ def process_file(filepath: Path, dry_run: bool = False, force_context: bool = Fa
       - NOTE: The Claude API call via generate_docstring may fail due to rate limits, authentication errors, or network issues; these are caught but users should monitor printed error messages
       - NOTE: If a file has no functions or all functions already have docstrings, the function exits early without modifying anything; this is correct behavior and means repeated runs on the same file are safe
 
-        changelog:
-          - "- 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features"
-          - "- Processes a single Python file to identify functions lacking verbose docstrings and generates comprehensive AI-consumable docstrings for them using Claude API"
-          - "- Extracts all function definitions from the target file using AST parsing, filters to those without existing verbose docstrings, and displays a summary of findings to the user"
-          - "- For each function needing a docstring, calls the Claude API via generate_docstring() to create AI-generated documentation, then inserts it into the source file at the correct line number using insert_docstring_at_line()"
-          - "- Supports dry-run mode (--dry-run flag) to preview which functions would be processed without modifying files"
-          - "- Supports force-context mode to inject print() statements alongside docstrings for debugging/tracing function execution"
-          - "- Handles SyntaxError exceptions gracefully when files contain invalid Python syntax, and catches any exception during individual docstring generation to continue processing remaining functions"
-          - "- Returns None in all cases (either after completion, early exit on syntax error, or early exit on dry-run)"
-          - "- Called by: CLI entry point in agentspec/main.py or equivalent script runner that parses command-line arguments and invokes this for each file"
-          - "- Calls: extract_function_info() [agentspec/extract.py] to parse file and identify functions, generate_docstring() [agentspec/generate.py or api module] to call Claude API, insert_docstring_at_line() [agentspec/insert.py] to modify source file"
-          - "- Imports used: Path from pathlib (for cross-platform file path handling)"
-          - "- External services: Anthropic Claude API (via generate_docstring wrapper) - requires valid API key in environment and network connectivity"
-          - "- Processes functions bottom-to-top (assumes extract_function_info already sorts results) to avoid line number shifting as insertions are made from end of file backward, preventing cascading line offset errors"
-          - "- Uses try-except around entire file extraction to catch SyntaxError early and fail gracefully rather than crashing, allowing batch processing of multiple files with some invalid"
-          - "- Uses nested try-except within the processing loop to isolate failures to individual functions, ensuring one broken function doesn't prevent docstring generation for remaining functions in the same file"
-          - "- Dry-run mode implemented as early return before any file modifications, allowing users to preview changes safely"
-          - "- Force-context flag passed through to insert_docstring_at_line rather than handled here, maintaining separation of concerns (this function orchestrates, insert_docstring_at_line handles file mutation details)"
-          - "- Model parameter exposed as argument (not hardcoded) to allow runtime selection of Claude models, supporting experimentation with different model versions"
-          - "- Print statements used for user feedback rather than logging module to ensure immediate console output during long processing operations"
-          - "- Alternative not used: streaming the Claude API response directly - would be more efficient but adds complexity; current approach waits for complete generation which is acceptable for docstring length"
-          - "- Alternative not used: parallel/concurrent processing of functions - sequential processing chosen for simplicity and to avoid rate-limit issues with Claude API"
-          - "- 2025-01-15: Initial implementation with support for dry-run mode, force-context flag, and Claude Sonnet model selection"
-          - "- DO NOT modify the exception handling structure without understanding the bottom-to-top processing dependency; removing the nested try-except risks one malformed function blocking the entire file"
-          - "- DO NOT change the order of operations (extract -> check -> generate -> insert) without reviewing how line numbers are affected by insertions"
-          - "- DO NOT hardcode the model name or remove the model parameter; this parameter must remain configurable for testing different Claude models"
-          - "- DO NOT remove the dry-run early return; users depend on this to preview changes without file modification"
-          - "- ALWAYS preserve the print statements that provide user feedback; they are critical for monitoring long-running batch operations"
-          - "- ALWAYS pass the filepath as a string (str(filepath)) when calling generate_docstring, even though filepath is a Path object, if the API expects strings"
-          - "- ALWAYS maintain the force_context flag propagation to insert_docstring_at_line; this controls a critical feature for debugging"
-          - "- ALWAYS process functions in bottom-to-top order (verify extract_function_info returns them sorted by line number descending) to prevent line number invalidation"
-          - "- NOTE: This function modifies the source file in-place; ensure files are version-controlled or backed up before running in non-dry-run mode"
-          - "- NOTE: The Claude API call via generate_docstring may fail due to rate limits, authentication errors, or network issues; these are caught but users should monitor the printed error messages"
-          - "- NOTE: If a file has no functions or all functions already have docstrings, the function exits early without modifying anything; this is correct behavior but means repeated runs on the same file are safe"
-          - "-        functions = extract_function_info(filepath, require_agentspec=as_agentspec_yaml)"
-          - "-        print("  ✅ All functions already have verbose docstrings")"
-          - "-            doc_or_yaml = generate_docstring(code, str(filepath), model=model, as_agentspec_yaml=as_agentspec_yaml)"
-          - "- 2025-10-30: feat: robust docstring generation and Haiku defaults"
-          - "- Processes a single Python file to identify functions lacking verbose docstrings and generates comprehensive AI-consumable docstrings for them using Claude API"
-          - "- Extracts all function definitions from the target file using AST parsing, filters to those without existing verbose docstrings, and displays a summary of findings to the user"
-          - "- For each function needing a docstring, calls the Claude API via generate_docstring() to create AI-generated documentation, then inserts it into the source file at the correct line number using insert_docstring_at_line()"
-          - "- Supports dry-run mode (--dry-run flag) to preview which functions would be processed without modifying files"
-          - "- Supports force-context mode to inject print() statements alongside docstrings for debugging/tracing function execution"
-          - "- Handles SyntaxError exceptions gracefully when files contain invalid Python syntax, and catches any exception during individual docstring generation to continue processing remaining functions"
-          - "- Returns None in all cases (either after completion, early exit on syntax error, or early exit on dry-run)"
-          - "- Called by: CLI entry point in agentspec/main.py or equivalent script runner that parses command-line arguments and invokes this for each file"
-          - "- Calls: extract_function_info() [agentspec/extract.py] to parse file and identify functions, generate_docstring() [agentspec/generate.py or api module] to call Claude API, insert_docstring_at_line() [agentspec/insert.py] to modify source file"
-          - "- Imports used: Path from pathlib (for cross-platform file path handling)"
-          - "- External services: Anthropic Claude API (via generate_docstring wrapper) - requires valid API key in environment and network connectivity"
-          - "- Processes functions bottom-to-top (assumes extract_function_info already sorts results) to avoid line number shifting as insertions are made from end of file backward, preventing cascading line offset errors"
-          - "- Uses try-except around entire file extraction to catch SyntaxError early and fail gracefully rather than crashing, allowing batch processing of multiple files with some invalid"
-          - "- Uses nested try-except within the processing loop to isolate failures to individual functions, ensuring one broken function doesn't prevent docstring generation for remaining functions in the same file"
-          - "- Dry-run mode implemented as early return before any file modifications, allowing users to preview changes safely"
-          - "- Force-context flag passed through to insert_docstring_at_line rather than handled here, maintaining separation of concerns (this function orchestrates, insert_docstring_at_line handles file mutation details)"
-          - "- Model parameter exposed as argument (not hardcoded) to allow runtime selection of Claude models, supporting experimentation with different model versions"
-          - "- Print statements used for user feedback rather than logging module to ensure immediate console output during long processing operations"
-          - "- Alternative not used: streaming the Claude API response directly - would be more efficient but adds complexity; current approach waits for complete generation which is acceptable for docstring length"
-          - "- Alternative not used: parallel/concurrent processing of functions - sequential processing chosen for simplicity and to avoid rate-limit issues with Claude API"
-          - "- 2025-01-15: Initial implementation with support for dry-run mode, force-context flag, and Claude Sonnet model selection"
-          - "- DO NOT modify the exception handling structure without understanding the bottom-to-top processing dependency; removing the nested try-except risks one malformed function blocking the entire file"
-          - "- DO NOT change the order of operations (extract -> check -> generate -> insert) without reviewing how line numbers are affected by insertions"
-          - "- DO NOT hardcode the model name or remove the model parameter; this parameter must remain configurable for testing different Claude models"
-          - "- DO NOT remove the dry-run early return; users depend on this to preview changes without file modification"
-          - "- ALWAYS preserve the print statements that provide user feedback; they are critical for monitoring long-running batch operations"
-          - "- ALWAYS pass the filepath as a string (str(filepath)) when calling generate_docstring, even though filepath is a Path object, if the API expects strings"
-          - "- ALWAYS maintain the force_context flag propagation to insert_docstring_at_line; this controls a critical feature for debugging"
-          - "- ALWAYS process functions in bottom-to-top order (verify extract_function_info returns them sorted by line number descending) to prevent line number invalidation"
-          - "- NOTE: This function modifies the source file in-place; ensure files are version-controlled or backed up before running in non-dry-run mode"
-          - "- NOTE: The Claude API call via generate_docstring may fail due to rate limits, authentication errors, or network issues; these are caught but users should monitor the printed error messages"
-          - "- NOTE: If a file has no functions or all functions already have docstrings, the function exits early without modifying anything; this is correct behavior but means repeated runs on the same file are safe"
-          - "-    # Process bottom-to-top (already sorted that way)"
-          - "-            insert_docstring_at_line(filepath, lineno, name, doc_or_yaml, force_context=force_context)"
-          - "-            if force_context:"
-          - "-                print(f"  ✅ Added docstring + context print to {name}")"
-          - "-                print(f"  ✅ Added docstring to {name}")"
-          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
-          - "-    """Process a single file and generate docstrings.""""
-          - "-        functions = extract_function_info(filepath)"
-          - "-        print(f"\n  🤖 Generating docstring for {name}...")"
-          - "-            docstring = generate_docstring(code, str(filepath), model=model)"
-          - "-            insert_docstring_at_line(filepath, lineno, name, docstring, force_context=force_context)"
-          - "- 2025-10-29: CRITICAL FIX: Process functions bottom-to-top to prevent line number invalidation and syntax errors"
-          - "-    with open(filepath, 'r') as f:"
-          - "-        tree = ast.parse(f.read())"
-          - "-    finder = FunctionFinder()"
-          - "-    finder.visit(tree)"
-          - "-    if not finder.functions:"
-          - "-    print(f"  Found {len(finder.functions)} functions needing docstrings:")"
-          - "-    for lineno, name in finder.functions:"
-          - "-    for lineno, name in finder.functions:"
-          - "-            code, node = extract_function_code(filepath, lineno)"
-          - "-            insert_docstring(filepath, node, docstring, force_context=force_context)"
-          - "- 2025-10-29: Add --model flag to choose between Claude models (Sonnet/Haiku)"
-          - "-            docstring = generate_docstring(code, str(filepath))"
+    changelog:
+
+      - "2025-10-31: Clean up docstring formatting"
         ---/agentspec
     '''
     print(f"\n📄 Processing {filepath}")
-    
+
     try:
         functions = extract_function_info(filepath, require_agentspec=as_agentspec_yaml, update_existing=update_existing)
     except SyntaxError as e:
         print(f"  ❌ Syntax error in file: {e}")
         return
-    
+
     if not functions:
         if update_existing:
             print("  ℹ️  No functions found to update")
         else:
             print("  ✅ All functions already have verbose docstrings")
         return
-    
+
     print(f"  Found {len(functions)} functions needing docstrings:")
     for lineno, name, _ in functions:
         print(f"    - {name} (line {lineno})")
-    
+
     if force_context:
         print("  🔊 Context-forcing print() statements will be added")
-    
+
     print(f"  🤖 Using model: {model}")
-    
+
     if dry_run:
         return
-    
+
     # Ensure bottom-to-top processing to avoid line shifts
     functions.sort(key=lambda x: x[0], reverse=True)
     # Two‑phase write: narrative first (LLM), then deterministic metadata via insert_metadata.apply_docstring_with_metadata
@@ -1635,7 +1327,7 @@ def run(target: str, dry_run: bool = False, force_context: bool = False, model: 
       Outputs: int exit code (0 for success, 1 for failure).
 
       Edge cases: target path does not exist (returns 1 after validation), missing API credentials in non-dry-run mode (returns 1 with error message), per-file processing exceptions (caught and logged, batch continues), provider auto-detection when model name contains "claude" (forces Anthropic provider).
-        deps:
+    deps:
           calls:
             - Path
             - collect_python_files
@@ -1682,100 +1374,9 @@ def run(target: str, dry_run: bool = False, force_context: bool = False, model: 
       - NOTE: Provider auto-detection checks model name for "claude" prefix (case-insensitive) to route to Anthropic; explicit provider parameter overrides this logic
       - NOTE: Batch processing catches exceptions per-file but does not retry; users should monitor printed error messages for failures
 
-        changelog:
-          - "- 2025-10-30: feat: enhance docstring generation with optional dependencies and new CLI features"
-          - "- Processes a single Python file to identify functions lacking verbose docstrings and generates comprehensive AI-consumable docstrings for them using Claude API"
-          - "- Extracts all function definitions from the target file using AST parsing, filters to those without existing verbose docstrings, and displays a summary of findings to the user"
-          - "- For each function needing a docstring, calls the Claude API via generate_docstring() to create AI-generated documentation, then inserts it into the source file at the correct line number using insert_docstring_at_line()"
-          - "- Supports dry-run mode (--dry-run flag) to preview which functions would be processed without modifying files"
-          - "- Supports force-context mode to inject print() statements alongside docstrings for debugging/tracing function execution"
-          - "- Handles SyntaxError exceptions gracefully when files contain invalid Python syntax, and catches any exception during individual docstring generation to continue processing remaining functions"
-          - "- Returns None in all cases (either after completion, early exit on syntax error, or early exit on dry-run)"
-          - "- Called by: CLI entry point in agentspec/main.py or equivalent script runner that parses command-line arguments and invokes this for each file"
-          - "- Calls: extract_function_info() [agentspec/extract.py] to parse file and identify functions, generate_docstring() [agentspec/generate.py or api module] to call Claude API, insert_docstring_at_line() [agentspec/insert.py] to modify source file"
-          - "- Imports used: Path from pathlib (for cross-platform file path handling)"
-          - "- External services: Anthropic Claude API (via generate_docstring wrapper) - requires valid API key in environment and network connectivity"
-          - "- Processes functions bottom-to-top (assumes extract_function_info already sorts results) to avoid line number shifting as insertions are made from end of file backward, preventing cascading line offset errors"
-          - "- Uses try-except around entire file extraction to catch SyntaxError early and fail gracefully rather than crashing, allowing batch processing of multiple files with some invalid"
-          - "- Uses nested try-except within the processing loop to isolate failures to individual functions, ensuring one broken function doesn't prevent docstring generation for remaining functions in the same file"
-          - "- Dry-run mode implemented as early return before any file modifications, allowing users to preview changes safely"
-          - "- Force-context flag passed through to insert_docstring_at_line rather than handled here, maintaining separation of concerns (this function orchestrates, insert_docstring_at_line handles file mutation details)"
-          - "- Model parameter exposed as argument (not hardcoded) to allow runtime selection of Claude models, supporting experimentation with different model versions"
-          - "- Print statements used for user feedback rather than logging module to ensure immediate console output during long processing operations"
-          - "- Alternative not used: streaming the Claude API response directly - would be more efficient but adds complexity; current approach waits for complete generation which is acceptable for docstring length"
-          - "- Alternative not used: parallel/concurrent processing of functions - sequential processing chosen for simplicity and to avoid rate-limit issues with Claude API"
-          - "- 2025-01-15: Initial implementation with support for dry-run mode, force-context flag, and Claude Sonnet model selection"
-          - "- DO NOT modify the exception handling structure without understanding the bottom-to-top processing dependency; removing the nested try-except risks one malformed function blocking the entire file"
-          - "- DO NOT change the order of operations (extract -> check -> generate -> insert) without reviewing how line numbers are affected by insertions"
-          - "- DO NOT hardcode the model name or remove the model parameter; this parameter must remain configurable for testing different Claude models"
-          - "- DO NOT remove the dry-run early return; users depend on this to preview changes without file modification"
-          - "- ALWAYS preserve the print statements that provide user feedback; they are critical for monitoring long-running batch operations"
-          - "- ALWAYS pass the filepath as a string (str(filepath)) when calling generate_docstring, even though filepath is a Path object, if the API expects strings"
-          - "- ALWAYS maintain the force_context flag propagation to insert_docstring_at_line; this controls a critical feature for debugging"
-          - "- ALWAYS process functions in bottom-to-top order (verify extract_function_info returns them sorted by line number descending) to prevent line number invalidation"
-          - "- NOTE: This function modifies the source file in-place; ensure files are version-controlled or backed up before running in non-dry-run mode"
-          - "- NOTE: The Claude API call via generate_docstring may fail due to rate limits, authentication errors, or network issues; these are caught but users should monitor the printed error messages"
-          - "- NOTE: If a file has no functions or all functions already have docstrings, the function exits early without modifying anything; this is correct behavior but means repeated runs on the same file are safe"
-          - "-        functions = extract_function_info(filepath, require_agentspec=as_agentspec_yaml)"
-          - "-        print("  ✅ All functions already have verbose docstrings")"
-          - "-            doc_or_yaml = generate_docstring(code, str(filepath), model=model, as_agentspec_yaml=as_agentspec_yaml)"
-          - "- 2025-10-30: feat: robust docstring generation and Haiku defaults"
-          - "- Processes a single Python file to identify functions lacking verbose docstrings and generates comprehensive AI-consumable docstrings for them using Claude API"
-          - "- Extracts all function definitions from the target file using AST parsing, filters to those without existing verbose docstrings, and displays a summary of findings to the user"
-          - "- For each function needing a docstring, calls the Claude API via generate_docstring() to create AI-generated documentation, then inserts it into the source file at the correct line number using insert_docstring_at_line()"
-          - "- Supports dry-run mode (--dry-run flag) to preview which functions would be processed without modifying files"
-          - "- Supports force-context mode to inject print() statements alongside docstrings for debugging/tracing function execution"
-          - "- Handles SyntaxError exceptions gracefully when files contain invalid Python syntax, and catches any exception during individual docstring generation to continue processing remaining functions"
-          - "- Returns None in all cases (either after completion, early exit on syntax error, or early exit on dry-run)"
-          - "- Called by: CLI entry point in agentspec/main.py or equivalent script runner that parses command-line arguments and invokes this for each file"
-          - "- Calls: extract_function_info() [agentspec/extract.py] to parse file and identify functions, generate_docstring() [agentspec/generate.py or api module] to call Claude API, insert_docstring_at_line() [agentspec/insert.py] to modify source file"
-          - "- Imports used: Path from pathlib (for cross-platform file path handling)"
-          - "- External services: Anthropic Claude API (via generate_docstring wrapper) - requires valid API key in environment and network connectivity"
-          - "- Processes functions bottom-to-top (assumes extract_function_info already sorts results) to avoid line number shifting as insertions are made from end of file backward, preventing cascading line offset errors"
-          - "- Uses try-except around entire file extraction to catch SyntaxError early and fail gracefully rather than crashing, allowing batch processing of multiple files with some invalid"
-          - "- Uses nested try-except within the processing loop to isolate failures to individual functions, ensuring one broken function doesn't prevent docstring generation for remaining functions in the same file"
-          - "- Dry-run mode implemented as early return before any file modifications, allowing users to preview changes safely"
-          - "- Force-context flag passed through to insert_docstring_at_line rather than handled here, maintaining separation of concerns (this function orchestrates, insert_docstring_at_line handles file mutation details)"
-          - "- Model parameter exposed as argument (not hardcoded) to allow runtime selection of Claude models, supporting experimentation with different model versions"
-          - "- Print statements used for user feedback rather than logging module to ensure immediate console output during long processing operations"
-          - "- Alternative not used: streaming the Claude API response directly - would be more efficient but adds complexity; current approach waits for complete generation which is acceptable for docstring length"
-          - "- Alternative not used: parallel/concurrent processing of functions - sequential processing chosen for simplicity and to avoid rate-limit issues with Claude API"
-          - "- 2025-01-15: Initial implementation with support for dry-run mode, force-context flag, and Claude Sonnet model selection"
-          - "- DO NOT modify the exception handling structure without understanding the bottom-to-top processing dependency; removing the nested try-except risks one malformed function blocking the entire file"
-          - "- DO NOT change the order of operations (extract -> check -> generate -> insert) without reviewing how line numbers are affected by insertions"
-          - "- DO NOT hardcode the model name or remove the model parameter; this parameter must remain configurable for testing different Claude models"
-          - "- DO NOT remove the dry-run early return; users depend on this to preview changes without file modification"
-          - "- ALWAYS preserve the print statements that provide user feedback; they are critical for monitoring long-running batch operations"
-          - "- ALWAYS pass the filepath as a string (str(filepath)) when calling generate_docstring, even though filepath is a Path object, if the API expects strings"
-          - "- ALWAYS maintain the force_context flag propagation to insert_docstring_at_line; this controls a critical feature for debugging"
-          - "- ALWAYS process functions in bottom-to-top order (verify extract_function_info returns them sorted by line number descending) to prevent line number invalidation"
-          - "- NOTE: This function modifies the source file in-place; ensure files are version-controlled or backed up before running in non-dry-run mode"
-          - "- NOTE: The Claude API call via generate_docstring may fail due to rate limits, authentication errors, or network issues; these are caught but users should monitor the printed error messages"
-          - "- NOTE: If a file has no functions or all functions already have docstrings, the function exits early without modifying anything; this is correct behavior but means repeated runs on the same file are safe"
-          - "-    # Process bottom-to-top (already sorted that way)"
-          - "-            insert_docstring_at_line(filepath, lineno, name, doc_or_yaml, force_context=force_context)"
-          - "-            if force_context:"
-          - "-                print(f"  ✅ Added docstring + context print to {name}")"
-          - "-                print(f"  ✅ Added docstring to {name}")"
-          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
-          - "-    """Process a single file and generate docstrings.""""
-          - "-        functions = extract_function_info(filepath)"
-          - "-        print(f"\n  🤖 Generating docstring for {name}...")"
-          - "-            docstring = generate_docstring(code, str(filepath), model=model)"
-          - "-            insert_docstring_at_line(filepath, lineno, name, docstring, force_context=force_context)"
-          - "- 2025-10-29: CRITICAL FIX: Process functions bottom-to-top to prevent line number invalidation and syntax errors"
-          - "-    with open(filepath, 'r') as f:"
-          - "-        tree = ast.parse(f.read())"
-          - "-    finder = FunctionFinder()"
-          - "-    finder.visit(tree)"
-          - "-    if not finder.functions:"
-          - "-    print(f"  Found {len(finder.functions)} functions needing docstrings:")"
-          - "-    for lineno, name in finder.functions:"
-          - "-    for lineno, name in finder.functions:"
-          - "-            code, node = extract_function_code(filepath, lineno)"
-          - "-            insert_docstring(filepath, node, docstring, force_context=force_context)"
-          - "- 2025-10-29: Add --model flag to choose between Claude models (Sonnet/Haiku)"
-          - "-            docstring = generate_docstring(code, str(filepath))"
+    changelog:
+
+      - "2025-10-31: Clean up docstring formatting"
         ---/agentspec
     '''
     # Load .env and decide provider
@@ -1796,13 +1397,13 @@ def run(target: str, dry_run: bool = False, force_context: bool = False, model: 
         if not os.getenv('OPENAI_API_KEY') and not base_url:
             # Default to local Ollama if neither is provided
             base_url = 'http://localhost:11434/v1'
-    
+
     path = Path(target)
-    
+
     if not path.exists():
         print(f"❌ Error: Path does not exist: {target}")
         return 1
-    
+
     if dry_run:
         print("🔍 DRY RUN MODE - no files will be modified\n")
 
@@ -1820,7 +1421,7 @@ def run(target: str, dry_run: bool = False, force_context: bool = False, model: 
 
         print("\n✅ Done!")
         return 0
-    
+
     except Exception as e:
         print(f"\n❌ Fatal error: {e}")
         return 1
@@ -1843,7 +1444,7 @@ def main():
 
       Supported models: claude-haiku-4-5, claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022.
       Requires ANTHROPIC_API_KEY environment variable to be set before execution.
-        deps:
+    deps:
           calls:
             - argv.index
             - len
@@ -1884,51 +1485,9 @@ def main():
       - DO NOT validate model names here; invalid models will fail at API call time inside run()
       - DO NOT perform environment variable validation here; that occurs inside run()
 
-        changelog:
-          - "- 2025-10-30: feat: robust docstring generation and Haiku defaults"
-          - "- Parses command-line arguments to extract the target file/directory path, optional flags (--dry-run, --force-context), and model selection (--model)"
-          - "- Validates that at least one argument (the file/directory path) is provided; exits with status code 1 and displays usage information if validation fails"
-          - "-    - Extracts the model name from argv if --model flag is present, otherwise defaults to "claude-sonnet-4-20250514""
-          - "- Passes the parsed arguments to the run() function which performs the actual docstring generation logic"
-          - "- Exits the process with the exit code returned by run(), which indicates success (0) or various failure modes (non-zero)"
-          - "- The usage message explicitly documents all supported flags and model options for end-user reference"
-          - "- Called by: Python interpreter when generate.py is executed as __main__"
-          - "- Calls: run(path, dry_run, force_context, model) - the core execution function that handles file processing and API calls"
-          - "- Imports used: sys (for sys.argv, sys.exit()), and implicitly the run() function from the same module"
-          - "- External services: Indirectly depends on Anthropic API via run() function; requires ANTHROPIC_API_KEY environment variable to be set before execution"
-          - "- Simple manual argv parsing was chosen over argparse/click to keep the CLI minimal and reduce dependencies for a single-file script"
-          - "-    - The default model is set to claude-sonnet-4-20250514 (a recent, capable model) rather than an older baseline, optimizing for quality of generated docstrings"
-          - "- The --model flag allows flexibility for users to switch between different Claude models (haiku for speed/cost, sonnet for quality) without code changes"
-          - "- Usage is printed to stdout rather than using logging to ensure visibility even without log configuration"
-          - "- The early exit(1) on missing arguments follows Unix convention and prevents silent failures that could mask user errors"
-          - "- Boolean flags (--dry-run, --force-context) use simple string membership checks rather than a full parser for clarity and minimal overhead"
-          - "- Current implementation: Initial entry point design with support for three command-line flags and model selection via --model parameter"
-          - "- DO NOT change the argument parsing logic without updating the usage message to match"
-          - "- DO NOT remove the ANTHROPIC_API_KEY environment variable mention from usage text"
-          - "- DO NOT alter the default model without updating all documentation that references it"
-          - "- DO NOT add new required positional arguments without updating the len(sys.argv) < 2 check"
-          - "- ALWAYS preserve the sys.exit(1) behavior when arguments are invalid"
-          - "- ALWAYS pass all parsed arguments to run() in the correct order (path, dry_run, force_context, model)"
-          - "- ALWAYS ensure the usage message stays in sync with actual supported flags"
-          - "- ALWAYS validate model_index + 1 < len(sys.argv) before accessing argv to prevent IndexError"
-          - "- NOTE: This function is the CLI entry point and determines user experience; any changes to argument handling will affect all downstream users"
-          - "- NOTE: The model parameter is passed directly to the Anthropic API without validation; invalid model names will fail at API call time, not here"
-          - "- NOTE: No error handling exists for environment variable validation here; that occurs inside run()"
-          - "-    print(f"[AGENTSPEC_CONTEXT] main: Parses command-line arguments to extract the target file/directory path, optional flags (--dry-run, --force-context), and model selection (--model) | Validates that at least one argument (the file/directory path) is provided; exits with status code 1 and displays usage information if validation fails | Extracts the model name from argv if --model flag is present, otherwise defaults to \"claude-sonnet-4-20250514\"")"
-          - "-        print("  --model MODEL       Claude model to use (default: claude-sonnet-4-20250514)")"
-          - "-    model = "claude-sonnet-4-20250514""
-          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
-          - "-    """Standalone script entry point.""""
-          - "- 2025-10-29: CRITICAL FIX: Process functions bottom-to-top to prevent line number invalidation and syntax errors"
-          - "-        print("                      Options: claude-haiku-4-5-20250929, claude-sonnet-4-5-20250929")"
-          - "- 2025-10-29: Add --model flag to choose between Claude models (Sonnet/Haiku)"
-          - "-        print("Usage: python generate.py <file_or_dir> [--dry-run] [--force-context]")"
-          - "-        print("  --dry-run        Preview without modifying files")"
-          - "-        print("  --force-context  Add print() statements to force LLMs to load context")"
-          - "-    exit_code = run(path, dry_run, force_context)"
-          - "- 2025-10-29: Add --force-context flag to insert print() statements that force LLMs to load docstrings into context"
-          - "-        print("Usage: python generate.py <file_or_dir> [--dry-run]")"
-          - "-    exit_code = run(path, dry_run)"
+    changelog:
+
+      - "2025-10-31: Clean up docstring formatting"
         ---/agentspec
     '''
     if len(sys.argv) < 2:
@@ -1940,18 +1499,18 @@ def main():
         print("  --model MODEL       Claude model to use (default: claude-haiku-4-5)")
         print("                      Options: claude-haiku-4-5, claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022")
         sys.exit(1)
-    
+
     path = sys.argv[1]
     dry_run = '--dry-run' in sys.argv
     force_context = '--force-context' in sys.argv
-    
+
     # Parse model flag
     model = "claude-haiku-4-5"
     if '--model' in sys.argv:
         model_index = sys.argv.index('--model')
         if model_index + 1 < len(sys.argv):
             model = sys.argv[model_index + 1]
-    
+
     exit_code = run(path, dry_run, force_context, model)
     sys.exit(exit_code)
 

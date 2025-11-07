@@ -44,7 +44,7 @@ class AgentSpecLinter(ast.NodeVisitor):
           Edge cases:
           - No validation of filepath existence or readability occurs; invalid paths are accepted and will fail only when actual linting methods attempt file access
           - min_lines can be set to zero or negative values; validation of this parameter is deferred to downstream comparison logic
-            deps:
+        deps:
               imports:
                 - agentspec.utils.collect_python_files
                 - ast
@@ -73,7 +73,7 @@ class AgentSpecLinter(ast.NodeVisitor):
           - ALWAYS maintain (line_number, message) tuple ordering in errors and warnings lists; downstream code and external consumers depend on this consistent structure
           - DO NOT perform file existence checks or I/O operations in __init__; keep initialization pure and defer validation to linting methods
 
-            changelog:
+        changelog:
               - "- no git history available"
             ---/agentspec
         """
@@ -101,7 +101,7 @@ class AgentSpecLinter(ast.NodeVisitor):
           - Functions with no docstring will trigger validation failure via _check_docstring()
           - Decorated functions are processed identically to undecorated ones
           - Lambda functions are not visited by this method (they use visit_Lambda if implemented)
-            deps:
+        deps:
               calls:
                 - self._check_docstring
                 - self.generic_visit
@@ -131,7 +131,7 @@ class AgentSpecLinter(ast.NodeVisitor):
           - DO NOT assume all child nodes are functions; generic_visit handles all node types, including nested classes and other definitions
           - DO NOT catch or suppress exceptions from _check_docstring() unless explicitly designed to collect multiple errors; premature exception handling may hide validation failures
 
-            changelog:
+        changelog:
               - "- no git history available"
             ---/agentspec
         """
@@ -160,7 +160,7 @@ class AgentSpecLinter(ast.NodeVisitor):
           - Async functions without docstrings trigger validation errors
           - Nested async functions or inner definitions are validated recursively
           - Decorated async functions are still subject to docstring requirements
-            deps:
+        deps:
               calls:
                 - self._check_docstring
                 - self.generic_visit
@@ -187,7 +187,7 @@ class AgentSpecLinter(ast.NodeVisitor):
           - DO NOT call generic_visit() before _check_docstring(); parent validation must occur before child traversal to maintain logical ordering
           - DO NOT assume async functions are exempt from docstring requirements; they must meet the same standards as sync functions
 
-            changelog:
+        changelog:
               - "- no git history available"
             ---/agentspec
         """
@@ -217,7 +217,7 @@ class AgentSpecLinter(ast.NodeVisitor):
           - Child methods within the class are visited and validated by their own visit_FunctionDef handler
         what_else: |
           This method is part of an AST visitor pattern implementation that enforces documentation standards across a Python codebase. It integrates into a larger linting workflow that traverses entire module ASTs to validate docstring presence and format compliance.
-            deps:
+        deps:
               calls:
                 - self._check_docstring
                 - self.generic_visit
@@ -242,7 +242,7 @@ class AgentSpecLinter(ast.NodeVisitor):
           - DO NOT call _check_docstring() after generic_visit(); always validate the parent node before recursing into children to maintain proper error reporting order and context
           - DO NOT modify the method signature; it must accept exactly one parameter (node) to conform to the ast.NodeVisitor interface contract
 
-            changelog:
+        changelog:
               - "- no git history available"
             ---/agentspec
         """
@@ -386,7 +386,7 @@ class AgentSpecLinter(ast.NodeVisitor):
           This method provides direct access to internal state without filtering, sorting, or transformation.
           Line numbers are integers (0 if unavailable), and messages are string descriptions of the linting issue.
           The method returns references to the internal lists, not copies, making it a lightweight accessor.
-            deps:
+        deps:
               imports:
                 - agentspec.utils.collect_python_files
                 - ast
@@ -412,15 +412,9 @@ class AgentSpecLinter(ast.NodeVisitor):
           - ALWAYS return direct references to self.errors and self.warnings without copying
           - DO NOT modify the structure or content of error/warning tuples before returning
 
-            changelog:
-              - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
-              - "-    """Check a single Python file for compliance.""""
-              - "- 2025-10-29: Enhanced lint.py with YAML validation and verbose checks"
-              - "-        checker = AgentSpecLinter(str(filepath))"
-              - "-        return [(e.lineno or 0, f"Syntax error: {e}")]"
-              - "-        return [(0, f"Error parsing {filepath}: {e}")]"
-              - "-    """Main lint runner for CLI.""""
-              - "- 2025-10-29: Add agent spec linter for Python files"
+        changelog:
+
+          - "2025-10-31: Clean up docstring formatting"
             ---/agentspec
         '''
         return self.errors, self.warnings
@@ -452,7 +446,7 @@ def check_file(filepath: Path, min_lines: int = 10) -> Tuple[List[Tuple[int, str
       - SyntaxError: caught separately, preserves line number (or 0 if unavailable), returns as violation with "Syntax error:" prefix
       - All other exceptions: caught broadly, reported as line 0 error with "Error parsing {filepath}:" prefix, returns empty warnings list
       - Ensures function never raises; always returns valid tuple structure
-        deps:
+    deps:
           calls:
             - AgentSpecLinter
             - ast.parse
@@ -491,15 +485,9 @@ def check_file(filepath: Path, min_lines: int = 10) -> Tuple[List[Tuple[int, str
       - ALWAYS preserve str(filepath) conversion for Path object compatibility with AgentSpecLinter and error messages
       - DO NOT catch SyntaxError in the broad Exception handler; must preserve line number context from SyntaxError.lineno
 
-        changelog:
-          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
-          - "-    """Check a single Python file for compliance.""""
-          - "- 2025-10-29: Enhanced lint.py with YAML validation and verbose checks"
-          - "-        checker = AgentSpecLinter(str(filepath))"
-          - "-        return [(e.lineno or 0, f"Syntax error: {e}")]"
-          - "-        return [(0, f"Error parsing {filepath}: {e}")]"
-          - "-    """Main lint runner for CLI.""""
-          - "- 2025-10-29: Add agent spec linter for Python files"
+    changelog:
+
+      - "2025-10-31: Clean up docstring formatting"
         ---/agentspec
     '''
     try:
@@ -519,7 +507,7 @@ def run(target: str, min_lines: int = 10, strict: bool = False) -> int:
     ---agentspec
     what: |
       Executes batch linting validation on Python files within a target directory to verify agentspec block compliance. Collects all Python files from the target path (file or directory), invokes check_file on each to validate agentspec requirements, and aggregates error and warning counts. Returns exit code 0 on success (no errors, and either no warnings or strict mode disabled), or exit code 1 on failure (errors present, or warnings present in strict mode). Prints per-file diagnostics with line numbers and messages, followed by a summary line showing total files checked and issue counts. Edge case: empty directory returns 0 with zero files checked and no output per file.
-        deps:
+    deps:
           calls:
             - Path
             - check_file
@@ -547,20 +535,9 @@ def run(target: str, min_lines: int = 10, strict: bool = False) -> int:
       - DO NOT modify or filter files during linting; only validate and report, preserving immutability of the target codebase
       - DO NOT assume target path exists; rely on Path and collect_python_files to handle missing paths gracefully
 
-        changelog:
-          - "- 2025-10-29: feat: honor .gitignore and .venv; add agentspec YAML generation; fix quoting; lazy-load generate"
-          - "-    files = [path] if path.is_file() else list(path.rglob("*.py"))"
-          - "- 2025-10-29: Enhanced lint.py with YAML validation and verbose checks"
-          - "-        return [(0, f"Error parsing {filepath}: {e}")]"
-          - "-    """Main lint runner for CLI.""""
-          - "-        results = check_file(file)"
-          - "-        if results:"
-          - "-            for line, msg in results:"
-          - "-            total_errors += len(results)"
-          - "-    if total_errors == 0:"
-          - "-        print(f"\n❌ Found {total_errors} lint issues.")"
-          - "-        return 1"
-          - "- 2025-10-29: Add agent spec linter for Python files"
+    changelog:
+
+      - "2025-10-31: Clean up docstring formatting"
         ---/agentspec
     '''
     path = Path(target)
@@ -568,10 +545,10 @@ def run(target: str, min_lines: int = 10, strict: bool = False) -> int:
 
     total_errors = 0
     total_warnings = 0
-    
+
     for file in files:
         errors, warnings = check_file(file, min_lines=min_lines)
-        
+
         if errors or warnings:
             print(f"\n{file}:")
             for line, msg in errors:
