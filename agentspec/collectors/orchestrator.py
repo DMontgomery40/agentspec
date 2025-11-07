@@ -2,51 +2,6 @@
 """
 Collector orchestrator that runs all collectors in sequence.
 
----agentspec
-what: |
-  Coordinates execution of all metadata collectors and aggregates results.
-
-  **Responsibilities:**
-  - Register collectors
-  - Determine execution order (by priority)
-  - Run collectors in sequence
-  - Aggregate results into CollectedMetadata
-  - Handle collector failures gracefully
-  - Provide timing/logging information
-
-  **Flow:**
-  1. Register collectors (code analysis, git analysis, etc.)
-  2. Sort by priority (low number = high priority)
-  3. Run each collector's can_collect() check
-  4. Execute collect() for enabled collectors
-  5. Aggregate results by category
-  6. Return CollectedMetadata object
-
-why: |
-  Orchestrator pattern separates coordination from collection logic.
-  Each collector focuses on one task, orchestrator handles workflow.
-
-  Benefits:
-  - Easy to add/remove collectors
-  - Clear execution order
-  - Graceful degradation (one collector failure doesn't break all)
-  - Easy testing (mock individual collectors)
-
-guardrails:
-  - DO NOT run collectors in parallel without dependency analysis
-  - ALWAYS catch and log collector exceptions (don't fail entire pipeline)
-  - DO NOT enforce strict schemas (collectors return flexible dicts)
-  - ALWAYS respect can_collect() results (skip disabled collectors)
-
-deps:
-  imports:
-    - typing
-    - pathlib
-  calls:
-    - BaseCollector.can_collect
-    - BaseCollector.collect
-    - CollectedMetadata
----/agentspec
 """
 
 from __future__ import annotations
@@ -68,32 +23,7 @@ def find_repo_root(file_path: Path) -> Optional[Path]:
     Returns:
         Path to repository root (contains .git), or None if not in a git repo
 
-    ---agentspec
-    what: |
-      Walks up directory tree from file_path looking for .git folder.
-
-      Algorithm:
-      1. Start with file's parent directory
-      2. Check if .git exists in current directory
-      3. If yes, return current directory as repo root
-      4. If no, move up one level
-      5. Stop at filesystem root
-
-      Returns None if no .git folder found (file not in git repo).
-
-    why: |
-      Git collectors (blame, commit history) need accurate repo root to run
-      git commands correctly. Using file_path.parent is wrong for nested files.
-
-      Walking up tree is the standard way to find git repo root (same as git itself).
-
-    guardrails:
-      - ALWAYS check for .git directory (not file)
-      - DO NOT assume file is in repo (return None if not found)
-      - ALWAYS stop at filesystem root (prevent infinite loop)
-      - DO NOT follow symlinks (use resolve() carefully)
-    ---/agentspec
-    """
+        """
     # Start with the file's directory
     current = file_path if file_path.is_dir() else file_path.parent
 
@@ -116,47 +46,7 @@ class CollectorOrchestrator:
     """
     Orchestrates execution of all metadata collectors.
 
-    ---agentspec
-    what: |
-      Main coordinator for running collectors and aggregating results.
-
-      **Usage:**
-      ```python
-      orchestrator = CollectorOrchestrator()
-      orchestrator.register(SignatureCollector())
-      orchestrator.register(GitBlameCollector())
-
-      metadata = orchestrator.collect_all(
-          function_node=func_ast_node,
-          context={"file_path": Path("foo.py"), "repo_root": Path(".")}
-      )
-
-      print(metadata.code_analysis)  # Signature data
-      print(metadata.git_analysis)    # Blame data
-      ```
-
-      **Execution Order:**
-      1. Sort collectors by priority
-      2. Run can_collect() for each
-      3. Execute collect() for enabled collectors
-      4. Aggregate by category
-      5. Return CollectedMetadata
-
-    why: |
-      Centralized orchestration makes it easy to:
-      - Configure which collectors run
-      - Control execution order
-      - Handle failures gracefully
-      - Add timing/logging
-      - Test end-to-end collection
-
-    guardrails:
-      - DO NOT fail entire pipeline if one collector fails
-      - ALWAYS log collector errors (for debugging)
-      - DO NOT modify collector results (pass through as-is)
-      - ALWAYS return CollectedMetadata (even if all collectors fail)
-    ---/agentspec
-    """
+        """
 
     def __init__(self):
         """Initialize orchestrator with empty collector list."""

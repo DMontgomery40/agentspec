@@ -2,59 +2,6 @@
 """
 Python code parser using AST.
 
----agentspec
-what: |
-  Concrete implementation of BaseParser for Python source files.
-
-  **Parsing Strategy:**
-  - Uses Python's built-in `ast` module (no external dependencies)
-  - Extracts functions, classes, docstrings, imports
-  - Performs static dependency analysis (function calls)
-  - Handles both sync and async functions
-  - Supports decorators and type hints
-
-  **What It Extracts:**
-  - Function definitions (name, signature, body, docstring)
-  - Class definitions (name, methods, docstring)
-  - Top-level imports (for dependency tracking)
-  - Function calls within function bodies (static analysis)
-  - Decorators and type annotations
-  - Line numbers (for code updates)
-
-  **Limitations:**
-  - Static analysis only (no code execution)
-  - Can't detect dynamic calls (eval, exec, getattr)
-  - Chained attribute calls only capture immediate parent
-
-why: |
-  Python's AST module provides robust, zero-dependency parsing. It's the
-  standard tool for Python static analysis and metaprogramming.
-
-  Using AST instead of regex or string manipulation:
-  - Handles complex syntax correctly (nested functions, decorators, etc.)
-  - Provides structured access to all code elements
-  - Automatically handles Python syntax evolution (new keywords, etc.)
-
-  This implementation is extracted from existing collect.py and utils.py
-  logic, refactored for cleaner architecture.
-
-guardrails:
-  - DO NOT use regex for parsing Python (AST is the correct tool)
-  - ALWAYS use ast.unparse() for signature reconstruction (preserves types)
-  - DO NOT filter out private functions in parser (let caller decide)
-  - ALWAYS include line numbers (critical for code updates)
-
-deps:
-  imports:
-    - ast
-    - pathlib
-    - typing
-  calls:
-    - ast.parse
-    - ast.get_docstring
-    - ast.walk
-    - ast.unparse
----/agentspec
 """
 
 from __future__ import annotations
@@ -70,34 +17,7 @@ class PythonParser(BaseParser):
     """
     Python AST-based parser.
 
-    ---agentspec
-    what: |
-      Parses Python source files using the ast module to extract functions,
-      classes, docstrings, and dependencies.
-
-      **Key Methods:**
-      - parse_file(path) → ParsedModule: Parse entire Python file
-      - parse_function(code) → ParsedFunction: Parse single function
-      - can_parse(path) → bool: Check if file is Python
-
-      **Internal Helpers:**
-      - _extract_function_calls(node) → List[str]: Get all function calls in AST
-      - _extract_imports(tree) → List[str]: Get all top-level imports
-      - _parse_function_node(node) → ParsedFunction: Convert ast.FunctionDef to ParsedFunction
-
-      Handles both regular and async functions, methods, and decorated functions.
-
-    why: |
-      Modular helper methods (_extract_*) make code testable and reusable.
-      Separating concerns (call extraction vs import extraction vs function parsing)
-      improves maintainability.
-
-    guardrails:
-      - DO NOT modify _extract_function_calls logic without testing (subtle AST traversal)
-      - ALWAYS use ast.unparse() for signature (handles complex types correctly)
-      - DO NOT filter functions in parse_file (return all, let caller filter)
-    ---/agentspec
-    """
+        """
 
     @property
     def supported_extensions(self) -> List[str]:

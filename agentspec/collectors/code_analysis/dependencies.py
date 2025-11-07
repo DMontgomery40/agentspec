@@ -4,38 +4,6 @@ Dependency collector (extracts calls, called_by, imports).
 
 Uses existing logic from agentspec/collect.py.
 
----agentspec
-what: |
-  Extracts deterministic dependency information from function AST nodes:
-  - Function calls within the function body (best-effort static analysis)
-  - Top-level module imports (for context)
-
-  Integrates proven logic from agentspec/collect.py (_get_function_calls, _get_module_imports).
-
-  Uses AST walking to find all ast.Call nodes and extracts callable names.
-  Handles simple calls, method calls, and chained attributes.
-  Returns sorted, deduplicated lists for deterministic output.
-
-why: |
-  Deterministic dependency extraction reduces LLM hallucination in docstrings.
-  Static analysis provides facts without code execution.
-  Reusing proven collect.py logic ensures consistency with existing behavior.
-
-  Alternative considered: Writing new extraction logic
-  Rejected because: collect.py logic is battle-tested and already handles edge cases
-
-guardrails:
-  - DO NOT modify ast.walk() traversal logic; it visits all nodes correctly
-  - DO NOT remove isinstance() checks; they distinguish Name from Attribute nodes
-  - DO NOT change sorting behavior; output must remain deterministic
-  - ALWAYS handle case where file_path is not in context (return empty imports)
-  - ALWAYS filter empty strings from results
-
-deps:
-  calls: [ast.walk, ast.parse, isinstance, sorted]
-  called_by: [CollectorOrchestrator]
-  imports: [ast, pathlib.Path]
----/agentspec
 """
 
 from __future__ import annotations

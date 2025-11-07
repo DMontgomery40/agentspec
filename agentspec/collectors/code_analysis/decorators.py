@@ -2,48 +2,6 @@
 """
 Decorator collector (extracts all decorators applied to function).
 
----agentspec
-what: |
-  Extracts all decorators applied to a function.
-
-  **Collected Data:**
-  - Decorator names (simple and qualified)
-  - Decorator arguments (if any)
-  - Decorator call expressions
-
-  **Output Format:**
-  ```python
-  {
-      "decorators": [
-          {"name": "lru_cache", "args": ["maxsize=128"], "full": "@lru_cache(maxsize=128)"},
-          {"name": "property", "args": [], "full": "@property"},
-          {"name": "app.route", "args": ["'/api/users'"], "full": "@app.route('/api/users')"}
-      ]
-  }
-  ```
-
-why: |
-  Decorators affect function behavior significantly (caching, routes, etc).
-  Extracting them deterministically helps LLMs understand context.
-
-  Important patterns:
-  - @lru_cache → caching behavior
-  - @app.route → web endpoint
-  - @deprecated → function status
-  - @timing → performance monitoring
-
-guardrails:
-  - DO NOT skip complex decorators (preserve full expression)
-  - ALWAYS extract decorator arguments if present
-  - DO NOT modify decorator names
-
-deps:
-  imports:
-    - ast
-  calls:
-    - ast.unparse
-    - BaseCollector.collect
----/agentspec
 """
 
 from __future__ import annotations
@@ -58,25 +16,7 @@ class DecoratorCollector(BaseCollector):
     """
     Collects decorators from function definition.
 
-    ---agentspec
-    what: |
-      Extracts all decorators from function's decorator_list.
-
-      Handles:
-      - Simple decorators (@property)
-      - Decorators with args (@lru_cache(maxsize=128))
-      - Qualified decorators (@app.route('/'))
-      - Complex decorator expressions
-
-    why: |
-      Decorators provide critical context about function behavior.
-      Should be extracted deterministically, not guessed.
-
-    guardrails:
-      - DO NOT skip complex decorators
-      - ALWAYS preserve full decorator expression
-    ---/agentspec
-    """
+        """
 
     @property
     def category(self) -> str:

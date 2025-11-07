@@ -2,54 +2,6 @@
 """
 Function signature collector (args, returns, types, defaults).
 
----agentspec
-what: |
-  Extracts comprehensive function signature information from AST.
-
-  **Collected Data:**
-  - Parameter names (all positional, keyword, *args, **kwargs)
-  - Type hints for each parameter
-  - Default values
-  - Return type hint
-  - Whether function is async
-  - Whether function is a generator
-
-  **Output Format:**
-  ```python
-  {
-      "parameters": [
-          {"name": "x", "type": "int", "default": None, "kind": "positional"},
-          {"name": "y", "type": "str", "default": "'default'", "kind": "keyword"},
-          {"name": "args", "type": None, "default": None, "kind": "var_positional"},
-          {"name": "kwargs", "type": None, "default": None, "kind": "var_keyword"}
-      ],
-      "return_type": "bool",
-      "is_async": False,
-      "is_generator": False,
-      "has_type_hints": True
-  }
-  ```
-
-why: |
-  Signature analysis is deterministic and should NEVER be guessed by LLMs.
-  Extracting from AST ensures 100% accuracy and reduces hallucination.
-
-  This data feeds directly into Args: and Returns: sections of docstrings.
-
-guardrails:
-  - DO NOT use string parsing (AST is correct tool)
-  - ALWAYS preserve exact type hint strings (don't simplify)
-  - DO NOT skip parameters without type hints (list them anyway)
-  - ALWAYS handle *args/**kwargs correctly
-
-deps:
-  imports:
-    - ast
-    - typing
-  calls:
-    - ast.unparse
-    - BaseCollector.collect
----/agentspec
 """
 
 from __future__ import annotations
@@ -64,28 +16,7 @@ class SignatureCollector(BaseCollector):
     """
     Collects function signature metadata from AST.
 
-    ---agentspec
-    what: |
-      Extracts all function signature components using Python's AST module.
-
-      Handles:
-      - Regular parameters
-      - Keyword-only parameters
-      - Positional-only parameters (Python 3.8+)
-      - *args and **kwargs
-      - Type hints (including complex generics)
-      - Default values (preserves original form)
-
-    why: |
-      Signature data is 100% deterministic - no LLM should guess parameter
-      names or types. AST provides perfect accuracy.
-
-    guardrails:
-      - DO NOT modify parameter names (preserve exact spelling)
-      - ALWAYS use ast.unparse() for type hints (handles complex types)
-      - DO NOT skip untyped parameters (include them with type=None)
-    ---/agentspec
-    """
+        """
 
     @property
     def category(self) -> str:

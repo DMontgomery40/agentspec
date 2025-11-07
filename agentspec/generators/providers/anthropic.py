@@ -2,50 +2,6 @@
 """
 Anthropic (Claude) provider implementation.
 
----agentspec
-what: |
-  Concrete implementation of BaseProvider for Anthropic's Claude models.
-
-  **Features:**
-  - Supports all Claude models (Haiku, Sonnet, Opus)
-  - Uses Instructor for structured outputs
-  - Lazy client initialization (no import-time blocking)
-  - Automatic API key detection from environment
-
-  **Environment Variables:**
-  - ANTHROPIC_API_KEY: Required for authentication
-
-  **Supported Models:**
-  - claude-haiku-4-5 (default, fast, cheap)
-  - claude-3-5-sonnet-20241022 (balanced)
-  - claude-3-5-haiku-20241022 (faster)
-  - claude-sonnet-4-20250514 (most capable)
-
-why: |
-  Claude models excel at code understanding and generate high-quality docstrings.
-  Anthropic is the default provider because:
-  - Best code comprehension (especially for complex/uncommon patterns)
-  - Excellent instruction following (respects guardrails format)
-  - Strong reasoning about "why" questions (critical for Rationale section)
-
-  Instructor integration provides automatic Pydantic validation of LLM outputs,
-  eliminating manual JSON parsing and validation logic.
-
-guardrails:
-  - DO NOT modify API key env var name (breaks user configurations)
-  - DO NOT remove lazy import (makes anthropic optional dependency)
-  - ALWAYS use Instructor for structured outputs (don't parse JSON manually)
-  - DO NOT change message concatenation logic without testing (affects prompt semantics)
-
-deps:
-  imports:
-    - anthropic
-    - instructor
-    - os
-  calls:
-    - BaseProvider.__init__
-    - instructor.from_anthropic
----/agentspec
 """
 
 from __future__ import annotations
@@ -62,41 +18,7 @@ class AnthropicProvider(BaseProvider):
     """
     Anthropic Claude provider.
 
-    ---agentspec
-    what: |
-      Implements BaseProvider for Claude models using the Anthropic Python SDK
-      and Instructor for structured outputs.
-
-      **Initialization:**
-      - Lazy-loads anthropic and instructor libraries (optional dependencies)
-      - Reads ANTHROPIC_API_KEY from environment
-      - Creates Instructor-wrapped client on first use
-
-      **Message Handling:**
-      - Concatenates system and user messages with \\n\\n separator
-      - Sends as single user message (Claude's preferred format for this use case)
-      - Filters out assistant messages (one-way generation, not conversation)
-
-      **Structured Outputs:**
-      - Uses Instructor's `client.chat.completions.create()` with response_model
-      - Returns validated AgentSpec Pydantic model
-      - Automatic retries with exponential backoff (Instructor feature)
-
-    why: |
-      Message concatenation (vs multi-turn format) simplifies the interface for
-      single-shot docstring generation. Claude handles concatenated prompts well
-      and this avoids complex conversation state management.
-
-      Instructor provides automatic validation, retries, and error handling,
-      reducing boilerplate code and improving reliability.
-
-    guardrails:
-      - DO NOT change message concatenation separator from \\n\\n (semantic impact)
-      - DO NOT remove lazy import try/except (breaks optional dependency)
-      - ALWAYS preserve system message content (contains critical instructions)
-      - DO NOT modify Instructor client creation (specific API required)
-    ---/agentspec
-    """
+        """
 
     def __init__(self, config: GenerationConfig):
         """Initialize Anthropic provider with config."""

@@ -2,43 +2,6 @@
 """
 TSDoc formatter for TypeScript (Microsoft TSDoc standard).
 
----agentspec
-what: |
-  Formats AgentSpec objects as TSDoc comments for TypeScript.
-
-  TSDoc extends JSDoc with additional TypeScript-specific features.
-  Standardized by Microsoft, used in TypeScript compiler and VS Code.
-
-  **Example:**
-  ```typescript
-  /**
-   * Process user input and return validated data.
-   *
-   * @param inputData - Raw input from form
-   * @param strict - If true, raise on errors
-   * @returns Validated data object
-   *
-   * @remarks
-   * Using plain objects instead of interfaces here because we need
-   * to preserve unknown fields for audit logging.
-   */
-  ```
-
-why: |
-  TSDoc is the preferred format for TypeScript projects.
-  Better type integration than JSDoc for TypeScript code.
-
-guardrails:
-  - DO NOT use JSDoc-only tags (@typedef, @callback, etc.)
-  - ALWAYS use @remarks for extended descriptions (TSDoc convention)
-  - DO NOT duplicate type info (TypeScript has static types)
-
-deps:
-  imports:
-    - typing
-  calls:
-    - BaseFormatter.format
----/agentspec
 """
 
 from __future__ import annotations

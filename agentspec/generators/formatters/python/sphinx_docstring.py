@@ -2,59 +2,6 @@
 """
 Sphinx-style docstring formatter (reStructuredText).
 
----agentspec
-what: |
-  Formats AgentSpec objects as Sphinx-style reStructuredText docstrings.
-
-  **Sphinx Style Features:**
-  - Uses reStructuredText directives (:param:, :returns:, etc.)
-  - Integrates seamlessly with Sphinx documentation generator
-  - Supports cross-references and rich formatting
-  - Popular in larger Python projects (Django, Flask, Requests)
-
-  **Example Output:**
-  ```python
-  \"\"\"Process user input and return validated data.
-
-  Takes raw user input, validates format, sanitizes content,
-  and returns structured data ready for database insertion.
-
-  :param input_data: Raw input dictionary from form
-  :type input_data: dict
-  :param strict: If True, raise on validation errors
-  :type strict: bool
-  :returns: Validated and sanitized data dictionary
-  :rtype: dict
-  :raises ValueError: If input_data is malformed and strict=True
-
-  .. rubric:: Rationale
-
-  Using dict instead of Pydantic model here because we need
-  to preserve unknown fields for audit logging.
-
-  .. rubric:: Guardrails
-
-  - DO NOT remove sanitization step (XSS vulnerability)
-  - DO NOT make strict=True the default (breaks existing callers)
-  \"\"\"
-  ```
-
-why: |
-  Sphinx style integrates best with Sphinx documentation tools.
-  Preferred for projects that generate extensive API documentation.
-  Supports advanced features like cross-references.
-
-guardrails:
-  - DO NOT change directive names (:param:, :returns:, etc.)
-  - ALWAYS use .. rubric:: for custom sections
-  - ALWAYS include :type: after :param: (Sphinx convention)
-
-deps:
-  imports:
-    - typing
-  calls:
-    - BaseFormatter.format
----/agentspec
 """
 
 from __future__ import annotations

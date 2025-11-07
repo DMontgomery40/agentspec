@@ -2,40 +2,6 @@
 """
 Verbose prompt template for detailed docstring generation.
 
----agentspec
-what: |
-  Default prompt template that generates comprehensive, detailed docstrings.
-
-  **Characteristics:**
-  - Detailed explanations in all sections
-  - Multiple guardrails (minimum 3)
-  - Complete dependency tracking
-  - Full examples where appropriate
-  - Longer rationale sections (200+ chars)
-
-  Used by default for all generation unless --terse flag is provided.
-
-why: |
-  Verbose mode produces high-quality, comprehensive documentation that:
-  - Helps agents understand code deeply
-  - Prevents breaking changes (detailed guardrails)
-  - Provides context for future modifications
-  - Documents edge cases and design decisions
-
-  The extra token cost is justified by improved code safety and
-  reduced agent errors.
-
-guardrails:
-  - DO NOT reduce minimum requirements without team discussion
-  - ALWAYS emphasize guardrails importance (core value prop)
-  - DO NOT make prompts shorter to save tokens (defeats purpose)
-
-deps:
-  imports:
-    - typing
-  calls:
-    - BasePrompt.build_system_prompt
----/agentspec
 """
 
 from __future__ import annotations
@@ -49,26 +15,7 @@ class VerbosePrompt(BasePrompt):
     """
     Verbose prompt builder for detailed documentation.
 
-    ---agentspec
-    what: |
-      Generates prompts that instruct LLMs to create comprehensive docstrings.
-
-      Key instructions:
-      - Be thorough and detailed
-      - Explain WHY not just WHAT
-      - Include multiple specific guardrails
-      - Document all edge cases
-      - Provide complete examples
-
-    why: |
-      Default mode should produce highest quality output. Verbose prompts
-      result in better agent understanding and safer code modifications.
-
-    guardrails:
-      - DO NOT reduce verbosity to save tokens
-      - ALWAYS include minimum requirements (3+ guardrails, 200+ char rationale)
-    ---/agentspec
-    """
+        """
 
     def build_system_prompt(self, language: str = "python", style: str = "google") -> str:
         """Build comprehensive system prompt for verbose mode."""
@@ -157,30 +104,7 @@ Generate detailed, specific, actionable documentation that prevents AI agents fr
         """
         Build user prompt with code to document.
 
-        ---agentspec
-        what: |
-          Constructs the user-facing prompt with:
-          - Function identification (name, file, class)
-          - Source code
-          - Generation instructions
-
-          CRITICAL: Does NOT include deterministic metadata (dependencies, changelog, git history).
-          That data is collected separately and injected AFTER LLM generation.
-
-        why: |
-          Two-phase architecture:
-          1. LLM generates: summary, description, rationale, guardrails
-          2. Post-processor injects: dependencies, changelog, git data
-
-          Telling LLM about dependencies/changelog makes it MORE likely to hallucinate them.
-          Never mention deterministic data in prompts.
-
-        guardrails:
-          - DO NOT add metadata/dependencies/changelog to this prompt
-          - DO NOT tell LLM about deterministic data (even negatively)
-          - ALWAYS keep prompt focused on: what, why, guardrails only
-        ---/agentspec
-        """
+                """
 
         context = context or {}
         file_path = context.get("file_path", "unknown")

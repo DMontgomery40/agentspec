@@ -2,48 +2,6 @@
 """
 Base parser abstraction for code analysis.
 
----agentspec
-what: |
-  Abstract base class and data models for language-agnostic code parsing.
-
-  **Core Models:**
-  - ParsedFunction: Represents a parsed function/method with metadata
-  - ParsedModule: Represents a parsed file/module with all its functions
-  - BaseParser: Abstract interface all language parsers must implement
-
-  **What Parsers Extract:**
-  - Function/class names and signatures
-  - Existing docstrings (if any)
-  - Function bodies (for dependency analysis)
-  - Imports/dependencies
-  - Line numbers (for error reporting)
-  - Decorators (Python) / Annotations (TS)
-
-  Parsers are stateless and reusable - create once, call parse() many times.
-
-why: |
-  Abstracting parsing logic enables:
-  - Multi-language support (Python, JavaScript, TypeScript)
-  - Swappable parsing backends (ast vs tree-sitter)
-  - Consistent data model across all languages
-  - Easy testing (mock parser for unit tests)
-
-  Data classes (ParsedFunction, ParsedModule) provide type-safe intermediate
-  representation that decouples parsing from generation/formatting.
-
-guardrails:
-  - DO NOT add language-specific logic to base classes
-  - ALWAYS preserve original code in ParsedFunction (needed for diffs)
-  - DO NOT make existing_docstring required (many functions lack docstrings)
-  - ALWAYS include line numbers (critical for error reporting)
-
-deps:
-  imports:
-    - abc
-    - typing
-    - pydantic
-    - pathlib
----/agentspec
 """
 
 from __future__ import annotations
@@ -58,50 +16,7 @@ class ParsedFunction(BaseModel):
     """
     Represents a parsed function/method with metadata.
 
-    ---agentspec
-    what: |
-      Intermediate representation of a function extracted from source code.
-
-      **Core Fields:**
-      - name: Function name (e.g., "process_data")
-      - signature: Full signature (e.g., "def process_data(x: int) -> str:")
-      - body: Function body code (for dependency analysis)
-      - existing_docstring: Current docstring if present (None if missing)
-      - line_number: Starting line number in source file
-      - end_line_number: Ending line number in source file
-
-      **Metadata:**
-      - decorators: List of decorator names (Python) or annotations (TS)
-      - is_async: True if async function
-      - is_method: True if class method
-      - is_private: True if private (starts with _)
-      - parent_class: Class name if this is a method
-
-      **Dependencies:**
-      - calls: Functions this function calls
-      - imports: Modules this function imports/requires
-
-      Used by generators to understand function context and by formatters to
-      reconstruct code with new docstrings.
-
-    why: |
-      Structured representation enables:
-      - Language-agnostic processing (same model for Python/JS/TS)
-      - Easy metadata access (no re-parsing)
-      - Clear contracts between parser → generator → formatter
-
-      Including both original body and line numbers supports:
-      - Dependency analysis (parse calls from body)
-      - Error reporting (show line numbers in errors)
-      - Code reconstruction (insert docstring at correct line)
-
-    guardrails:
-      - DO NOT make existing_docstring required (many functions lack docstrings)
-      - ALWAYS preserve original body text (needed for diffs)
-      - DO NOT modify body during parsing (keep it exactly as source)
-      - ALWAYS include line_number and end_line_number (critical for updates)
-    ---/agentspec
-    """
+        """
     # Core identification
     name: str = Field(
         description="Function/method name"
@@ -179,33 +94,7 @@ class ParsedModule(BaseModel):
     """
     Represents a parsed module/file with all its functions.
 
-    ---agentspec
-    what: |
-      Intermediate representation of an entire source file.
-
-      **Contents:**
-      - file_path: Path to source file
-      - language: Programming language (python, javascript, typescript)
-      - functions: List of ParsedFunction objects
-      - classes: List of class names defined in module
-      - module_docstring: Module-level docstring if present
-      - imports: Top-level imports
-
-      Used by generators to process all functions in a file and by
-      extractors to export documentation for entire modules.
-
-    why: |
-      Module-level representation enables:
-      - Batch processing (generate docstrings for all functions)
-      - Dependency tracking (see all imports and calls)
-      - Complete file reconstruction (preserve structure)
-
-    guardrails:
-      - ALWAYS include file_path (needed for error reporting)
-      - DO NOT filter out private functions (user decides what to document)
-      - ALWAYS preserve import order (semantic in some cases)
-    ---/agentspec
-    """
+        """
     file_path: Path = Field(
         description="Path to source file"
     )
@@ -244,35 +133,7 @@ class BaseParser(ABC):
     """
     Abstract base class for language parsers.
 
-    ---agentspec
-    what: |
-      Defines the interface all language parsers must implement.
-
-      **Required Methods:**
-      - parse_file(file_path) → ParsedModule: Parse entire file
-      - parse_function(code) → ParsedFunction: Parse single function
-      - can_parse(file_path) → bool: Check if parser supports this file
-
-      **Lifecycle:**
-      1. Create parser instance (stateless, reusable)
-      2. Call can_parse() to check compatibility
-      3. Call parse_file() to extract all functions
-      4. Access ParsedModule.functions for processing
-
-      Parsers should be stateless and thread-safe where possible.
-
-    why: |
-      ABC ensures consistent interface across all language parsers,
-      enabling polymorphic usage (same code works with Python/JS/TS parsers).
-
-      Stateless design allows reuse and parallel processing.
-
-    guardrails:
-      - DO NOT maintain state between parse calls (parsers should be stateless)
-      - ALWAYS raise descriptive exceptions on parse failures
-      - DO NOT swallow syntax errors (let them propagate)
-    ---/agentspec
-    """
+        """
 
     @abstractmethod
     def parse_file(self, file_path: Path) -> ParsedModule:

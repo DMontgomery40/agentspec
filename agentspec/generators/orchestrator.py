@@ -2,55 +2,6 @@
 """
 Orchestrator for coordinating the entire generation pipeline.
 
----agentspec
-what: |
-  Main coordinator class that ties together parsing, generation, and formatting.
-
-  **Pipeline:**
-  1. Parse source code (PythonParser)
-  2. Select prompt builder (VerbosePrompt or TersePrompt)
-  3. Build prompts for LLM
-  4. Call LLM provider (Anthropic, OpenAI, Local)
-  5. Get structured AgentSpec back (via Instructor)
-  6. Format as docstring (GoogleFormatter, NumpyFormatter, etc.)
-  7. Return formatted docstring
-
-  **Responsibilities:**
-  - Language detection (from file extension)
-  - Parser selection (Python, JS, TS)
-  - Provider selection (based on config)
-  - Formatter selection (based on style config)
-  - Prompt selection (verbose vs terse)
-  - Error handling and retries
-  - Result aggregation
-
-why: |
-  Orchestrator pattern separates coordination logic from implementation details.
-  Each component (parser, provider, formatter) can be tested independently, then
-  orchestrator wires them together.
-
-  This enables:
-  - Swappable components (try different formatters without changing generation)
-  - Easy testing (mock individual components)
-  - Clear separation of concerns
-  - Configuration-driven behavior (swap providers via config, not code)
-
-guardrails:
-  - DO NOT put parsing/formatting logic in orchestrator (delegate to components)
-  - ALWAYS validate config before starting generation
-  - DO NOT swallow exceptions (propagate with context)
-  - ALWAYS use dependency injection (pass components to constructor)
-
-deps:
-  imports:
-    - pathlib
-    - typing
-  calls:
-    - PythonParser
-    - AnthropicProvider / OpenAIProvider / LocalProvider
-    - GoogleFormatter / NumpyFormatter / SphinxFormatter
-    - VerbosePrompt / TersePrompt
----/agentspec
 """
 
 from __future__ import annotations
@@ -109,39 +60,7 @@ class Orchestrator:
     """
     Main orchestrator for docstring generation pipeline.
 
-    ---agentspec
-    what: |
-      Coordinates the entire generation flow from source code to formatted docstring.
-
-      **Initialization:**
-      - Takes GenerationConfig
-      - Initializes parser, provider, formatter, prompt builder based on config
-      - Validates all components are configured correctly
-
-      **Main Method:**
-      - generate_docstring(code, function_name, context) → GenerationResult
-      - Runs full pipeline and returns result object
-
-      **Component Selection:**
-      - Provider: auto-detect from model name, or use explicit config
-      - Formatter: based on style config (google/numpy/sphinx)
-      - Prompt: based on terse flag (verbose by default)
-      - Parser: based on language (currently only Python)
-
-    why: |
-      Centralized orchestration makes it easy to:
-      - Configure entire pipeline from one config object
-      - Test end-to-end flow with real components
-      - Swap implementations without changing calling code
-      - Add new languages/styles/providers incrementally
-
-    guardrails:
-      - DO NOT initialize components in method calls (do it in __init__)
-      - ALWAYS validate config in __init__ (fail fast)
-      - DO NOT modify config during generation (read-only)
-      - ALWAYS use dependency injection (testability)
-    ---/agentspec
-    """
+        """
 
     def __init__(self, config: GenerationConfig):
         """
@@ -279,35 +198,7 @@ class Orchestrator:
         Returns:
             Language identifier (python, javascript, typescript, etc.)
 
-        ---agentspec
-        what: |
-          Maps file extensions to language identifiers for:
-          - Parser selection
-          - Prompt customization
-          - Formatter selection
-
-          Supported extensions:
-          - .py, .pyw → python
-          - .js, .jsx, .mjs, .cjs → javascript
-          - .ts, .tsx → typescript
-
-          Defaults to "python" for unknown extensions (backwards compatibility).
-
-        why: |
-          Language detection is required because:
-          - Different languages have different parsers (PythonParser vs JSParser)
-          - Prompts need language-specific instructions
-          - Formatters produce different output (docstrings vs JSDoc)
-
-          File extension is the most reliable signal (faster than parsing).
-
-        guardrails:
-          - ALWAYS use suffix (not full path) for detection
-          - DO NOT fail on unknown extensions (default to python)
-          - ALWAYS lowercase extension for comparison
-          - DO NOT parse file content (too slow for detection)
-        ---/agentspec
-        """
+                """
         suffix = file_path.suffix.lower()
 
         language_map = {

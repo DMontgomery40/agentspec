@@ -2,34 +2,6 @@
 """
 Base prompt abstraction for LLM generation.
 
----agentspec
-what: |
-  Abstract base class for prompt templates and builders.
-
-  **Core Interface:**
-  - build_system_prompt() → str: System-level instructions
-  - build_user_prompt(code, context) → str: User prompt with code
-  - get_examples() → List[str]: Few-shot examples (optional)
-
-  Prompt builders are stateless and reusable.
-
-why: |
-  Separating prompts from generation logic enables:
-  - A/B testing different prompt strategies
-  - Easy updates to prompts without code changes
-  - Language-specific prompt variations
-  - Terse vs verbose modes
-
-guardrails:
-  - DO NOT hardcode prompts in providers (use prompt builders)
-  - ALWAYS include instruction about PEP 257/JSDoc compliance
-  - ALWAYS emphasize Rationale and Guardrails sections (core value)
-
-deps:
-  imports:
-    - abc
-    - typing
----/agentspec
 """
 
 from __future__ import annotations
@@ -42,27 +14,7 @@ class BasePrompt(ABC):
     """
     Abstract base class for prompt builders.
 
-    ---agentspec
-    what: |
-      Defines the interface for building LLM prompts.
-
-      Prompts are split into:
-      - System prompt: Overall instructions and guidelines
-      - User prompt: Specific code to document
-
-      This separation enables better prompt engineering and clearer
-      separation of concerns.
-
-    why: |
-      ABC ensures consistent prompt interface across all modes.
-      Enables polymorphic usage (verbose/terse/custom prompts).
-
-    guardrails:
-      - DO NOT put code in system prompt (only instructions)
-      - ALWAYS include format specification (Google/NumPy/etc.)
-      - DO NOT make prompts language-specific in base class
-    ---/agentspec
-    """
+        """
 
     @abstractmethod
     def build_system_prompt(self, language: str = "python", style: str = "google") -> str:

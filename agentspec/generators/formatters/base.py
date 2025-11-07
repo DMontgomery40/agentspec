@@ -2,49 +2,6 @@
 """
 Base formatter abstraction for docstring generation.
 
----agentspec
-what: |
-  Abstract base class defining the interface all docstring formatters must implement.
-
-  **Core Interface:**
-  - format(spec) → str: Convert AgentSpec to formatted docstring
-  - format_section(name, content) → str: Format individual section
-  - validate_output(docstring) → bool: Check output is valid
-
-  **What Formatters Do:**
-  - Convert structured AgentSpec (Pydantic model) to text docstring
-  - Apply style-specific formatting (Google vs NumPy vs Sphinx vs JSDoc)
-  - Ensure output is PEP 257 compliant (Python) or JSDoc compliant (JS/TS)
-  - Handle custom sections (Rationale, Guardrails, Dependencies)
-  - Wrap text to appropriate line length (79 chars for Python)
-
-  Formatters are stateless and reusable - create once, call format() many times.
-
-why: |
-  Abstracting formatting logic enables:
-  - Multiple output styles from same AgentSpec
-  - Consistent formatting rules across all generators
-  - Easy testing (mock formatter for unit tests)
-  - User choice (pick preferred style)
-
-  Separating formatting from generation (LLM logic) improves:
-  - Testability (can test formatting without LLM calls)
-  - Maintainability (formatting rules in one place)
-  - Extensibility (new styles just implement this interface)
-
-guardrails:
-  - DO NOT add style-specific logic to base class
-  - ALWAYS ensure output is PEP 257/JSDoc compliant
-  - DO NOT modify AgentSpec in formatters (read-only)
-  - ALWAYS handle missing optional fields gracefully
-
-deps:
-  imports:
-    - abc
-    - typing
-  calls:
-    - AgentSpec (from models)
----/agentspec
 """
 
 from __future__ import annotations
@@ -59,36 +16,7 @@ class BaseFormatter(ABC):
     """
     Abstract base class for docstring formatters.
 
-    ---agentspec
-    what: |
-      Defines the contract all docstring formatters must implement.
-
-      **Required Methods:**
-      - format(spec) → str: Main formatting method
-      - format_section(name, content) → str: Format individual section
-      - validate_output(docstring) → bool: Validate output
-
-      **Optional Overrides:**
-      - wrap_text(text, width) → str: Text wrapping logic
-      - indent(text, spaces) → str: Indentation logic
-
-      Formatters should:
-      - Be stateless (no instance state between format() calls)
-      - Handle missing optional fields gracefully
-      - Produce PEP 257 or JSDoc compliant output
-      - Wrap text to appropriate line length
-
-    why: |
-      ABC ensures all formatters implement consistent interface.
-      Polymorphic usage enables swapping formatters without code changes.
-
-    guardrails:
-      - DO NOT maintain state between format() calls
-      - ALWAYS validate AgentSpec before formatting
-      - DO NOT modify input AgentSpec (read-only)
-      - ALWAYS produce spec-compliant output
-    ---/agentspec
-    """
+        """
 
     @abstractmethod
     def format(self, spec: AgentSpec) -> str:

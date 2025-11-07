@@ -2,69 +2,6 @@
 """
 NumPy-style docstring formatter (PEP 257 compliant).
 
----agentspec
-what: |
-  Formats AgentSpec objects as NumPy-style Python docstrings.
-
-  **NumPy Style Features:**
-  - One-line summary followed by blank line
-  - Extended description (optional)
-  - Sections with underlined headers (----)
-  - Structured parameter lists
-  - Widely used in scientific Python (NumPy, SciPy, pandas)
-
-  **Example Output:**
-  ```python
-  \"\"\"Process user input and return validated data.
-
-  Takes raw user input, validates format, sanitizes content,
-  and returns structured data ready for database insertion.
-
-  Parameters
-  ----------
-  input_data : dict
-      Raw input dictionary from form
-  strict : bool, optional
-      If True, raise on validation errors (default: False)
-
-  Returns
-  -------
-  dict
-      Validated and sanitized data dictionary
-
-  Raises
-  ------
-  ValueError
-      If input_data is malformed and strict=True
-
-  Rationale
-  ---------
-  Using dict instead of Pydantic model here because we need
-  to preserve unknown fields for audit logging.
-
-  Guardrails
-  ----------
-  - DO NOT remove sanitization step (XSS vulnerability)
-  - DO NOT make strict=True the default (breaks existing callers)
-  \"\"\"
-  ```
-
-why: |
-  NumPy style is the standard for scientific Python libraries.
-  Preferred by NumPy, SciPy, pandas, scikit-learn, and many others.
-  Excellent for functions with complex type signatures.
-
-guardrails:
-  - DO NOT change section header underlines (---- pattern)
-  - ALWAYS use Parameters instead of Args (NumPy convention)
-  - ALWAYS include type annotations in parameter lists
-
-deps:
-  imports:
-    - typing
-  calls:
-    - BaseFormatter.format
----/agentspec
 """
 
 from __future__ import annotations

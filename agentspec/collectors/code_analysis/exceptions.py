@@ -2,46 +2,6 @@
 """
 Exception collector (scans for `raise` statements).
 
----agentspec
-what: |
-  Scans function body for all raised exceptions.
-
-  **Collected Data:**
-  - Exception types (ValueError, TypeError, etc.)
-  - Exception messages (if literal strings)
-  - Conditional raises (in if/else blocks)
-  - Re-raised exceptions (bare `raise`)
-
-  **Output Format:**
-  ```python
-  {
-      "exceptions": [
-          {"type": "ValueError", "message": "Invalid input", "conditional": True},
-          {"type": "TypeError", "message": None, "conditional": False},
-          {"type": None, "message": None, "conditional": False}  # bare raise
-      ]
-  }
-  ```
-
-why: |
-  Exceptions are deterministic facts that should never be guessed.
-  Scanning AST for `raise` statements ensures 100% accuracy.
-
-  This data feeds directly into Raises: section of docstrings.
-
-guardrails:
-  - DO NOT assume exception messages (only extract if literal string)
-  - ALWAYS include exception type if present
-  - DO NOT skip bare `raise` statements
-  - ALWAYS scan entire function body (including nested blocks)
-
-deps:
-  imports:
-    - ast
-  calls:
-    - ast.walk
-    - BaseCollector.collect
----/agentspec
 """
 
 from __future__ import annotations
@@ -56,25 +16,7 @@ class ExceptionCollector(BaseCollector):
     """
     Collects raised exceptions from function body.
 
-    ---agentspec
-    what: |
-      Walks AST to find all `raise` statements in function body.
-
-      Extracts:
-      - Exception class name
-      - Exception message (if literal string)
-      - Whether raise is conditional (in if/try block)
-
-    why: |
-      Raises: section should be deterministic, not guessed by LLM.
-      AST walking provides perfect accuracy.
-
-    guardrails:
-      - DO NOT modify exception names
-      - ALWAYS handle bare `raise` (type=None)
-      - DO NOT skip exception messages (include if available)
-    ---/agentspec
-    """
+        """
 
     @property
     def category(self) -> str:

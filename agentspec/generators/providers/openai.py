@@ -2,51 +2,6 @@
 """
 OpenAI and OpenAI-compatible provider implementation.
 
----agentspec
-what: |
-  Concrete implementation of BaseProvider for OpenAI and OpenAI-compatible APIs.
-
-  **Supports:**
-  - OpenAI cloud (GPT-4, GPT-5, etc.)
-  - Ollama (local models like llama3.2, mistral, etc.)
-  - Any OpenAI-compatible API (LMStudio, LocalAI, etc.)
-
-  **Environment Variables:**
-  - OPENAI_API_KEY: API key (optional for local services)
-  - AGENTSPEC_OPENAI_API_KEY: Alternative API key env var
-  - OPENAI_BASE_URL: Base URL for API (default: https://api.openai.com/v1)
-  - AGENTSPEC_OPENAI_BASE_URL: Alternative base URL env var
-  - OLLAMA_BASE_URL: Ollama-specific base URL
-
-  **Priority Chain:**
-  - API key: CLI arg > OPENAI_API_KEY > AGENTSPEC_OPENAI_API_KEY > "not-needed"
-  - Base URL: CLI arg > OPENAI_BASE_URL > AGENTSPEC_OPENAI_BASE_URL > OLLAMA_BASE_URL > default
-
-why: |
-  OpenAI-compatible API standard enables local-first workflows (Ollama) and
-  multi-provider support (OpenAI, Azure, custom deployments) without code changes.
-
-  Fallback to "not-needed" API key supports local services (Ollama, LMStudio)
-  that don't require authentication.
-
-  Instructor provides unified interface for structured outputs across all
-  OpenAI-compatible providers.
-
-guardrails:
-  - DO NOT remove "not-needed" API key fallback (breaks Ollama)
-  - DO NOT change environment variable priority chain (breaks user configs)
-  - DO NOT remove chat completions fallback (not all providers support responses API)
-  - ALWAYS preserve message role structure (system/user/assistant)
-
-deps:
-  imports:
-    - openai
-    - instructor
-    - os
-  calls:
-    - BaseProvider.__init__
-    - instructor.from_openai
----/agentspec
 """
 
 from __future__ import annotations
@@ -63,45 +18,7 @@ class OpenAIProvider(BaseProvider):
     """
     OpenAI and OpenAI-compatible provider.
 
-    ---agentspec
-    what: |
-      Implements BaseProvider for OpenAI and any OpenAI-compatible API.
-
-      **Initialization:**
-      - Lazy-loads openai and instructor libraries
-      - Resolves API key and base URL from environment or config
-      - Creates Instructor-wrapped client on first use
-
-      **Message Handling:**
-      - Preserves system/user/assistant role structure (OpenAI format)
-      - Normalizes unknown roles to 'user'
-      - No message concatenation (unlike Anthropic provider)
-
-      **Structured Outputs:**
-      - Uses Instructor's `client.chat.completions.create()` with response_model
-      - Automatic JSON schema generation from Pydantic models
-      - Built-in retry logic with exponential backoff
-
-      **Fallback Logic:**
-      - API key: Try multiple env vars, fallback to "not-needed" for local services
-      - Base URL: Try multiple env vars, fallback to OpenAI default
-
-    why: |
-      Preserving OpenAI message format (vs Anthropic's concatenation) enables
-      proper multi-turn conversations if needed in future. More flexibility.
-
-      Environment variable fallback chain supports diverse deployment scenarios:
-      - Cloud: OPENAI_API_KEY + default base URL
-      - Ollama: OLLAMA_BASE_URL + "not-needed" API key
-      - Custom: AGENTSPEC_OPENAI_BASE_URL + AGENTSPEC_OPENAI_API_KEY
-
-    guardrails:
-      - DO NOT remove environment variable fallbacks (breaks deployments)
-      - DO NOT change message format (breaks OpenAI API compliance)
-      - ALWAYS validate roles are system/user/assistant
-      - DO NOT remove lazy import (breaks optional dependency)
-    ---/agentspec
-    """
+        """
 
     def __init__(self, config: GenerationConfig):
         """Initialize OpenAI provider with config."""

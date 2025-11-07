@@ -2,39 +2,6 @@
 """
 Terse prompt template for concise docstring generation.
 
----agentspec
-what: |
-  Prompt template for generating concise, focused docstrings.
-
-  **Characteristics:**
-  - Shorter descriptions (focus on essentials)
-  - Minimum 2 guardrails (vs 3+ in verbose)
-  - Shorter rationale (100+ chars vs 200+)
-  - No unnecessary examples
-  - max_tokens=500 (vs 2000 in verbose)
-
-  Used when --terse flag is provided or context window is limited.
-
-why: |
-  Terse mode serves specific use cases:
-  - Limited context windows (fitting more functions)
-  - Simple/obvious functions (don't need lengthy explanations)
-  - Quick iteration (faster LLM responses)
-  - Cost optimization (fewer tokens)
-
-  Still includes core safety features (Rationale, Guardrails) but more concise.
-
-guardrails:
-  - DO NOT eliminate Rationale or Guardrails (required even in terse mode)
-  - DO NOT reduce to placeholder text (defeats purpose)
-  - ALWAYS maintain minimum quality bar (2 guardrails, 100 char rationale)
-
-deps:
-  imports:
-    - typing
-  calls:
-    - BasePrompt.build_system_prompt
----/agentspec
 """
 
 from __future__ import annotations
@@ -48,27 +15,7 @@ class TersePrompt(BasePrompt):
     """
     Terse prompt builder for concise documentation.
 
-    ---agentspec
-    what: |
-      Generates prompts that instruct LLMs to create focused, concise docstrings.
-
-      Key instructions:
-      - Be concise but complete
-      - Focus on critical information
-      - Minimum 2 guardrails (not 3+)
-      - Shorter rationale (but still present)
-      - Skip verbose examples
-
-    why: |
-      Some situations benefit from concise docs (simple functions,
-      context window limits, cost optimization). Terse mode provides
-      core safety while reducing verbosity.
-
-    guardrails:
-      - DO NOT skip required sections (Rationale, Guardrails still mandatory)
-      - ALWAYS maintain minimum quality (no placeholders)
-    ---/agentspec
-    """
+        """
 
     def build_system_prompt(self, language: str = "python", style: str = "google") -> str:
         """Build concise system prompt for terse mode."""
@@ -133,26 +80,7 @@ Generate focused, concise documentation that captures critical safety informatio
         """
         Build concise user prompt.
 
-        ---agentspec
-        what: |
-          Constructs terse user prompt with essential information only:
-          - Function identification
-          - Source code
-          - Generation instructions
-
-          CRITICAL: Does NOT include deterministic metadata.
-          Metadata is collected separately and injected after LLM generation.
-
-        why: |
-          Terse mode optimizes for token efficiency.
-          Two-phase architecture: LLM generates content, post-processor injects metadata.
-
-        guardrails:
-          - DO NOT add metadata/dependencies/changelog to this prompt
-          - DO NOT tell LLM about deterministic data
-          - ALWAYS keep prompt concise and focused
-        ---/agentspec
-        """
+                """
 
         context = context or {}
         file_path = context.get("file_path", "unknown")

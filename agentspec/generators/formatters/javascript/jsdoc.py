@@ -2,54 +2,6 @@
 """
 JSDoc formatter for JavaScript (JSDoc 3 compliant).
 
----agentspec
-what: |
-  Formats AgentSpec objects as JSDoc comments for JavaScript.
-
-  **JSDoc Features:**
-  - Block comments with /** */
-  - Tags like @param, @returns, @throws
-  - Type annotations in {curly braces}
-  - Widely supported by IDEs and documentation tools
-
-  **Example Output:**
-  ```javascript
-  /**
-   * Process user input and return validated data.
-   *
-   * Takes raw user input, validates format, sanitizes content,
-   * and returns structured data ready for database insertion.
-   *
-   * @param {Object} inputData - Raw input dictionary from form
-   * @param {boolean} [strict=false] - If true, raise on validation errors
-   * @returns {Object} Validated and sanitized data dictionary
-   * @throws {Error} If inputData is malformed and strict=true
-   *
-   * Rationale:
-   * Using plain objects instead of classes here because we need
-   * to preserve unknown fields for audit logging.
-   *
-   * Guardrails:
-   * - DO NOT remove sanitization step (XSS vulnerability)
-   * - DO NOT make strict=true the default (breaks existing callers)
-   */
-  ```
-
-why: |
-  JSDoc is the standard documentation format for JavaScript.
-  This formatter enables agentspec to work with JS/TS codebases.
-
-guardrails:
-  - DO NOT use Python-style triple quotes (use /** */ for JS)
-  - ALWAYS include @param for each parameter
-  - ALWAYS use {TypeName} syntax for types
-
-deps:
-  imports:
-    - typing
-  calls:
-    - BaseFormatter.format
----/agentspec
 """
 
 from __future__ import annotations
